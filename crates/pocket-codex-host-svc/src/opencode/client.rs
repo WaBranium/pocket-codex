@@ -1,4 +1,8 @@
-use std::{collections::BTreeMap, fmt, time::Duration};
+use std::{
+    collections::{BTreeMap, HashMap},
+    fmt,
+    time::Duration,
+};
 
 use reqwest::{Client, Method};
 use serde::de::DeserializeOwned;
@@ -483,7 +487,11 @@ impl OpenCodeClient {
         Ok(super::sse::stream(response, self.clone()))
     }
 
-    pub(super) async fn event_allowed(&self, event: &super::OpenCodeEvent) -> Result<bool> {
+    pub(super) async fn event_allowed(
+        &self,
+        event: &super::OpenCodeEvent,
+        scope_cache: &mut HashMap<String, bool>,
+    ) -> Result<bool> {
         if matches!(
             event.kind.as_str(),
             "server.connected" | "server.heartbeat" | "server.instance.disposed"
@@ -494,14 +502,23 @@ impl OpenCodeClient {
         {
             let session: Session = serde_json::from_value(event.properties["info"].clone())
                 .map_err(|_| Error::Protocol)?;
-            return Ok(self.in_scope(&session));
+            let allowed = self.in_scope(&session);
+            cache_session_scope(scope_cache, &session.id, allowed);
+            return Ok(allowed);
         }
         let id = event.properties["sessionID"]
             .as_str()
             .or_else(|| event.properties["info"]["sessionID"].as_str())
             .or_else(|| event.properties["part"]["sessionID"].as_str());
         match id {
-            Some(id) => self.session_allowed(id).await,
+            Some(id) => {
+                if let Some(allowed) = scope_cache.get(id) {
+                    return Ok(*allowed);
+                }
+                let allowed = self.session_allowed(id).await?;
+                cache_session_scope(scope_cache, id, allowed);
+                Ok(allowed)
+            },
             None => Ok(false),
         }
     }
@@ -597,6 +614,15 @@ impl OpenCodeClient {
         }
         Ok(request)
     }
+}
+
+const MAX_EVENT_SCOPE_CACHE: usize = 256;
+
+fn cache_session_scope(scope_cache: &mut HashMap<String, bool>, id: &str, allowed: bool) {
+    if scope_cache.len() >= MAX_EVENT_SCOPE_CACHE && !scope_cache.contains_key(id) {
+        scope_cache.clear();
+    }
+    scope_cache.insert(id.to_owned(), allowed);
 }
 
 fn validate_id(id: &str) -> Result<()> {

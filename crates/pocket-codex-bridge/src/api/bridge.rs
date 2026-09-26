@@ -1012,29 +1012,38 @@ pub fn opencode_events(connection_id: String, sink: StreamSink<OpenCodeSnapshotD
         let Ok(mut events) = controller.events().await else {
             return;
         };
-        use futures::StreamExt;
-        while let Some(event) = events.next().await {
-            if event.is_err() {
-                return;
-            }
-            let Some(session_id) = controller.selected_session().await else {
-                continue;
-            };
-            let snapshot = match controller
-                .open_session(&session_id)
-                .await
-                .and_then(opencode_snapshot_dto)
-            {
-                Ok(snapshot) => snapshot,
-                Err(_) => return,
-            };
-            if sink.add(snapshot).is_err() {
-                return;
+        loop {
+            match opencode::drain_event_burst(&mut events).await {
+                Ok(Some(true)) => {
+                    if !emit_opencode_snapshot(&controller, &sink).await {
+                        return;
+                    }
+                },
+                Ok(Some(false)) => continue,
+                Ok(None) | Err(_) => return,
             }
         }
     });
     opencode::track_event_task(&connection_id, task);
     Ok(())
+}
+
+async fn emit_opencode_snapshot(
+    controller: &opencode::OpenCodeController,
+    sink: &StreamSink<OpenCodeSnapshotDto>,
+) -> bool {
+    let Some(session_id) = controller.selected_session().await else {
+        return true;
+    };
+    let snapshot = match controller
+        .open_session(&session_id)
+        .await
+        .and_then(opencode_snapshot_dto)
+    {
+        Ok(snapshot) => snapshot,
+        Err(_) => return false,
+    };
+    sink.add(snapshot).is_ok()
 }
 
 /// Health-check an API proxy THIS machine hosts itself, by its loopback

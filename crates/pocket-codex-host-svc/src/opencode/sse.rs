@@ -1,4 +1,4 @@
-use std::{pin::Pin, time::Duration};
+use std::{collections::HashMap, pin::Pin, time::Duration};
 
 use bytes::Bytes;
 use eventsource_stream::{EventStreamError, Eventsource};
@@ -34,8 +34,8 @@ pub(super) fn stream(response: reqwest::Response, client: OpenCodeClient) -> Ope
         .map(move |chunk| guard.accept(chunk.map_err(|_| Error::Transport)?));
     let events = Box::pin(bytes.eventsource());
     Box::pin(futures::stream::unfold(
-        (events, client, false),
-        |(mut events, client, done)| async move {
+        (events, client, false, HashMap::new()),
+        |(mut events, client, done, mut scope_cache)| async move {
             if done {
                 return None;
             }
@@ -50,13 +50,15 @@ pub(super) fn stream(response: reqwest::Response, client: OpenCodeClient) -> Ope
                     };
                 let event = match parsed {
                     Ok(event) if event.properties.is_object() && !event.kind.is_empty() => event,
-                    Ok(_) => return Some((Err(Error::Protocol), (events, client, true))),
-                    Err(error) => return Some((Err(error), (events, client, true))),
+                    Ok(_) => {
+                        return Some((Err(Error::Protocol), (events, client, true, scope_cache)))
+                    },
+                    Err(error) => return Some((Err(error), (events, client, true, scope_cache))),
                 };
-                match client.event_allowed(&event).await {
-                    Ok(true) => return Some((Ok(event), (events, client, false))),
+                match client.event_allowed(&event, &mut scope_cache).await {
+                    Ok(true) => return Some((Ok(event), (events, client, false, scope_cache))),
                     Ok(false) => {},
-                    Err(error) => return Some((Err(error), (events, client, true))),
+                    Err(error) => return Some((Err(error), (events, client, true, scope_cache))),
                 }
             }
         },

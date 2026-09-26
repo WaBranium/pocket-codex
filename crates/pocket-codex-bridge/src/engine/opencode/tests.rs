@@ -14,9 +14,40 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use pocket_codex_host_svc::opencode::OpenCodeClient;
+use futures::StreamExt;
+use pocket_codex_host_svc::opencode::{OpenCodeClient, OpenCodeEvent, OpenCodeEventStream};
 use serde_json::json;
 use tokio::sync::Notify;
+
+#[tokio::test]
+async fn event_burst_is_drained_before_one_snapshot_refresh() -> Result<()> {
+    let consumed = Arc::new(AtomicUsize::new(0));
+    let mut stream: OpenCodeEventStream = Box::pin(
+        futures::stream::iter((0..32).map({
+            let consumed = consumed.clone();
+            move |index| {
+                consumed.fetch_add(1, Ordering::SeqCst);
+                Ok(OpenCodeEvent {
+                    id: Some(format!("evt_{index}")),
+                    kind: "message.part.delta".into(),
+                    properties: serde_json::json!({"sessionID":"ses_one"}),
+                })
+            }
+        }))
+        .chain(futures::stream::pending()),
+    );
+
+    assert_eq!(
+        tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            super::drain_event_burst(&mut stream),
+        )
+        .await??,
+        Some(true)
+    );
+    assert_eq!(consumed.load(Ordering::SeqCst), 32);
+    Ok(())
+}
 
 use super::{disconnect, register, track_event_task, OpenCodeController};
 

@@ -336,6 +336,7 @@ async fn sse_preserves_split_utf8_multiline_data_and_scoped_unknown_events() -> 
         atomic::{AtomicUsize, Ordering},
         Arc,
     };
+
     use tokio_stream::StreamExt;
     let session_reads = Arc::new(AtomicUsize::new(0));
     let frames = concat!(
@@ -349,7 +350,8 @@ async fn sse_preserves_split_utf8_multiline_data_and_scoped_unknown_events() -> 
         + &(0..32)
             .map(|index| {
                 format!(
-                    "data: {{\"id\":\"evt_burst_{index}\",\"type\":\"message.part.delta\",\"properties\":{{\"sessionID\":\"ses_one\",\"text\":\"{index}\"}}}}\n\n"
+                    "data: {{\"id\":\"evt_burst_{index}\",\"type\":\"message.part.delta\",\"\
+                     properties\":{{\"sessionID\":\"ses_one\",\"text\":\"{index}\"}}}}\n\n"
                 )
             })
             .collect::<String>();

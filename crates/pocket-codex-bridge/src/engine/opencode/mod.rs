@@ -1,8 +1,13 @@
 //! OpenCode session state, independent of the Codex JSON-RPC controller.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use anyhow::{ensure, Context, Result};
+use futures::StreamExt;
 use once_cell::sync::OnceCell;
 use pocket_codex_host_svc::opencode::{
     Message, OpenCodeClient, OpenCodeEventStream, PermissionReply, PermissionRequest, PromptInput,
@@ -42,6 +47,32 @@ struct ConnectionEntry {
 }
 
 static CONNECTIONS: OnceCell<std::sync::Mutex<HashMap<String, ConnectionEntry>>> = OnceCell::new();
+
+const EVENT_SNAPSHOT_WINDOW: Duration = Duration::from_millis(50);
+
+/// Consume one fixed event window so a high-frequency OpenCode stream produces
+/// at most one authoritative snapshot refresh per window.
+pub(crate) async fn drain_event_burst(events: &mut OpenCodeEventStream) -> Result<Option<bool>> {
+    let Some(event) = events.next().await else {
+        return Ok(None);
+    };
+    let event = event?;
+    let mut refresh = !matches!(event.kind.as_str(), "server.connected" | "server.heartbeat");
+    let deadline = Instant::now() + EVENT_SNAPSHOT_WINDOW;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Ok(Some(refresh));
+        }
+        match tokio::time::timeout(remaining, events.next()).await {
+            Ok(Some(Ok(event))) => {
+                refresh |= !matches!(event.kind.as_str(), "server.connected" | "server.heartbeat");
+            },
+            Ok(Some(Err(error))) => return Err(error.into()),
+            Ok(None) | Err(_) => return Ok(Some(refresh)),
+        }
+    }
+}
 
 fn connections() -> &'static std::sync::Mutex<HashMap<String, ConnectionEntry>> {
     CONNECTIONS.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
