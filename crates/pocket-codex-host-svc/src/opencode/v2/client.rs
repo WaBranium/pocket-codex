@@ -280,7 +280,7 @@ impl V2Client {
     /// scope.
     pub async fn permissions(&self) -> Result<Vec<Permission>> {
         let response: Located<Vec<Permission>> = self
-            .get("api/permission/request", &[("directory", self.directory())])
+            .get("api/permission/request", &[("location[directory]", self.directory())])
             .await?;
         if !self.in_scope(&response.location) {
             return Err(Error::Scope);
@@ -332,7 +332,7 @@ impl V2Client {
     /// are excluded.
     pub async fn forms(&self) -> Result<Vec<Form>> {
         let response: Located<Vec<Form>> = self
-            .get("api/form", &[("directory", self.directory())])
+            .get("api/form", &[("location[directory]", self.directory())])
             .await?;
         if !self.in_scope(&response.location) {
             return Err(Error::Scope);

@@ -149,7 +149,7 @@ async fn answers_only_current_scoped_permissions_and_typed_forms() -> anyhow::Re
         .route("/api/session/ses_one", get(|| async {Json(json!({"data":{"id":"ses_one","location":{"directory":"/project"}}}))}))
         .route("/api/session/ses_other", get(|| async {Json(json!({"data":{"id":"ses_other","location":{"directory":"/other"}}}))}))
         .route("/api/permission/request", get(|Query(query): Query<HashMap<String,String>>| async move {
-            assert_eq!(query["directory"], "/project");
+            assert_eq!(query["location[directory]"], "/project");
             Json(json!({"location":{"directory":"/project"},"data":[
                 {"id":"per_one","sessionID":"ses_one","action":"shell","resources":["echo ok"],"save":["echo *"]},
                 {"id":"per_other","sessionID":"ses_other","action":"shell","resources":["other"]}
@@ -159,7 +159,9 @@ async fn answers_only_current_scoped_permissions_and_typed_forms() -> anyhow::Re
             assert_eq!(body, json!({"decision":"once","message":"Explicit approval"}));
             StatusCode::NO_CONTENT
         }))
-        .route("/api/form", get(|| async {Json(json!({"location":{"directory":"/project"},"data":[
+        .route("/api/form", get(|Query(query): Query<HashMap<String,String>>| async move {
+            assert_eq!(query["location[directory]"], "/project");
+            Json(json!({"location":{"directory":"/project"},"data":[
             {"id":"frm_one","sessionID":"ses_one","title":"Typed question","fields":[{"key":"enabled","type":"boolean","required":true},{"key":"count","type":"integer","required":true,"minimum":1,"maximum":5}]},
             {"id":"frm_other","sessionID":"ses_other","title":"Other","fields":[{"key":"text","type":"string"}]}
         ]}))}))

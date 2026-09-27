@@ -51,6 +51,9 @@ async fn live_opencode_attached_gateway_is_read_only_and_preserves_identity() ->
             break;
         }
     }
+    if env::var("PCX_REQUIRE_LIVE_SESSION").as_deref() == Ok("1") {
+        anyhow::ensure!(selected.is_some(), "the selected OpenCode directory has no history");
+    }
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let gateway_addr = listener.local_addr()?;
     let gateway_handle = OpenCodeGateway::new(direct.clone()).serve(listener)?;

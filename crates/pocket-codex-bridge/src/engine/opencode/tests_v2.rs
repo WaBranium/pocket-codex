@@ -28,6 +28,44 @@ fn text_event(kind: &str, id: &str, value: &str) -> NativeEvent {
 }
 
 #[tokio::test]
+async fn opening_a_nondefault_location_reads_history_and_pending_interactions() -> anyhow::Result<()>
+{
+    const DIRECTORY: &str = "/projects/work tree";
+    async fn pending(Query(query): Query<HashMap<String, String>>) -> Json<Value> {
+        // OpenCode's LocationMiddleware falls back to its cwd for unknown query keys.
+        let directory = query
+            .get("location[directory]")
+            .map(String::as_str)
+            .unwrap_or("/server-default");
+        Json(json!({"location":{"directory":directory},"data":[]}))
+    }
+    let app = Router::new()
+        .route("/api/session/ses_one", get(|| async {
+            Json(json!({"data":{"id":"ses_one","location":{"directory":DIRECTORY}}}))
+        }))
+        .route("/api/session/ses_one/message", get(|| async {
+            Json(json!({"data":[{"id":"msg_user","type":"user","text":"History survives location selection"}],"cursor":{"next":null}}))
+        }))
+        .route("/api/session/active", get(|| async { Json(json!({"data":{}})) }))
+        .route("/api/permission/request", get(pending))
+        .route("/api/form", get(pending));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let origin = format!("http://{}", listener.local_addr()?);
+    let server = tokio::spawn(async move { axum::serve(listener, app).await });
+    let controller = super::OpenCodeController::new(v2::V2Client::new(&origin, DIRECTORY, None)?);
+    let result = controller.open_session("ses_one").await;
+    server.abort();
+    let snapshot = result?;
+    assert_eq!(snapshot.session_id, "ses_one");
+    assert_eq!(snapshot.messages.len(), 1);
+    assert_eq!(snapshot.messages[0].id(), "msg_user");
+    assert_eq!(snapshot.status, "idle");
+    assert!(snapshot.permissions.is_empty());
+    assert!(snapshot.questions.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
 async fn v2_live_text_is_not_duplicated_and_refresh_preserves_loaded_older_history(
 ) -> anyhow::Result<()> {
     let app = Router::new()

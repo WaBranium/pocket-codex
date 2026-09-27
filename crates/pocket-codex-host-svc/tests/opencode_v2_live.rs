@@ -33,6 +33,8 @@ async fn real_opencode_v2_reads_and_hosts_an_isolated_session() -> Result<()> {
     let temporary = tempfile::tempdir()?;
     let directory = temporary.path().join("project");
     std::fs::create_dir(&directory)?;
+    let server_directory = temporary.path().join("server-default");
+    std::fs::create_dir(&server_directory)?;
     for name in ["home", "config", "data", "cache", "state"] {
         std::fs::create_dir(temporary.path().join(name))?;
     }
@@ -41,7 +43,7 @@ async fn real_opencode_v2_reads_and_hosts_an_isolated_session() -> Result<()> {
     let address = reserved.local_addr()?;
     drop(reserved);
     let password = format!("pocket-test-{}", uuid::Uuid::new_v4().simple());
-    let mut process = spawn_server(&binary, &temporary, &directory, address, &password)?;
+    let mut process = spawn_server(&binary, &temporary, &server_directory, address, &password)?;
     let origin = format!("http://{address}");
     let credentials = Some(BasicCredentials::new("opencode", password));
     let directory_text = directory.to_str().context("temporary path is UTF-8")?;
@@ -74,6 +76,8 @@ async fn real_opencode_v2_reads_and_hosts_an_isolated_session() -> Result<()> {
         .await?
         .messages
         .is_empty());
+    ensure!(direct.permissions().await?.is_empty());
+    ensure!(direct.questions().await?.is_empty());
 
     let gateway_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let gateway_addr = gateway_listener.local_addr()?;
@@ -88,6 +92,8 @@ async fn real_opencode_v2_reads_and_hosts_an_isolated_session() -> Result<()> {
         .await?
         .messages
         .is_empty());
+    ensure!(gateway.permissions().await?.is_empty());
+    ensure!(gateway.questions().await?.is_empty());
     gateway_handle.stop().await;
 
     let after = native.connect().await?;
