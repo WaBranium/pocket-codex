@@ -212,6 +212,32 @@ fn an_unchanged_default_turn_only_prompts() {
 }
 
 #[test]
+fn data_url_images_become_prompt_files_with_names() {
+    let (key, log, _, _rx) = connect_fake("images");
+    let png = "data:image/png;base64,iVBORw0KGgo=".to_string();
+    let jpeg = "data:image/jpeg;base64,/9j/4AAQ".to_string();
+    super::turn_start(
+        &key,
+        "ses_1",
+        "look".into(),
+        vec![png.clone(), jpeg.clone()],
+        None,
+        None,
+        None,
+    )
+    .expect("turn");
+    let sent = posts(&log);
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].0, "POST /api/session/ses_1/prompt");
+    assert_eq!(sent[0].1["text"], "look");
+    assert_eq!(
+        sent[0].1["files"],
+        json!([{"uri": png, "name": "image-1.png"}, {"uri": jpeg, "name": "image-2.jpeg"}])
+    );
+    super::disconnect(&key);
+}
+
+#[test]
 fn steering_needs_a_running_turn_and_interrupt_needs_none() {
     let (key, log, shared, _rx) = connect_fake("steer");
     assert!(super::turn_steer(&key, "ses_1", None, "more", &[]).is_err());

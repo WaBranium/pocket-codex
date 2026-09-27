@@ -1178,6 +1178,9 @@ class FakeBridgeApi implements BridgeApi {
     return forceResumeResult;
   }
 
+  /// Service key of the last [metaUploadFile] call.
+  String? lastUploadKey;
+
   /// Records the last [metaUploadFile] call for assertions.
   String? lastUploadName;
 
@@ -1194,6 +1197,7 @@ class FakeBridgeApi implements BridgeApi {
     Uint8List bytes,
   ) async {
     if (uploadError != null) throw uploadError!;
+    lastUploadKey = serviceKey;
     lastUploadName = fileName;
     lastUploadBytes = bytes;
     return '/host/uploads/123/$fileName';
