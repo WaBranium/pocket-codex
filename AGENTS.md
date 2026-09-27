@@ -418,11 +418,13 @@ The order below is our current best guess; it is not a contract.
     the same capability directly or through a restricted loopback/relay
     gateway. The Flutter UI uses the real RustBridgeApi through an independent
     `/opencode` route; the existing home route is unchanged. Pocket-Codex never
-    owns or stops the external OpenCode process, and the password is read from
-    a named environment variable for the duration of the connection only.
-    Automated Rust/Flutter checks and an isolated OpenCode 1.18.32 protocol
-    fixture pass; real model tokens, a user's existing service, deployed relay,
-    and native desktop builds remain explicitly unverified.
+    owns or stops the external OpenCode process. Native 2.0.18 uses its own
+    messages, permissions and typed Forms; legacy v1 remains supported.
+    Local discovery validates the private official service registration and
+    live process identity; credentials stay on the host for the connection.
+    For OpenCode acceptance or packaging, read
+    [`docs/opencode-v2-runtime-verification.md`](docs/opencode-v2-runtime-verification.md)
+    for real-service results, packaged-bridge checks and remaining limits.
 
 When you ship a milestone, update `README.md` (Status table) **and**
 this file's roadmap so the source of truth stays in sync.
