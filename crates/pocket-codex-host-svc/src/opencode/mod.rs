@@ -1,11 +1,15 @@
 //! Scoped HTTP/SSE access to an existing external OpenCode server.
 
 mod client;
+pub mod connection;
+pub mod discovery;
 pub mod gateway;
 mod protocol;
 mod sse;
+pub mod v2;
 
 pub use client::{BasicCredentials, OpenCodeClient};
+pub use connection::Connection;
 pub use gateway::{serve as serve_gateway, GatewayHandle, OpenCodeGateway};
 pub use protocol::{
     Capabilities, Health, Message, MessageInfo, MessagePage, MessagePart, PermissionReply,

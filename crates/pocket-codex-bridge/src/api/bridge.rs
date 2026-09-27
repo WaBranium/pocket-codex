@@ -3,7 +3,7 @@
 //! Thin glue over `crate::engine`; DTOs are plain (FRB-friendly) structs.
 use std::path::PathBuf;
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, ensure, Result};
 use flutter_rust_bridge::frb;
 use pocket_codex_core::config::Mode;
 use pocket_codex_host_svc::opencode::{BasicCredentials, PermissionReply};
@@ -832,6 +832,12 @@ pub async fn opencode_connect(
     username: String,
     password: Option<String>,
 ) -> Result<String> {
+    if base_url.is_none() && service_key.is_none() {
+        let client = pocket_codex_host_svc::opencode::discovery::discover(&directory)
+            .await
+            .map_err(|_| anyhow!("PCX_OPENCODE_LOCAL_DISCOVERY"))?;
+        return Ok(opencode::register(client, None));
+    }
     let (origin, relay_key, credentials) = match (base_url, service_key) {
         (Some(origin), None) => {
             (origin, None, password.map(|secret| BasicCredentials::new(username, secret)))
@@ -853,26 +859,31 @@ pub async fn opencode_connect(
         },
         _ => return Err(anyhow!("choose exactly one OpenCode base URL or service key")),
     };
-    let client = match pocket_codex_host_svc::opencode::OpenCodeClient::new(
+    let client = match pocket_codex_host_svc::opencode::connection::Connection::connect(
         &origin,
         &directory,
         credentials,
-    ) {
+    )
+    .await
+    {
         Ok(client) => client,
         Err(error) => {
             if let Some(key) = relay_key.as_deref() {
                 runtime::unsubscribe_service(key);
             }
-            return Err(error.into());
+            return Err(opencode_connection_error(error));
         },
     };
-    if let Err(error) = client.capabilities().await {
-        if let Some(key) = relay_key.as_deref() {
-            runtime::unsubscribe_service(key);
-        }
-        return Err(error.into());
-    }
     Ok(opencode::register(client, relay_key))
+}
+
+fn opencode_connection_error(error: pocket_codex_host_svc::opencode::Error) -> anyhow::Error {
+    use pocket_codex_host_svc::opencode::Error;
+    anyhow!(match error {
+        Error::Rejected(401 | 403) => "PCX_OPENCODE_AUTH",
+        Error::Transport | Error::Disconnected => "PCX_OPENCODE_NETWORK",
+        _ => "PCX_OPENCODE_PROTOCOL",
+    })
 }
 
 /// List sessions for an OpenCode connection.
@@ -984,6 +995,20 @@ pub async fn opencode_question_reply(
     opencode_snapshot_dto(controller.snapshot().await?)
 }
 
+/// Answer a current OpenCode v2 form with its native keyed, typed answer
+/// object.
+pub async fn opencode_reply_form(
+    connection_id: String,
+    request_id: String,
+    answers_json: String,
+) -> Result<OpenCodeSnapshotDto> {
+    ensure!(answers_json.len() <= 1024 * 1024, "OpenCode form answer exceeds the resource limit");
+    let answers: serde_json::Value = serde_json::from_str(&answers_json)?;
+    let controller = opencode::get(&connection_id)?;
+    controller.reply_form(&request_id, answers).await?;
+    opencode_snapshot_dto(controller.snapshot().await?)
+}
+
 /// Reject a pending OpenCode question request.
 pub async fn opencode_question_reject(
     connection_id: String,
@@ -1014,12 +1039,12 @@ pub fn opencode_events(connection_id: String, sink: StreamSink<OpenCodeSnapshotD
         };
         loop {
             match opencode::drain_event_burst(&mut events).await {
-                Ok(Some(true)) => {
-                    if !emit_opencode_snapshot(&controller, &sink).await {
+                Ok(Some(events)) if !events.is_empty() => {
+                    if !emit_opencode_snapshot(&controller, &sink, events).await {
                         return;
                     }
                 },
-                Ok(Some(false)) => continue,
+                Ok(Some(_)) => continue,
                 Ok(None) | Err(_) => return,
             }
         }
@@ -1031,12 +1056,13 @@ pub fn opencode_events(connection_id: String, sink: StreamSink<OpenCodeSnapshotD
 async fn emit_opencode_snapshot(
     controller: &opencode::OpenCodeController,
     sink: &StreamSink<OpenCodeSnapshotDto>,
+    events: Vec<pocket_codex_host_svc::opencode::connection::NativeEvent>,
 ) -> bool {
     let Some(session_id) = controller.selected_session().await else {
         return true;
     };
     let snapshot = match controller
-        .open_session(&session_id)
+        .refresh(&session_id, events)
         .await
         .and_then(opencode_snapshot_dto)
     {

@@ -8,7 +8,7 @@ use pocket_codex_core::{
     service::{default_device_id, sanitize_component, ServiceId, ServiceKind},
     state::{PbRole, RuntimeState},
 };
-use pocket_codex_host_svc::opencode::{BasicCredentials, OpenCodeClient, OpenCodeGateway};
+use pocket_codex_host_svc::opencode::{BasicCredentials, Connection, OpenCodeGateway};
 
 use crate::{
     cli::{OpenCodeCmd, OpenCodeConnectArgs, OpenCodeServeArgs, OpenCodeStopArgs},
@@ -40,10 +40,7 @@ async fn serve(args: OpenCodeServeArgs) -> Result<()> {
         None => None,
     };
     let credentials = password.map(|value| BasicCredentials::new(args.username, value));
-    let client = OpenCodeClient::new(&args.url, &args.directory, credentials)
-        .map_err(|error| anyhow::anyhow!("invalid OpenCode connection: {error}"))?;
-    client
-        .capabilities()
+    let client = Connection::connect(&args.url, &args.directory, credentials)
         .await
         .map_err(|error| anyhow::anyhow!("OpenCode compatibility check failed: {error}"))?;
     let address: SocketAddr = args

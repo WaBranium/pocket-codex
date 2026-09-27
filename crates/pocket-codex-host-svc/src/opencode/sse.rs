@@ -68,7 +68,7 @@ pub(super) fn stream(response: reqwest::Response, client: OpenCodeClient) -> Ope
 // Limit bytes before they enter the standard parser, including unfinished
 // lines.
 #[derive(Default)]
-struct FrameBudget {
+pub(super) struct FrameBudget {
     started: bool,
     prefix: Vec<u8>,
     frame: usize,
@@ -77,7 +77,7 @@ struct FrameBudget {
 }
 
 impl FrameBudget {
-    fn accept(&mut self, mut bytes: Bytes) -> Result<Bytes> {
+    pub(super) fn accept(&mut self, mut bytes: Bytes) -> Result<Bytes> {
         if !self.started {
             self.prefix.extend_from_slice(&bytes);
             if self.prefix.len() < 3 {

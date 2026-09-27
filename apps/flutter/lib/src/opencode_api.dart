@@ -72,6 +72,13 @@ abstract class OpenCodeApi {
     String requestId,
     List<List<String>> answers,
   );
+
+  /// Replies to a native v2 form without coercing its typed values.
+  Future<void> formReply(
+    String connectionId,
+    String requestId,
+    Map<String, dynamic> answers,
+  );
   Future<void> questionReject(String connectionId, String requestId);
   Future<void> abort(String connectionId, String sessionId);
   Future<void> disconnect(String connectionId);

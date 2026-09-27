@@ -132,6 +132,19 @@ class RustBridgeApi implements BridgeApi, OpenCodeApi {
   }
 
   @override
+  Future<void> formReply(
+    String connectionId,
+    String requestId,
+    Map<String, dynamic> answers,
+  ) async {
+    await frb.opencodeReplyForm(
+      connectionId: connectionId,
+      requestId: requestId,
+      answersJson: jsonEncode(answers),
+    );
+  }
+
+  @override
   Future<void> abort(String connectionId, String sessionId) =>
       frb.opencodeAbort(connectionId: connectionId, sessionId: sessionId);
 

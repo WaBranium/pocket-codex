@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../opencode_api.dart';
 import '../opencode_controller.dart';
+import '../widgets/opencode_form_dialog.dart';
 import '../widgets/utility_page.dart';
 
 /// An independent OpenCode conversation surface.
@@ -23,7 +24,7 @@ class _OpenCodeScreenState extends State<OpenCodeScreen> {
   final scroll = ScrollController();
   bool working = false;
   bool showSessions = true;
-  bool failed = false;
+  String? failure;
   String text(String en, String zh) =>
       Localizations.localeOf(context).languageCode == 'zh' ? zh : en;
 
@@ -35,15 +36,40 @@ class _OpenCodeScreenState extends State<OpenCodeScreen> {
     if (working) return;
     setState(() {
       working = true;
-      failed = false;
+      failure = null;
     });
     try {
       await action();
-    } catch (_) {
-      if (mounted) setState(() => failed = true);
+    } catch (error) {
+      if (mounted) setState(() => failure = _failureText(error));
     } finally {
       if (mounted) setState(() => working = false);
     }
+  }
+
+  String _failureText(Object error) {
+    final code = RegExp(
+      r'PCX_OPENCODE_(AUTH|PROTOCOL|NETWORK|LOCAL_DISCOVERY)\b',
+    ).firstMatch(error.toString())?.group(1);
+    return switch (code) {
+      'AUTH' => text(
+        'Authentication failed. Check the OpenCode service credentials.',
+        '认证失败，请检查 OpenCode 服务凭据。',
+      ),
+      'PROTOCOL' => text(
+        'Unsupported or invalid OpenCode service protocol.',
+        'OpenCode 服务协议不受支持或响应无效。',
+      ),
+      'NETWORK' => text(
+        'Cannot reach the OpenCode service. Check its address and status.',
+        '无法连接 OpenCode 服务，请检查地址和运行状态。',
+      ),
+      'LOCAL_DISCOVERY' => text(
+        'No verified local OpenCode service was found.',
+        '未发现通过验证的本机 OpenCode 服务。',
+      ),
+      _ => text('Request failed. Try again.', '请求失败，请重试。'),
+    };
   }
 
   @override
@@ -80,11 +106,11 @@ class _OpenCodeScreenState extends State<OpenCodeScreen> {
     ],
     body: Column(
       children: [
-        if (failed)
+        if (failure != null)
           Padding(
             padding: const EdgeInsets.all(12),
             child: Text(
-              text('Request failed. Try again.', '请求失败，请重试。'),
+              failure!,
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
           ),
@@ -184,6 +210,25 @@ class _OpenCodeScreenState extends State<OpenCodeScreen> {
                     );
                   }),
           ),
+          if (widget.serviceKey == null) ...[
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              key: const Key('opencode-connect-local'),
+              icon: const Icon(Icons.computer),
+              label: Text(text('Connect local OpenCode', '连接本机 OpenCode')),
+              onPressed: working
+                  ? null
+                  : () => run(() async {
+                      if (directory.text.trim().isEmpty) {
+                        throw const FormatException();
+                      }
+                      password.clear();
+                      await controller.connect(
+                        directory: directory.text.trim(),
+                      );
+                    }),
+            ),
+          ],
         ],
       ),
     ),
@@ -303,13 +348,25 @@ class _OpenCodeScreenState extends State<OpenCodeScreen> {
                         children: [
                           TextButton.icon(
                             icon: const Icon(Icons.question_answer_outlined),
-                            label: Text(text('Answer questions', '回答问题')),
-                            onPressed: !snapshot.writable || working
+                            label: Text(
+                              question['fields'] is List
+                                  ? text('Answer form', '回答表单')
+                                  : text('Answer questions', '回答问题'),
+                            ),
+                            onPressed:
+                                !snapshot.writable ||
+                                    working ||
+                                    !_pendingQuestion(question)
                                 ? null
-                                : () => _questions(question),
+                                : () => question['fields'] is List
+                                      ? _form(question)
+                                      : _questions(question),
                           ),
                           TextButton(
-                            onPressed: !snapshot.writable || working
+                            onPressed:
+                                !snapshot.writable ||
+                                    working ||
+                                    !_pendingQuestion(question)
                                 ? null
                                 : () => run(
                                     () => widget.api.questionReject(
@@ -317,7 +374,11 @@ class _OpenCodeScreenState extends State<OpenCodeScreen> {
                                       '${question['id']}',
                                     ),
                                   ),
-                            child: Text(text('Reject question', '拒绝问题')),
+                            child: Text(
+                              question['fields'] is List
+                                  ? text('Cancel form', '取消表单')
+                                  : text('Reject question', '拒绝问题'),
+                            ),
                           ),
                         ],
                       ),
@@ -341,19 +402,46 @@ class _OpenCodeScreenState extends State<OpenCodeScreen> {
             itemBuilder: (context, index) {
               final message =
                   snapshot.messages[snapshot.messages.length - 1 - index];
-              final info = message['info'] as Map? ?? {};
+              final info = message['info'] is Map
+                  ? message['info'] as Map
+                  : null;
+              final content = info != null
+                  ? message['parts']
+                  : message['content'];
+              final parts = content is List ? content : const [];
               return Padding(
-                key: ValueKey(info['id']),
+                key: ValueKey(info?['id'] ?? message['id']),
                 padding: const EdgeInsets.only(bottom: 20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '${info['role'] ?? ''}',
+                      '${info?['role'] ?? message['type'] ?? 'unknown'}',
                       style: Theme.of(context).textTheme.labelMedium,
                     ),
-                    for (final part in (message['parts'] as List? ?? []))
-                      if (part is Map) _part(part),
+                    if (info == null && message['text'] is String)
+                      SelectableText(message['text'] as String),
+                    for (var i = 0; i < parts.length; i++)
+                      if (parts[i] is Map)
+                        _part(parts[i] as Map, partKey: ValueKey(i)),
+                    if (info == null && message['type'] == 'user')
+                      for (final field in ['files', 'agents', 'skills'])
+                        if (message[field] is List &&
+                            (message[field] as List).isNotEmpty)
+                          _detail(field, message[field]),
+                    if (info == null && message['type'] == 'assistant')
+                      for (final field in ['error', 'retry'])
+                        if (message[field] != null)
+                          _detail(field, message[field]),
+                    if (info == null &&
+                        ![
+                          'user',
+                          'assistant',
+                          'system',
+                          'synthetic',
+                          'skill',
+                        ].contains(message['type']))
+                      _detail('${message['type'] ?? 'unknown'}', message),
                   ],
                 ),
               );
@@ -460,31 +548,73 @@ class _OpenCodeScreenState extends State<OpenCodeScreen> {
     );
   }
 
-  Widget _part(Map part) {
+  Widget _part(Map part, {Key? partKey}) {
     final type = '${part['type'] ?? 'unknown'}';
     if (type == 'text') return SelectableText('${part['text'] ?? ''}');
     final state = part['state'] is Map ? part['state'] as Map : const {};
     final title = type == 'tool'
-        ? '${part['tool']} · ${state['status'] ?? ''}'
+        ? '${part['name'] ?? part['tool']} · ${state['status'] ?? ''}'
         : type;
     return ExpansionTile(
-      key: ValueKey(part['id']),
+      key: partKey ?? (part['id'] == null ? null : ValueKey(part['id'])),
       tilePadding: EdgeInsets.zero,
       title: Text(title),
       children: [
         ConstrainedBox(
           constraints: const BoxConstraints(maxHeight: 240),
           child: SingleChildScrollView(
-            child: SelectableText(
-              type == 'tool'
-                  ? '${state['output'] ?? state['error'] ?? state['input'] ?? ''}'
-                  : const JsonEncoder.withIndent('  ').convert(part),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (type == 'tool' && state['content'] is List)
+                  for (final content
+                      in (state['content'] as List).whereType<Map>())
+                    if (content['type'] == 'text')
+                      SelectableText('${content['text'] ?? ''}')
+                    else
+                      SelectableText(
+                        const JsonEncoder.withIndent('  ').convert(content),
+                      )
+                else
+                  SelectableText(
+                    type == 'tool'
+                        ? _displayValue(
+                            state['output'] ?? state['error'] ?? state['input'],
+                          )
+                        : type == 'reasoning'
+                        ? '${part['text'] ?? ''}'
+                        : const JsonEncoder.withIndent('  ').convert(part),
+                  ),
+                if (type == 'tool' &&
+                    state['content'] is List &&
+                    state['error'] != null)
+                  SelectableText(_displayValue(state['error'])),
+              ],
             ),
           ),
         ),
       ],
     );
   }
+
+  String _displayValue(Object? value) => value is String
+      ? value
+      : value == null
+      ? ''
+      : const JsonEncoder.withIndent('  ').convert(value);
+
+  Widget _detail(String title, Object? value) => ExpansionTile(
+    tilePadding: EdgeInsets.zero,
+    title: Text(title),
+    children: [
+      ConstrainedBox(
+        constraints: const BoxConstraints(maxHeight: 240),
+        child: SingleChildScrollView(
+          child: SelectableText(_displayValue(value)),
+        ),
+      ),
+    ],
+  );
 
   Widget _newSession() => IconButton(
     tooltip: text('New session', '新建会话'),
@@ -501,66 +631,105 @@ class _OpenCodeScreenState extends State<OpenCodeScreen> {
             }
           }),
   );
-  Widget _permission(Map<String, dynamic> permission, bool writable) => Padding(
-    padding: const EdgeInsets.all(12),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('${permission['permission'] ?? text('Permission', '权限')}'),
-        SelectableText((permission['patterns'] as List? ?? []).join('\n')),
-        Wrap(
-          spacing: 8,
-          children: [
-            for (final reply in ['once', 'always', 'reject'])
-              TextButton(
-                onPressed: !writable || working
-                    ? null
-                    : () => run(() async {
-                        if (reply == 'always') {
-                          final accepted = await showDialog<bool>(
-                            context: context,
-                            builder: (context) => AlertDialog(
-                              title: Text(
-                                text('Allow for this instance', '允许此实例'),
+  Widget _permission(Map<String, dynamic> permission, bool writable) {
+    final native = permission['action'] is String;
+    final saved = permission['save'] is List
+        ? (permission['save'] as List).whereType<String>().toList()
+        : const <String>[];
+    final alwaysLabel = native
+        ? text('Always allow for this project', '对此项目始终允许')
+        : text('Allow for this instance', '允许此实例');
+    return Padding(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '${permission['action'] ?? permission['permission'] ?? text('Permission', '权限')}',
+          ),
+          SelectableText(
+            ((native ? permission['resources'] : permission['patterns'])
+                        as List? ??
+                    [])
+                .join('\n'),
+          ),
+          Wrap(
+            spacing: 8,
+            children: [
+              for (final reply in [
+                'once',
+                if (!native || saved.isNotEmpty) 'always',
+                'reject',
+              ])
+                TextButton(
+                  onPressed: !writable || working
+                      ? null
+                      : () => run(() async {
+                          if (reply == 'always') {
+                            final accepted = await showDialog<bool>(
+                              context: context,
+                              builder: (context) => AlertDialog(
+                                title: Text(alwaysLabel),
+                                content: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      native
+                                          ? text(
+                                              'OpenCode will save this permission for the project, including future sessions and service restarts.',
+                                              'OpenCode 将为项目持久保存此权限，对后续会话及服务重启后仍有效。',
+                                            )
+                                          : text(
+                                              'This also applies to other sessions in this OpenCode instance until it restarts.',
+                                              '本次允许也会影响同一 OpenCode 实例中的其他会话，直到实例重启。',
+                                            ),
+                                    ),
+                                    if (native)
+                                      SelectableText(saved.join('\n')),
+                                  ],
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () =>
+                                        Navigator.pop(context, false),
+                                    child: Text(text('Cancel', '取消')),
+                                  ),
+                                  FilledButton(
+                                    onPressed: () =>
+                                        Navigator.pop(context, true),
+                                    child: Text(text('Allow', '允许')),
+                                  ),
+                                ],
                               ),
-                              content: Text(
-                                text(
-                                  'This also applies to other sessions in this OpenCode instance until it restarts.',
-                                  '本次允许也会影响同一 OpenCode 实例中的其他会话，直到实例重启。',
-                                ),
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () =>
-                                      Navigator.pop(context, false),
-                                  child: Text(text('Cancel', '取消')),
-                                ),
-                                FilledButton(
-                                  onPressed: () => Navigator.pop(context, true),
-                                  child: Text(text('Allow', '允许')),
-                                ),
-                              ],
-                            ),
+                            );
+                            if (accepted != true || !mounted) return;
+                          }
+                          if (controller.snapshot?.writable != true ||
+                              !controller.snapshot!.permissions.any(
+                                (pending) => pending['id'] == permission['id'],
+                              )) {
+                            return;
+                          }
+                          await widget.api.permissionReply(
+                            controller.connectionId!,
+                            '${permission['id']}',
+                            reply,
                           );
-                          if (accepted != true || !mounted) return;
-                        }
-                        await widget.api.permissionReply(
-                          controller.connectionId!,
-                          '${permission['id']}',
-                          reply,
-                        );
-                      }),
-                child: Text(switch (reply) {
-                  'once' => text('Allow once', '允许一次'),
-                  'always' => text('Allow for this instance', '允许此实例'),
-                  _ => text('Reject', '拒绝'),
-                }),
-              ),
-          ],
-        ),
-      ],
-    ),
-  );
+                        }),
+                  child: Text(switch (reply) {
+                    'once' => text('Allow once', '允许一次'),
+                    'always' => alwaysLabel,
+                    _ => text('Reject', '拒绝'),
+                  }),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _questions(Map<String, dynamic> request) async {
     final questions = (request['questions'] as List? ?? [])
         .whereType<Map>()
@@ -693,5 +862,36 @@ class _OpenCodeScreenState extends State<OpenCodeScreen> {
         ),
       );
     }
+  }
+
+  Future<void> _form(Map<String, dynamic> request) async {
+    final connectionId = controller.connectionId;
+    final sessionId = controller.snapshot?.sessionId;
+    final answers = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) => OpenCodeFormDialog(request: request),
+    );
+    if (answers == null ||
+        !mounted ||
+        connectionId == null ||
+        connectionId != controller.connectionId ||
+        sessionId != controller.snapshot?.sessionId ||
+        controller.snapshot?.writable != true ||
+        !controller.snapshot!.questions.any(
+          (pending) =>
+              pending['id'] == request['id'] &&
+              _pendingQuestion(pending) &&
+              jsonEncode(pending['fields']) == jsonEncode(request['fields']),
+        )) {
+      return;
+    }
+    await run(
+      () => widget.api.formReply(connectionId, '${request['id']}', answers),
+    );
+  }
+
+  bool _pendingQuestion(Map<String, dynamic> request) {
+    final state = request['state'];
+    return state == null || state is Map && state['status'] == 'pending';
   }
 }

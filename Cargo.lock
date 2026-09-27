@@ -2440,6 +2440,7 @@ dependencies = [
  "bytes",
  "eventsource-stream",
  "futures",
+ "nix",
  "percent-encoding",
  "pocket-codex-codex",
  "pocket-codex-core",

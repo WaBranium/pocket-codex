@@ -6,7 +6,7 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `history_dto`, `holder_dto`, `item_dto`, `meta_follow_update_dto`, `meta_holder_dto`, `meta_liveness_dto`, `meta_thread_item_dto`, `opencode_snapshot_dto`, `project_config_dto`, `thread_config_dto`, `thread_config_from_dto`, `to_log_dto`, `turn_page_dto`
+// These functions are ignored because they are not marked as `pub`: `emit_opencode_snapshot`, `history_dto`, `holder_dto`, `item_dto`, `meta_follow_update_dto`, `meta_holder_dto`, `meta_liveness_dto`, `meta_thread_item_dto`, `opencode_connection_error`, `opencode_snapshot_dto`, `project_config_dto`, `thread_config_dto`, `thread_config_from_dto`, `to_log_dto`, `turn_page_dto`
 
 /// Initialise the engine with the platform app-support dir (from Dart's
 /// path_provider). Must be called once after `RustLib.init()`.
@@ -289,7 +289,8 @@ Future<List<OpenCodeSessionDto>> opencodeSessions({
   search: search,
 );
 
-/// Open one OpenCode session and return its bounded tail plus live interactions.
+/// Open one OpenCode session and return its bounded tail plus live
+/// interactions.
 Future<OpenCodeSnapshotDto> opencodeOpenSession({
   required String connectionId,
   required String sessionId,
@@ -346,6 +347,18 @@ Future<OpenCodeSnapshotDto> opencodeQuestionReply({
   required String requestId,
   required String answersJson,
 }) => RustLib.instance.api.crateApiBridgeOpencodeQuestionReply(
+  connectionId: connectionId,
+  requestId: requestId,
+  answersJson: answersJson,
+);
+
+/// Answer a current OpenCode v2 form with its native keyed, typed answer
+/// object.
+Future<OpenCodeSnapshotDto> opencodeReplyForm({
+  required String connectionId,
+  required String requestId,
+  required String answersJson,
+}) => RustLib.instance.api.crateApiBridgeOpencodeReplyForm(
   connectionId: connectionId,
   requestId: requestId,
   answersJson: answersJson,

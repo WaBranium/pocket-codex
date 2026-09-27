@@ -15,23 +15,26 @@ use axum::{
     Json, Router,
 };
 use futures::StreamExt;
-use pocket_codex_host_svc::opencode::{OpenCodeClient, OpenCodeEvent, OpenCodeEventStream};
+use pocket_codex_host_svc::opencode::{
+    connection::{EventStream, NativeEvent},
+    OpenCodeClient, OpenCodeEvent,
+};
 use serde_json::json;
 use tokio::sync::Notify;
 
 #[tokio::test]
 async fn event_burst_is_drained_before_one_snapshot_refresh() -> Result<()> {
     let consumed = Arc::new(AtomicUsize::new(0));
-    let mut stream: OpenCodeEventStream = Box::pin(
+    let mut stream: EventStream = Box::pin(
         futures::stream::iter((0..32).map({
             let consumed = consumed.clone();
             move |index| {
                 consumed.fetch_add(1, Ordering::SeqCst);
-                Ok(OpenCodeEvent {
+                Ok(NativeEvent::V1(OpenCodeEvent {
                     id: Some(format!("evt_{index}")),
                     kind: "message.part.delta".into(),
                     properties: serde_json::json!({"sessionID":"ses_one"}),
-                })
+                }))
             }
         }))
         .chain(futures::stream::pending()),
@@ -42,8 +45,9 @@ async fn event_burst_is_drained_before_one_snapshot_refresh() -> Result<()> {
             std::time::Duration::from_secs(1),
             super::drain_event_burst(&mut stream),
         )
-        .await??,
-        Some(true)
+        .await??
+        .map(|events| events.len()),
+        Some(32)
     );
     assert_eq!(consumed.load(Ordering::SeqCst), 32);
     Ok(())
@@ -157,7 +161,7 @@ async fn failed_older_page_preserves_history_and_can_be_explicitly_retried() -> 
         loaded
             .messages
             .iter()
-            .map(|message| message.info.id.as_str())
+            .map(|message| message.id())
             .collect::<Vec<_>>(),
         vec!["msg_one", "msg_two", "msg_three"]
     );
@@ -218,7 +222,7 @@ async fn pending_interactions_belong_only_to_the_selected_session() -> Result<()
         snapshot
             .permissions
             .iter()
-            .map(|request| request.id.as_str())
+            .map(|request| request.id())
             .collect::<Vec<_>>(),
         vec!["per_one"]
     );
@@ -226,7 +230,7 @@ async fn pending_interactions_belong_only_to_the_selected_session() -> Result<()
         snapshot
             .questions
             .iter()
-            .map(|request| request.id.as_str())
+            .map(|request| request.id())
             .collect::<Vec<_>>(),
         vec!["que_one"]
     );

@@ -12,9 +12,12 @@ class FakeOpenCodeApi extends OpenCodeApi {
   final stream = StreamController<OpenCodeSnapshot>.broadcast(sync: true);
   final decisions = <String>[];
   List<List<String>>? answers;
+  Map<String, dynamic>? formAnswers;
   String? search;
   Completer<String>? connecting;
   final disconnected = <String>[];
+  final connections = <Map<String, Object?>>[];
+  Object? connectionError;
   @override
   Future<String> connect({
     String? baseUrl,
@@ -22,7 +25,18 @@ class FakeOpenCodeApi extends OpenCodeApi {
     required String directory,
     String username = 'opencode',
     String? password,
-  }) async => connecting?.future ?? 'connection';
+  }) async {
+    connections.add({
+      'baseUrl': baseUrl,
+      'serviceKey': serviceKey,
+      'directory': directory,
+      'username': username,
+      'password': password,
+    });
+    if (connectionError case final error?) throw error;
+    return connecting?.future ?? 'connection';
+  }
+
   @override
   Future<List<OpenCodeSession>> sessions(
     String connectionId, {
@@ -86,6 +100,15 @@ class FakeOpenCodeApi extends OpenCodeApi {
     List<List<String>> answers,
   ) async {
     this.answers = answers;
+  }
+
+  @override
+  Future<void> formReply(
+    String connectionId,
+    String requestId,
+    Map<String, dynamic> answers,
+  ) async {
+    formAnswers = answers;
   }
 
   @override

@@ -49,6 +49,10 @@ impl BasicCredentials {
             password: password.into(),
         }
     }
+
+    pub(super) fn apply(&self, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        request.basic_auth(&self.username, Some(&self.password))
+    }
 }
 
 impl fmt::Debug for BasicCredentials {
@@ -551,11 +555,15 @@ impl OpenCodeClient {
         Ok(())
     }
 
-    async fn get<T: DeserializeOwned>(&self, path: &str, query: &[(&str, &str)]) -> Result<T> {
+    pub(super) async fn get<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        query: &[(&str, &str)],
+    ) -> Result<T> {
         self.get_response(path, query).await.map(|(value, _)| value)
     }
 
-    async fn get_response<T: DeserializeOwned>(
+    pub(super) async fn get_response<T: DeserializeOwned>(
         &self,
         path: &str,
         query: &[(&str, &str)],
@@ -568,7 +576,7 @@ impl OpenCodeClient {
         Self::read_json(response).await
     }
 
-    async fn read_json<T: DeserializeOwned>(
+    pub(super) async fn read_json<T: DeserializeOwned>(
         mut response: reqwest::Response,
     ) -> Result<(T, reqwest::header::HeaderMap)> {
         if !response.status().is_success() {
@@ -587,7 +595,7 @@ impl OpenCodeClient {
             .map_err(|_| Error::Protocol)
     }
 
-    fn request(
+    pub(super) fn request(
         &self,
         method: Method,
         path: &str,
@@ -598,7 +606,7 @@ impl OpenCodeClient {
             .timeout(Duration::from_secs(30)))
     }
 
-    fn raw_request(
+    pub(super) fn raw_request(
         &self,
         method: Method,
         path: &str,
@@ -625,7 +633,7 @@ fn cache_session_scope(scope_cache: &mut HashMap<String, bool>, id: &str, allowe
     scope_cache.insert(id.to_owned(), allowed);
 }
 
-fn validate_id(id: &str) -> Result<()> {
+pub(super) fn validate_id(id: &str) -> Result<()> {
     if id.is_empty()
         || id.len() > 512
         || !id
