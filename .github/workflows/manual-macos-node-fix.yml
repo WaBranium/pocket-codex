@@ -1,0 +1,88 @@
+name: Manual macOS Node PATH package
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: "3.44.0"
+  RUST_TOOLCHAIN: nightly-2026-06-01
+
+jobs:
+  macos-arm64:
+    name: Pocket-Codex macOS arm64 DMG
+    runs-on: macos-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: aarch64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: manual-macos-node-fix-arm64
+      - name: Install appdmg
+        run: npm install -g appdmg
+      - name: Activate desktop manifest
+        working-directory: apps/flutter
+        run: cp pubspec-desktop.yaml pubspec.yaml
+      - name: Build macOS app
+        working-directory: apps/flutter
+        env:
+          FLUTTER_XCODE_ARCHS: arm64
+          FLUTTER_XCODE_ONLY_ACTIVE_ARCH: "NO"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+          CARGO_PROFILE_RELEASE_LTO: "false"
+        run: |
+          set -euo pipefail
+          flutter pub get
+          flutter build macos --release
+      - name: Package DMG and checksum
+        working-directory: apps/flutter
+        run: |
+          set -euo pipefail
+          rel="build/macos/Build/Products/Release"
+          mkdir -p dist
+          cat > "$rel/appdmg.json" <<'JSON'
+          {
+            "title": "Pocket-Codex",
+            "icon": "pocket_codex.app/Contents/Resources/AppIcon.icns",
+            "contents": [
+              { "x": 448, "y": 188, "type": "link", "path": "/Applications" },
+              { "x": 192, "y": 188, "type": "file", "path": "pocket_codex.app" }
+            ]
+          }
+          JSON
+          appdmg "$rel/appdmg.json" "dist/PocketCodex-0.2.5-macos-arm64-node-fix.dmg"
+          ditto -c -k --sequesterRsrc --keepParent "$rel/pocket_codex.app" \
+            "dist/PocketCodex-0.2.5-macos-arm64-node-fix.zip"
+          (cd dist && shasum -a 256 *.dmg *.zip > SHA256SUMS.txt)
+      - name: Verify package metadata
+        working-directory: apps/flutter
+        run: |
+          set -euo pipefail
+          file dist/PocketCodex-0.2.5-macos-arm64-node-fix.dmg
+          file dist/PocketCodex-0.2.5-macos-arm64-node-fix.zip
+          codesign --verify --deep --strict build/macos/Build/Products/Release/pocket_codex.app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PocketCodex-0.2.5-macos-arm64-node-fix
+          path: |
+            apps/flutter/dist/PocketCodex-0.2.5-macos-arm64-node-fix.dmg
+            apps/flutter/dist/PocketCodex-0.2.5-macos-arm64-node-fix.zip
+            apps/flutter/dist/SHA256SUMS.txt
+          if-no-files-found: error
