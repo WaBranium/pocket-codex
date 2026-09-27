@@ -3373,6 +3373,48 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Stopping hosting only withdraws access. OpenCode keeps running.'**
   String get openCodeStopNote;
+
+  /// No description provided for @variant.
+  ///
+  /// In en, this message translates to:
+  /// **'Variant'**
+  String get variant;
+
+  /// No description provided for @approveAlwaysProject.
+  ///
+  /// In en, this message translates to:
+  /// **'Always allow (project)'**
+  String get approveAlwaysProject;
+
+  /// No description provided for @approveAlwaysProjectTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Always allow in this project?'**
+  String get approveAlwaysProjectTitle;
+
+  /// No description provided for @approveAlwaysProjectBody.
+  ///
+  /// In en, this message translates to:
+  /// **'OpenCode saves this as a permission rule for the whole project. Matching requests in every session of this project will run without asking until you remove the rule in OpenCode.'**
+  String get approveAlwaysProjectBody;
+
+  /// No description provided for @viewSubSession.
+  ///
+  /// In en, this message translates to:
+  /// **'View sub-session'**
+  String get viewSubSession;
+
+  /// No description provided for @subSessionReadOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Sub-session · read-only'**
+  String get subSessionReadOnly;
+
+  /// No description provided for @backToParentSession.
+  ///
+  /// In en, this message translates to:
+  /// **'Back to parent session'**
+  String get backToParentSession;
 }
 
 class _AppLocalizationsDelegate

@@ -1776,4 +1776,26 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get openCodeStopNote => '停止托管只撤销访问能力，OpenCode 会继续运行。';
+
+  @override
+  String get variant => '变体';
+
+  @override
+  String get approveAlwaysProject => '始终允许（项目）';
+
+  @override
+  String get approveAlwaysProjectTitle => '在此项目中始终允许？';
+
+  @override
+  String get approveAlwaysProjectBody =>
+      'OpenCode 会把它保存为整个项目的权限规则。在你于 OpenCode 中删除该规则之前，此项目所有会话里匹配的请求都不会再询问。';
+
+  @override
+  String get viewSubSession => '查看子会话';
+
+  @override
+  String get subSessionReadOnly => '子会话 · 只读';
+
+  @override
+  String get backToParentSession => '返回父会话';
 }
