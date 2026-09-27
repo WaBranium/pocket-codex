@@ -780,5 +780,12 @@
   "openCodeUnverified": "Unverified version: its API matched the contract, but this build was not tested against it.",
   "openCodeGatewayLabel": "OpenCode gateway",
   "hostMetaLabel": "Meta service",
-  "openCodeStopNote": "Stopping hosting only withdraws access. OpenCode keeps running."
+  "openCodeStopNote": "Stopping hosting only withdraws access. OpenCode keeps running.",
+  "variant": "Variant",
+  "approveAlwaysProject": "Always allow (project)",
+  "approveAlwaysProjectTitle": "Always allow in this project?",
+  "approveAlwaysProjectBody": "OpenCode saves this as a permission rule for the whole project. Matching requests in every session of this project will run without asking until you remove the rule in OpenCode.",
+  "viewSubSession": "View sub-session",
+  "subSessionReadOnly": "Sub-session · read-only",
+  "backToParentSession": "Back to parent session"
 }

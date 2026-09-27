@@ -1888,4 +1888,26 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get openCodeStopNote =>
       'Stopping hosting only withdraws access. OpenCode keeps running.';
+
+  @override
+  String get variant => 'Variant';
+
+  @override
+  String get approveAlwaysProject => 'Always allow (project)';
+
+  @override
+  String get approveAlwaysProjectTitle => 'Always allow in this project?';
+
+  @override
+  String get approveAlwaysProjectBody =>
+      'OpenCode saves this as a permission rule for the whole project. Matching requests in every session of this project will run without asking until you remove the rule in OpenCode.';
+
+  @override
+  String get viewSubSession => 'View sub-session';
+
+  @override
+  String get subSessionReadOnly => 'Sub-session · read-only';
+
+  @override
+  String get backToParentSession => 'Back to parent session';
 }
