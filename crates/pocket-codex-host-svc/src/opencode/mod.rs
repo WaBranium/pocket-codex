@@ -12,6 +12,7 @@ pub mod discovery;
 pub mod forms;
 pub mod gateway;
 mod protocol;
+mod session_dirs;
 mod sse;
 
 use std::fmt;
@@ -21,6 +22,7 @@ pub use protocol::{
     FileDiff, Form, Location, Message, MessagePage, ModelRef, Permission, PermissionReply,
     PromptAcceptance, ServerInfo, Session, SessionPage,
 };
+pub use session_dirs::SessionDirs;
 pub use sse::{Event, EventStream};
 
 /// The OpenCode release whose runtime contract this build was verified

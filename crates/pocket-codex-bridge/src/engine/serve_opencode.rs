@@ -25,7 +25,10 @@ use std::{
 use anyhow::{anyhow, bail, Context, Result};
 use once_cell::sync::OnceCell;
 use pocket_codex_core::service::{default_device_id, ServiceId, ServiceKind};
-use pocket_codex_host_svc::opencode::{discovery, gateway, Error as OcError};
+use pocket_codex_host_svc::{
+    file_links::SessionDirResolver,
+    opencode::{discovery, gateway, Error as OcError, SessionDirs},
+};
 use pocket_codex_pb::Published;
 use tokio::task::JoinHandle;
 
@@ -152,6 +155,8 @@ pub fn start(name: Option<String>, binary_override: Option<String>) -> Result<Op
         .context("resolving the state directory")?
         .join("opencode-uploads");
 
+    let session_dirs = SessionDirs::new(attached.client.clone());
+
     let rt = runtime::runtime();
     let gateway_task = {
         let gateway = gateway.clone();
@@ -165,22 +170,35 @@ pub fn start(name: Option<String>, binary_override: Option<String>) -> Result<Op
             },
         ))
     };
-    let meta_task = rt.spawn(serve::supervise(
-        "the OpenCode meta service",
-        meta_local,
-        meta_std,
-        move |listener| {
-            let (store, host_store, uploads) = (store.clone(), host_store.clone(), uploads.clone());
-            async move {
-                pocket_codex_host_svc::serve_generic(listener, store, host_store, uploads).await
-            }
-        },
-    ));
+    let meta_task = {
+        let session_dirs = session_dirs.clone();
+        rt.spawn(serve::supervise(
+            "the OpenCode meta service",
+            meta_local,
+            meta_std,
+            move |listener| {
+                let (store, host_store, uploads) =
+                    (store.clone(), host_store.clone(), uploads.clone());
+                let session_dirs: Arc<dyn SessionDirResolver> = Arc::new(session_dirs.clone());
+                async move {
+                    pocket_codex_host_svc::serve_generic(
+                        listener,
+                        store,
+                        host_store,
+                        uploads,
+                        session_dirs,
+                    )
+                    .await
+                }
+            },
+        ))
+    };
     let alive = Arc::new(AtomicBool::new(true));
     let version = Arc::new(Mutex::new(attached.info.version.clone()));
     let verified = Arc::new(AtomicBool::new(attached.verified));
     let watchdog = rt.spawn(health_watchdog(
         gateway.clone(),
+        session_dirs,
         attached.clone(),
         alive.clone(),
         version.clone(),
@@ -334,9 +352,11 @@ fn bind_loopback(label: &str) -> Result<(std::net::TcpListener, SocketAddr)> {
 }
 
 /// Probe the attached server; when it stops answering or restarted (new pid,
-/// port or password), re-read its registration and repoint the gateway.
+/// port or password), re-read its registration and repoint the gateway and the
+/// meta service's session-directory lookups.
 async fn health_watchdog(
     gateway: gateway::Gateway,
+    session_dirs: SessionDirs,
     mut current: discovery::Attached,
     alive: Arc<AtomicBool>,
     version: Arc<Mutex<String>>,
@@ -356,6 +376,7 @@ async fn health_watchdog(
             Ok(attached) => {
                 tracing::info!("OpenCode service changed; repointing the gateway");
                 gateway.set_upstream(attached.upstream.clone());
+                session_dirs.set_client(attached.client.clone());
                 if let Ok(mut v) = version.lock() {
                     v.clone_from(&attached.info.version);
                 }
