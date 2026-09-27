@@ -767,5 +767,18 @@
   "messageCopyFailed": "Could not copy the text. Please try again.",
   "addToDraft": "Add to draft",
   "editMessageHint": "Reuse this text as a new message. History stays unchanged; original attachments are not added.",
-  "editMessageDraftHint": "Your existing draft and attachments will be kept. This text will be added below."
+  "editMessageDraftHint": "Your existing draft and attachments will be kept. This text will be added below.",
+  "providerLabel": "Provider",
+  "providerCodex": "Codex",
+  "providerOpenCode": "OpenCode",
+  "openCodeHostHint": "Attaches to your running OpenCode service and registers it to your account. Stopping hosting does not stop OpenCode.",
+  "openCodeBinaryPath": "opencode binary path (optional)",
+  "openCodeBinaryHint": "Only used when OpenCode's background service is not running and has to be started.",
+  "openCodeNotFound": "opencode wasn't found. If its service isn't running, enter the binary path.",
+  "openCodeVersionLabel": "OpenCode version",
+  "openCodeVerified": "Verified",
+  "openCodeUnverified": "Unverified version: its API matched the contract, but this build was not tested against it.",
+  "openCodeGatewayLabel": "OpenCode gateway",
+  "hostMetaLabel": "Meta service",
+  "openCodeStopNote": "Stopping hosting only withdraws access. OpenCode keeps running."
 }

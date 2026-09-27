@@ -3391,6 +3391,84 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Your existing draft and attachments will be kept. This text will be added below.'**
   String get editMessageDraftHint;
+
+  /// No description provided for @providerLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Provider'**
+  String get providerLabel;
+
+  /// No description provided for @providerCodex.
+  ///
+  /// In en, this message translates to:
+  /// **'Codex'**
+  String get providerCodex;
+
+  /// No description provided for @providerOpenCode.
+  ///
+  /// In en, this message translates to:
+  /// **'OpenCode'**
+  String get providerOpenCode;
+
+  /// No description provided for @openCodeHostHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Attaches to your running OpenCode service and registers it to your account. Stopping hosting does not stop OpenCode.'**
+  String get openCodeHostHint;
+
+  /// No description provided for @openCodeBinaryPath.
+  ///
+  /// In en, this message translates to:
+  /// **'opencode binary path (optional)'**
+  String get openCodeBinaryPath;
+
+  /// No description provided for @openCodeBinaryHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Only used when OpenCode\'s background service is not running and has to be started.'**
+  String get openCodeBinaryHint;
+
+  /// No description provided for @openCodeNotFound.
+  ///
+  /// In en, this message translates to:
+  /// **'opencode wasn\'t found. If its service isn\'t running, enter the binary path.'**
+  String get openCodeNotFound;
+
+  /// No description provided for @openCodeVersionLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'OpenCode version'**
+  String get openCodeVersionLabel;
+
+  /// No description provided for @openCodeVerified.
+  ///
+  /// In en, this message translates to:
+  /// **'Verified'**
+  String get openCodeVerified;
+
+  /// No description provided for @openCodeUnverified.
+  ///
+  /// In en, this message translates to:
+  /// **'Unverified version: its API matched the contract, but this build was not tested against it.'**
+  String get openCodeUnverified;
+
+  /// No description provided for @openCodeGatewayLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'OpenCode gateway'**
+  String get openCodeGatewayLabel;
+
+  /// No description provided for @hostMetaLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Meta service'**
+  String get hostMetaLabel;
+
+  /// No description provided for @openCodeStopNote.
+  ///
+  /// In en, this message translates to:
+  /// **'Stopping hosting only withdraws access. OpenCode keeps running.'**
+  String get openCodeStopNote;
 }
 
 class _AppLocalizationsDelegate

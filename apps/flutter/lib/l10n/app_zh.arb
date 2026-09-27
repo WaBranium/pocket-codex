@@ -666,5 +666,18 @@
   "messageCopyFailed": "复制失败，请重试。",
   "addToDraft": "加入输入框",
   "editMessageHint": "将文字作为新消息使用，保留原有历史，不会重新附加原消息的附件。",
-  "editMessageDraftHint": "保留当前草稿和附件，编辑后的文字将加在草稿末尾。"
+  "editMessageDraftHint": "保留当前草稿和附件，编辑后的文字将加在草稿末尾。",
+  "providerLabel": "服务提供方",
+  "providerCodex": "Codex",
+  "providerOpenCode": "OpenCode",
+  "openCodeHostHint": "附接到本机正在运行的 OpenCode 服务并注册到你的账号。停止托管不会关闭 OpenCode。",
+  "openCodeBinaryPath": "opencode 可执行文件路径（可选）",
+  "openCodeBinaryHint": "仅在 OpenCode 后台服务未运行、需要启动时使用。",
+  "openCodeNotFound": "未找到 opencode。如果其服务未运行，请填写可执行文件路径。",
+  "openCodeVersionLabel": "OpenCode 版本",
+  "openCodeVerified": "已验证",
+  "openCodeUnverified": "未验证版本：接口契约检查已通过，但本版本未针对它测试。",
+  "openCodeGatewayLabel": "OpenCode 网关",
+  "hostMetaLabel": "Meta 服务",
+  "openCodeStopNote": "停止托管只撤销访问能力，OpenCode 会继续运行。"
 }
