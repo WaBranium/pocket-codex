@@ -205,3 +205,32 @@ multiSelectQuestions, childSessions
 | 轮次摘要需要列出所有 user 消息 | 上限 500，超出部分标记 `has_older` |
 | OpenCode 升级导致契约变化 | 契约检查明确报出缺失项；fixture 使用实测 OpenAPI |
 | 网关绕过路由白名单 | 按“方法 + 路径模板”精确匹配，并加测试覆盖 |
+
+## 7. 验证记录（2026-09-28）
+
+**自动验证**：AGENTS.md §7 的全部命令都通过，结果为 Rust 395 passed / 0 failed，Flutter 612 passed，analyze 无问题，fmt 无改动。
+
+**实测**：直接调用 App 用到的同一套引擎函数，对接本机 OpenCode 2.0.18 后台服务，走真实账号中转。使用默认免费模型，只在 `$TMPDIR/pocket-opencode-e2e` 下新建会话，共发送 5 条提示词。
+
+| # | 项 | 结果 | 证据 |
+|---|---|---|---|
+| 1 | 托管 | 通过（引擎层） | `opencode:opencode` 和 meta 都已注册，版本 2.0.18，状态为已验证；界面上的显示由 widget 测试覆盖 |
+| 2 | 自动恢复 | 未实机验证 | 本机没有 Xcode，无法运行桌面 App；恢复逻辑由 `opencode_hosts_test.dart` 覆盖 |
+| 3 | 会话列表与翻页 | 通过 | 15 个根会话、9 个目录；读取到 85 条、10 个轮次，更早一页 90 条；另外通过中转临时隧道成功握手 |
+| 4 | 新建与流式 | 通过 | 收到 7 次增量，`turn/completed` 状态为 completed，回复正确 |
+| 5 | 排队与补充 | 通过 | 运行中补充（steer）返回轮次 id，排队的 prompt 也被接受 |
+| 6 | 权限拒绝 | 通过 | 本机 OpenCode 默认全部放行，所以给测试会话单独设置规则 `pocket-e2e: ask`；审批卡片出现，拒绝后待办清零。表单（布尔 + 多选）也回答成功 |
+| 7 | 停止执行 | 通过 | `turn/completed` 状态为 interrupted，服务仍可达 |
+| 8 | 离线缓存 | 通过 | 停止托管后缓存有 18 条，状态为非运行中；`opencode service status` 仍返回服务地址 |
+| 9 | 双托管 | 通过 | Codex `default` 和 OpenCode `opencode` 同时运行并都能打开；两个方向的同名托管都被拒绝 |
+| 10 | Codex 回归 | 通过（不含模型调用） | 双托管时 Codex 能连接并列出 187 个线程；Codex 的自动化测试全部通过；没有实发 Codex 模型轮次，以免消耗 Codex 额度 |
+
+复现命令（`live_*` 测试，按需启用）：
+
+    PCX_OPENCODE_LIVE_SUPPORT="$HOME/Library/Application Support/io.github.ackingyou.pocketCodex" \
+      cargo test -p pocket_codex_bridge opencode_live -- --nocapture --test-threads=1
+
+**已知限制**：
+- 会话链接只能访问会话目录和项目根目录下的文件。
+- 运行中排队的 prompt，要等下一次读取才能得到准确的轮次 id。
+- 桌面 GUI 的点击流程需要在装有 Xcode 的机器上，或用 CI 构建的包再手动验证一遍。
