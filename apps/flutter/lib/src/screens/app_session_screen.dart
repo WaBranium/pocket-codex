@@ -51,6 +51,7 @@ import 'package:pocket_codex/src/widgets/loading.dart';
 import 'package:pocket_codex/src/widgets/message_images.dart';
 import 'package:pocket_codex/src/widgets/middle_click_scroll.dart';
 import 'package:pocket_codex/src/widgets/project_menu.dart';
+import 'package:pocket_codex/src/widgets/provider_badge.dart';
 import 'package:pocket_codex/src/widgets/status_dots.dart';
 import 'package:pocket_codex/src/widgets/takeover_dialog.dart';
 import 'package:pocket_codex/src/widgets/theme_toggle.dart';
@@ -6626,9 +6627,17 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
                         for (final s in entries)
                           DropdownMenuItem(
                             value: s.key,
-                            child: Text(
-                              labelOf(s),
-                              overflow: TextOverflow.ellipsis,
+                            child: Row(
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    labelOf(s),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                ProviderBadge.forKey(s.key),
+                              ],
                             ),
                           ),
                       ],
@@ -6639,14 +6648,22 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
                       },
                     ),
                   )
-                : Text(
-                    currentLabel,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                    ),
+                : Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          currentLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      ProviderBadge.forKey(widget.serviceKey),
+                    ],
                   ),
           ),
         ],

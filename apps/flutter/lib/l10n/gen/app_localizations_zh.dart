@@ -1736,4 +1736,44 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get fileLinkClose => '关闭';
+
+  @override
+  String get providerLabel => '服务提供方';
+
+  @override
+  String get providerCodex => 'Codex';
+
+  @override
+  String get providerOpenCode => 'OpenCode';
+
+  @override
+  String get openCodeHostHint =>
+      '附接到本机正在运行的 OpenCode 服务并注册到你的账号。停止托管不会关闭 OpenCode。';
+
+  @override
+  String get openCodeBinaryPath => 'opencode 可执行文件路径（可选）';
+
+  @override
+  String get openCodeBinaryHint => '仅在 OpenCode 后台服务未运行、需要启动时使用。';
+
+  @override
+  String get openCodeNotFound => '未找到 opencode。如果其服务未运行，请填写可执行文件路径。';
+
+  @override
+  String get openCodeVersionLabel => 'OpenCode 版本';
+
+  @override
+  String get openCodeVerified => '已验证';
+
+  @override
+  String get openCodeUnverified => '未验证版本：接口契约检查已通过，但本版本未针对它测试。';
+
+  @override
+  String get openCodeGatewayLabel => 'OpenCode 网关';
+
+  @override
+  String get hostMetaLabel => 'Meta 服务';
+
+  @override
+  String get openCodeStopNote => '停止托管只撤销访问能力，OpenCode 会继续运行。';
 }
