@@ -10,6 +10,10 @@
 mod engine_tests;
 mod events;
 mod history;
+#[cfg(test)]
+mod live_requests;
+#[cfg(test)]
+mod live_tests;
 mod mapping;
 mod ops;
 mod turns;

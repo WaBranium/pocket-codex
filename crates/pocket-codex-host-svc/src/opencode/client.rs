@@ -394,6 +394,45 @@ impl Client {
         Ok(())
     }
 
+    /// Replace a session's own permission rules (`[{action, resource,
+    /// effect}]`). Pocket never sends rules for user sessions; this exists for
+    /// tools and verification on sessions they created.
+    pub async fn set_session_permissions(&self, session_id: &str, rules: Value) -> Result<()> {
+        validate_id(session_id)?;
+        self.mutate_empty(
+            Method::PATCH,
+            &format!("api/session/{session_id}"),
+            &json!({"permissions": rules}),
+        )
+        .await
+    }
+
+    /// Raise a permission request on a session, as a tool would. The server
+    /// may hold the call open until the request is answered.
+    pub async fn request_permission(
+        &self,
+        session_id: &str,
+        action: &str,
+        resources: &[&str],
+    ) -> Result<Value> {
+        validate_id(session_id)?;
+        let body = json!({"action": action, "resources": resources});
+        let response: Data<Value> = self
+            .mutate_json(Method::POST, &format!("api/session/{session_id}/permission"), &body)
+            .await?;
+        Ok(response.data)
+    }
+
+    /// Open a form (question) on a session, as a tool would.
+    pub async fn create_form(&self, session_id: &str, title: &str, fields: Value) -> Result<Form> {
+        validate_id(session_id)?;
+        let body = json!({"title": title, "fields": fields});
+        let response: Data<Form> = self
+            .mutate_json(Method::POST, &format!("api/session/{session_id}/form"), &body)
+            .await?;
+        Ok(response.data)
+    }
+
     /// Models known to the server (native `Model.Info` objects).
     pub async fn models(&self) -> Result<Vec<Value>> {
         let response: Data<Vec<Value>> = self.get("api/model", &[]).await?;
