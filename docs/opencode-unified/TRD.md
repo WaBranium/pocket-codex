@@ -233,6 +233,6 @@ multiSelectQuestions, childSessions
 **已知限制**：
 - 会话链接只能访问会话目录和项目根目录下的文件。
 - 运行中排队的 prompt，要等下一次读取才能得到准确的轮次 id。
-- 桌面 GUI 的点击流程与服务页显示尚未目视确认：本机没有 Xcode，截图也缺少屏幕录制权限。macOS arm64 包已由 CI 构建成功（run 36333880234）。
+- 桌面目视确认（2026-09-28，CI 构建的真实 App）：启动后自动恢复 OpenCode 托管并打开该实例，主机名旁显示 “OpenCode” 标识。侧边栏按目录（quiet-pixel、stellar-star）列出 OpenCode 已有会话，最近的会话能打开并显示历史。模型选择器显示 `claude-opus-5-5-thinking · 极高`（即变体）；Fast 与权限预设不显示，而同一 App 里的 Codex 主机仍然显示它们。服务页，以及托管对话框、审批卡片、停止按钮的点击流程，仍未目视确认：当前没有辅助功能权限，无法模拟点击。
 
 **Android（控制器）**：OpenCode 支持走共享的 Dart 界面和桥接层，Android 不需要单独改代码；托管仍然只在桌面端（PRD §5.1）。临时 CI 为 arm64-v8a、armeabi-v7a、x86_64 三个 ABI 构建了 Release APK（run 36337018447），并通过 `scripts/verify_android_apk.py` 校验（签名、ABI、页对齐）。由于本仓库没有发布密钥，这批 APK 使用 debug 签名，覆盖安装已装的正式签名版本会失败，需要先卸载。尚未在真机上运行。
