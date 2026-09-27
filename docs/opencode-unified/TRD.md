@@ -215,7 +215,7 @@ multiSelectQuestions, childSessions
 | # | 项 | 结果 | 证据 |
 |---|---|---|---|
 | 1 | 托管 | 通过（引擎层） | `opencode:opencode` 和 meta 都已注册，版本 2.0.18，状态为已验证；界面上的显示由 widget 测试覆盖 |
-| 2 | 自动恢复 | 未实机验证 | 本机没有 Xcode，无法运行桌面 App；恢复逻辑由 `opencode_hosts_test.dart` 覆盖 |
+| 2 | 自动恢复 | 通过（CI 构建的真实 App） | 在 `ui_state.json` 中临时写入 `autoHostOpenCode` 后启动 App，日志显示 `opencode:opencode` 与 `meta:opencode` 已在中转注册；验证后已恢复原文件。截图无法捕获窗口（缺少屏幕录制权限），因此界面显示未经目视确认 |
 | 3 | 会话列表与翻页 | 通过 | 15 个根会话、9 个目录；读取到 85 条、10 个轮次，更早一页 90 条；另外通过中转临时隧道成功握手 |
 | 4 | 新建与流式 | 通过 | 收到 7 次增量，`turn/completed` 状态为 completed，回复正确 |
 | 5 | 排队与补充 | 通过 | 运行中补充（steer）返回轮次 id，排队的 prompt 也被接受 |
@@ -233,4 +233,4 @@ multiSelectQuestions, childSessions
 **已知限制**：
 - 会话链接只能访问会话目录和项目根目录下的文件。
 - 运行中排队的 prompt，要等下一次读取才能得到准确的轮次 id。
-- 桌面 GUI 的点击流程需要在装有 Xcode 的机器上，或用 CI 构建的包再手动验证一遍。
+- 桌面 GUI 的点击流程与服务页显示尚未目视确认：本机没有 Xcode，截图也缺少屏幕录制权限。macOS arm64 包已由 CI 构建成功（run 36333880234）。
