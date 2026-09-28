@@ -234,3 +234,5 @@ multiSelectQuestions, childSessions
 - 会话链接只能访问会话目录和项目根目录下的文件。
 - 运行中排队的 prompt，要等下一次读取才能得到准确的轮次 id。
 - 桌面 GUI 的点击流程与服务页显示尚未目视确认：本机没有 Xcode，截图也缺少屏幕录制权限。macOS arm64 包已由 CI 构建成功（run 36333880234）。
+
+**Android（控制器）**：OpenCode 支持走共享的 Dart 界面和桥接层，Android 不需要单独改代码；托管仍然只在桌面端（PRD §5.1）。临时 CI 为 arm64-v8a、armeabi-v7a、x86_64 三个 ABI 构建了 Release APK（run 36337018447），并通过 `scripts/verify_android_apk.py` 校验（签名、ABI、页对齐）。由于本仓库没有发布密钥，这批 APK 使用 debug 签名，覆盖安装已装的正式签名版本会失败，需要先卸载。尚未在真机上运行。
