@@ -18,7 +18,6 @@ breaking change goes.
   2.0.18 is the verified contract version.
 - Import `PATH` from the user's login shell on macOS, so an npm-installed Codex
   launched from Finder or the Dock can find `node` (for example under nvm).
-
 - Wait for host file writes to complete before acknowledging uploads, preventing
   immediate reads from seeing empty or incomplete files.
 - Open session file links and attachment chips with Preview / Download actions.
