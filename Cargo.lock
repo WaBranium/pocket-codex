@@ -2338,6 +2338,7 @@ dependencies = [
  "json5",
  "nix",
  "pocket-codex-core",
+ "rustix 1.1.4",
  "serde",
  "serde_json",
  "sysinfo",

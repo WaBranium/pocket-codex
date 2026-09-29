@@ -342,6 +342,10 @@ The order below is our current best guess; it is not a contract.
    packaging; **Built-in engine** is a disabled, unimplemented placeholder.
    The bridge uses local wire envelopes: upstream protocol crates also pull in
    runtime support and are not linked into application artifacts (see §8.1).
+   macOS GUI hosts resolve the login-shell PATH lazily in the Codex worker path;
+   only Codex children receive it. Preserve inherited tool precedence, never
+   mutate the process environment, and clean up the probe's owned process group.
+   Native macOS host checks are part of the required CI result.
 8. **App-server protocol sync (2026-09-24).** Codex fork merged upstream main
    `c098f97e5` at `c08819510`; CLI and UI share the acknowledged initialization handshake.
    Resume responses restore collaboration mode, opaque `fileId` image references

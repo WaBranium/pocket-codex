@@ -178,18 +178,42 @@ jobs:
         working-directory: apps/flutter
         run: flutter test
 
+  macos-host:
+    name: macOS host environment
+    needs: changes
+    if: needs.changes.outputs.rust_mode != 'none' || needs.changes.outputs.flutter == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check native host code
+        run: cargo clippy -p pocket-codex-codex --all-targets --locked -- -D warnings
+
+      - name: Test native host and shell process cleanup
+        run: cargo test -p pocket-codex-codex --locked
+
   # Single required status that reflects the whole run. Always runs, so a
   # skipped Rust/Flutter job (path-filtered out) keeps the gate green, while
   # any real failure or cancellation fails it.
   ci-result:
     name: CI result
-    needs: [changes, fmt, clippy, test, flutter]
+    needs: [changes, fmt, clippy, test, flutter, macos-host]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Verify no required job failed
         run: |
-          results="${{ needs.changes.result }} ${{ needs.fmt.result }} ${{ needs.clippy.result }} ${{ needs.test.result }} ${{ needs.flutter.result }}"
+          results="${{ needs.changes.result }} ${{ needs.fmt.result }} ${{ needs.clippy.result }} ${{ needs.test.result }} ${{ needs.flutter.result }} ${{ needs.macos-host.result }}"
           echo "job results: $results"
           for r in $results; do
             if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then

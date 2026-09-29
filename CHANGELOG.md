@@ -9,6 +9,10 @@ breaking change goes.
 
 ## Unreleased
 
+- Resolve a macOS GUI host's login-shell PATH on demand for external Codex and
+  npm's Node launcher. Keep the controller environment and window startup
+  unchanged, preserve inherited tool choices, and terminate the probe's process
+  group on success, failure or timeout. Validate the host code in macOS CI.
 - Wait for host file writes to complete before acknowledging uploads, preventing
   immediate reads from seeing empty or incomplete files.
 - Open session file links and attachment chips with Preview / Download actions.
