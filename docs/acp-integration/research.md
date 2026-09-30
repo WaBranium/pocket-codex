@@ -1,6 +1,6 @@
 # 调研方案：通用 ACP 接入（分支 `research-acp`）
 
-状态：v1.0，§11 的 D1–D19 已于 2026-09-30 全部按推荐确认。调研日期 2026-09-30。技术方案见 [TRD](TRD.md)（按本文确认结果编写）。术语沿用 [`CONTEXT.md`](../../CONTEXT.md)，现有 OpenCode 接入见 [TRD](../opencode-unified/TRD.md) 和 [ADR-0002](../adr/0002-opencode-shared-session-ui.md)。
+状态：v1.0，§11 的 D1–D21 已于 2026-09-30 全部按推荐确认。调研日期 2026-09-30。技术方案见 [TRD](TRD.md)（按本文确认结果编写）。术语沿用 [`CONTEXT.md`](../../CONTEXT.md)，现有 OpenCode 接入见 [TRD](../opencode-unified/TRD.md) 和 [ADR-0002](../adr/0002-opencode-shared-session-ui.md)。
 
 约定：方括号里的键（如 [P1]、[A6]）对应 §12 的一手来源，每个来源都固定了 commit、版本或抓取日期。**未验证** 表示没能从一手来源或本机实测确认；**推断** 表示从源码读出、但没有实际运行确认。
 
@@ -129,7 +129,7 @@ registry 数据按 2026-09-30 的 CDN 复核 [P7]。
 - Claude Code CLI 本身**没有**原生 ACP（issue #24411 仍是 open）[A5]。适配器已经改过两次名，旧的 `@zed-industries/*` 包都已 deprecated [A2]。
 - 平台来自 SDK 的 optionalDependencies：darwin x64/arm64、linux x64/arm64（glibc 和 musl）、win32 x64/arm64。linux-arm64 包解压后约 242 MB [A3]。
 - 认证：只有客户端声明了 terminal auth（规范写法或 `_meta["terminal-auth"]` 写法），才会返回 `claude-ai-login` / `console-login`。检测到 `SSH_*` / `NO_BROWSER` 时改为返回 `claude-login`，进入 TUI 执行 `/login` [A1]。
-- **合规**（需法务确认）：Anthropic 的条款写着"Anthropic does not permit third-party developers to offer Claude.ai login into their own applications"，同时允许"an end user signing in to the unmodified Claude Code binary with their own Claude subscription, including where a platform hosts Claude Code" [A4]。结论：Pocket-Codex 不能提供自己的 Claude.ai 登录入口，只能启动未修改的 Claude Code 自带的登录。
+- **合规**（需法务确认；D21 之后，默认配置已不涉及这个问题）：Anthropic 的条款写着"Anthropic does not permit third-party developers to offer Claude.ai login into their own applications"，同时允许"an end user signing in to the unmodified Claude Code binary with their own Claude subscription, including where a platform hosts Claude Code" [A4]。结论：Pocket-Codex 不能提供自己的 Claude.ai 登录入口，只能启动未修改的 Claude Code 自带的登录。
 - 已知问题：#883（`mcpServers` 里的 stdio MCP 从未传给模型）、#976（后续 prompt 会杀掉后台子代理）[A2]。ACP 创建的会话在 `claude --resume` 选择器里默认被隐藏（#84421）[A5]。
 
 ### 3.2 Codex 要点
@@ -349,6 +349,8 @@ ACP 到现有 DTO 的映射（在 bridge 里做，和 OpenCode 的 `mapping.rs` 
 | D17 | 安卓本机托管 | **不做** / 做 | **不做**，理由见 §9 |
 | D18 | CLI | **首期只在桌面 App 托管** / CLI 同步新增 | **只在 App 托管**，与 OpenCode 一致 |
 | D19 | OpenCode-ACP 的数据库（写 TRD 时补充） | **(a) 按用户本机 OpenCode 的大版本自动决定共享或隔离** / (b) 始终隔离 / (c) 始终共享 | **(a)**，详见 [TRD](TRD.md) §11 |
+| D20 | 模型网关（用户使用 New API 中转站，补充） | **(a) 通用网关登录：声明 `auth._meta.gateway`，在主机上配置网关地址和密钥，由 Hub 自动登录** / (b) 只做环境变量注入 / (c) 只依赖 agent 自己的配置 | **(a)**；agent 自己的配置照常生效，详见 TRD §4.2.12 |
+| D21 | Claude 订阅登录（补充） | **(a) 默认加 `--hide-claude-auth`，高级设置里可以打开** / (b) 保持现状 | **(a)**；默认配置下不涉及 D8 的条款问题 |
 
 ## 12. 来源
 

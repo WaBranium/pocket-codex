@@ -1,6 +1,6 @@
 # TRD：通用 ACP 接入（分支 `research-acp`）
 
-状态：v1.0 定稿（2026-09-30）。经多轮冷启动检验，已没有阻塞问题；D19 已确认采用 (a)。需求和已确认的决策 D1–D18 见 [research.md](research.md) 的 §1 和 §11，术语见 [`CONTEXT.md`](../../CONTEXT.md)，本方案新增的术语见 §12。
+状态：v1.1（2026-09-30）。v1.0 经多轮冷启动检验后已没有阻塞问题，D19 确认采用 (a)；v1.1 补充了 D20（模型网关）和 D21（默认关闭 Claude 订阅登录）。需求和已确认的决策 D1–D18 见 [research.md](research.md) 的 §1 和 §11，术语见 [`CONTEXT.md`](../../CONTEXT.md)，本方案新增的术语见 §12。
 
 ## 0. 施工须知
 
@@ -77,6 +77,8 @@
 - D17 安卓不做本机托管
 - D18 只在 App 内托管
 - D19 OpenCode-ACP 的数据库按大版本自动决定共享还是隔离（§11，2026-09-30 确认）
+- D20 通用模型网关登录：Hub 声明 `auth._meta.gateway`；只要 agent 提供了网关类登录方法，就可以在主机桌面上配置网关地址和密钥，每次启动后由 Hub 自动登录（§4.2.12，2026-09-30 确认）
+- D21 Claude 适配器默认加 `--hide-claude-auth` 启动，关闭 Claude.ai 订阅登录；主机桌面的高级设置里可以重新打开，打开时显示条款提示（§4.2.12，2026-09-30 确认）
 
 本方案的技术决策：
 
@@ -117,7 +119,7 @@
  "clientCapabilities":{
    "fs":{"readTextFile":false,"writeTextFile":false},
    "terminal":false,
-   "auth":{"terminal":true},
+   "auth":{"terminal":true,"_meta":{"gateway":true}},
    "elicitation":{"form":{},"url":{}},
    "session":{"configOptions":{"boolean":{}}},
    "_meta":{"terminal-auth":true}},
@@ -125,6 +127,7 @@
 ```
 
 - `auth.terminal` 和 `_meta["terminal-auth"]` 两种写法同时声明（research §3.1、§3.3）。
+- `auth._meta.gateway` 是 Zed 和 JetBrains 用的扩展，不在 ACP 规范里。两个目标适配器都只在客户端声明了它时，才会返回网关类登录方法：claude-agent-acp v0.84.0 的 `src/acp-agent.ts:2357-2359`，codex-acp v2.0.1 的 `src/CodexAuthMethod.ts:48-66`。用法见 §4.2.12（D20）。
 - 协商出的版本不是 1 时，结束进程并报 `acp.protocol_unsupported`。
 
 ### 3.3 用到的方法
@@ -161,7 +164,7 @@ Hub 处理 agent 发来的消息：
 
 | 清单 id | 显示名 | 版本 | 方式 | 启动命令 | 固定环境变量 | registry id |
 |---|---|---|---|---|---|---|
-| `claude-acp` | Claude Code | 0.84.0 | npm | `<node> <prefix>/node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js` | 无；可选 `CLAUDE_CODE_EXECUTABLE`（D7 的高级项） | `claude-acp` |
+| `claude-acp` | Claude Code | 0.84.0 | npm | `<node> <prefix>/node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js [--hide-claude-auth]`。这个参数默认带上，`allow_subscription_login = true` 时去掉（D21） | 无；可选 `CLAUDE_CODE_EXECUTABLE`（D7 的高级项） | `claude-acp` |
 | `codex-acp` | Codex（ACP） | 2.0.1 或 1.12.0，按 T11 选择 | npm，`--omit=optional` | `<node> <prefix>/node_modules/@agentclientprotocol/codex-acp/dist/index.js` | `CODEX_PATH=<用户的 codex>` | `codex-acp` |
 | `opencode-acp` | OpenCode 1.x（ACP） | 1.18.33 | archive（GitHub Release） | `<dir>/opencode acp --hostname 127.0.0.1 --port 0 --no-mdns` | `OPENCODE_SERVER_PASSWORD=<每次启动随机生成>`；`OPENCODE_DB` 由 D19 决定 | `opencode` |
 | `opencode2-acp` | OpenCode 2.x（ACP） | 2.0.20 | archive（npm 平台包 tarball） | `<dir>/package/bin/opencode acp` | `OPENCODE_DB` 由 D19 决定 | 无 |
@@ -522,12 +525,16 @@ pub struct AuthMethodInfo {
     pub id: String,
     pub name: String,
     pub description: String,
-    /// `agent` | `terminal`
+    /// `agent` | `terminal` | `gateway`
     pub kind: String,
     /// Whether a remote controller may start it.
     pub remote: bool,
     /// False when a legacy terminal method cannot be reproduced safely.
     pub available: bool,
+    /// `_meta.gateway.protocol` of a gateway method (e.g. `anthropic`, `openai`), if given.
+    pub gateway_protocol: Option<String>,
+    /// For gateway methods: whether the host has a gateway configured for this method.
+    pub gateway_configured: bool,
 }
 
 /// `initialize` result `_meta.pcx` and the `_pcx/hub/state` notification.
@@ -637,6 +644,9 @@ pub struct LaunchSpec {
     pub pinned: bool,
     /// Working directory of the agent process; `None` means the user's home.
     pub cwd: Option<PathBuf>,
+    /// Appended after `args` only when launching the ACP agent (e.g. D21's
+    /// `--hide-claude-auth`); never passed to terminal-login commands.
+    pub launch_only_args: Vec<String>,
 }
 
 #[async_trait]
@@ -661,7 +671,7 @@ impl ChildHandle {
 ```
 
 `ProcessConnector` 的做法：
-- 用 `tokio::process::Command::new(&spec.program)`，依次设置 `.args(&spec.args)`、`.envs(&spec.env)`，再逐个执行 `env_remove`。
+- 用 `tokio::process::Command::new(&spec.program)`，依次设置 `.args(&spec.args)`、`.args(&spec.launch_only_args)`、`.envs(&spec.env)`，再逐个执行 `env_remove`。
 - 工作目录用 `spec.cwd`；为 `None` 时用 `HOME`（Windows 上是 `USERPROFILE`），再取不到就用 `std::env::temp_dir()`。会话自己的 cwd 由 `session/new` 另外传给 agent。
 - stdin、stdout、stderr 都用管道，并设 `kill_on_drop(true)`。
 - Unix 上用 `process_group(0)` 让 agent 成为独立进程组，因为 npm 类 agent 还会拉起子进程，例如 `codex app-server`。Windows 上用 `creation_flags(0x0800_0000)`（`CREATE_NO_WINDOW`）。
@@ -713,6 +723,13 @@ Stopped ──start──► Starting ──initialize ok──► Ready
 状态用 `ProcessState` 表示，定义见 §4.1.5。
 
 - 重启间隔依次为 1、2、4、8、16 s，上限 30 s。5 分钟内第 5 次失败就进入 `Failed`。
+- `Starting` 阶段依次执行：
+  1. 调用 `HubOptions.launch`，得到这一次的 `LaunchSpec` 和网关配置。
+  2. 启动进程，发送 `initialize`。
+  3. 如果有网关配置，并且 agent 返回了 gateway 类方法，就执行网关 `authenticate`（§4.2.12）。
+  4. 进入 `Ready`。
+
+  网关登录必须在接受会话操作之前完成：两个适配器都在创建会话时就固定了路由（claude-agent-acp 的 `src/acp-agent.ts` 约 `:8692`，codex-acp 的 `src/CodexAcpClient.ts:839-859`），登录前创建或加载的会话不会走网关。网关登录失败时照常进入 `Ready`，但认证状态记为 required。
 - 只有在 `Ready` 状态才接受会话操作。其他状态下，控制器的请求一律返回 `AGENT_UNAVAILABLE`；`_pcx/hub/state` 会带上当前状态，以及 stderr 的最后 2 KiB。
 - 进程退出（Crashed）时依次处理：
   1. 所有会话设 `agent_loaded = false`，`phase` 设为 `Listed`（转录保留），所以之后的 attach 和 submit 都会先走加载。
@@ -784,8 +801,18 @@ pub struct Queued { pub submission: String, pub client_submission: String, pub p
 #### 4.2.5 Hub API（`hub.rs`）
 
 ```rust
+/// What to launch and how to log in through a gateway; re-read on every start and restart,
+/// so settings changes (D20 gateway, D21 flags) apply after `restart()`.
+pub type LaunchProvider = Arc<dyn Fn() -> Result<(LaunchSpec, Option<GatewayAuth>), AcpError> + Send + Sync>;
+
+/// D20. `headers` already contains `Authorization: Bearer <token>` plus extra headers.
+#[derive(Clone)]
+pub struct GatewayAuth { pub method_id: Option<String>, pub base_url: String, pub headers: BTreeMap<String, String>, pub provider_name: Option<String> }
+
 pub struct HubOptions {
     pub instance: String,
+    /// Production: `install::resolve_launch` plus the agent's gateway settings; tests return fixed values.
+    pub launch: LaunchProvider,
     /// `<state_dir>/acp`; holds sessions/<instance>.json and run/.
     pub state_dir: PathBuf,
     pub log_file: Option<PathBuf>,
@@ -807,9 +834,9 @@ pub struct HubInfo {
 }
 
 impl AcpHub {
-    /// Spawn, wait for the first `Ready` or `Failed` (≤ 60 s), then wait for the
-    /// first auth detection (≤ 15 s) so the returned `info().auth` is meaningful.
-    pub async fn start(spec: LaunchSpec, options: HubOptions) -> Result<Arc<Self>, AcpError>;
+    /// Call `options.launch`, spawn, wait for the first `Ready` or `Failed` (≤ 60 s), then
+    /// wait for the first auth detection (≤ 15 s) so the returned `info().auth` is meaningful.
+    pub async fn start(options: HubOptions) -> Result<Arc<Self>, AcpError>;
     pub fn info(&self) -> HubInfo;
     /// A transport-independent controller connection (T18): a cloneable handle
     /// plus the receiver of everything the hub sends to this controller.
@@ -1027,8 +1054,11 @@ pub trait TerminalLauncher: Send + Sync {
 - 方法分类：
   - `type == "terminal"`：terminal 类，args 和 env 取自方法本身。
   - `_meta["terminal-auth"] = {command, args, label}`（旧写法）：也是 terminal 类。只有当 `command` 等于 `LaunchSpec.program` 的文件名（去掉 `.exe`）时才可用，此时 program 用 `LaunchSpec.program`，args 用这里给出的 args。否则 `available = false`，把 description 原样显示给用户。
+  - 带 `_meta.gateway` 的方法：gateway 类，`remote = false`（密钥只能在主机桌面上配置），`gateway_protocol` 取 `_meta.gateway.protocol`。处理方式见 §4.2.12。
   - 其他：agent 类，`remote = true`。terminal 类一律 `remote = false`。
 - terminal 登录（只在主机桌面进行，按规范写法）：program 为 `LaunchSpec.program`，args 为 `LaunchSpec.args` 后面追加 `method.args`，env 为 `LaunchSpec.env` 加上 `method.env`。
+  - **不包含** `launch_only_args`。例如 claude-agent-acp 会把 `--cli` 之后的参数原样转给 Claude CLI（`src/index.ts:12-14`），而 CLI 不认识 `--hide-claude-auth`，会报 unknown option。
+  - 旧写法的 args 里如果出现 `launch_only_args` 里的参数（适配器是用 `process.argv` 拼出这组参数的），先去掉这些参数再执行。
 - Hub 把命令交给 `TerminalLauncher`（实现见 §4.4.1），状态文件放在 `<state_dir>/acp/run/<rand>.status`。之后每 2 s 检查一次，最长 15 分钟：
   - 退出码为 0：调用 `restart()`，然后重新检测。
   - 退出码非 0：`message` 设为"登录未完成（退出码 N）"。
@@ -1075,6 +1105,44 @@ pub async fn serve_meta(listener: TcpListener, store: Arc<ConfigStore>, host: Ar
   - 这两处 merge 都加桌面平台门控。
   - CLI 进程（`pocket-codex` 命令行）没有注册 `AcpManagement` 实现，这些路由统一返回 404。
   - `manage.rs` 在 M5 才有，所以这两处 merge 也在 M5 加。M4 的 `serve_meta` 先只挂通用路由和 history。
+
+#### 4.2.12 模型网关与订阅登录（D20、D21）
+
+背景：用户常用 New API 这类中转站作为模型网关，用 API key 访问模型，不用 Claude.ai 订阅。
+
+**网关登录（D20）**
+
+- 适配器接受的请求形状（两个适配器的源码都已核对）：
+  - claude-agent-acp：`authenticate {methodId, _meta: {gateway: {baseUrl?, headers?}}}`，见 `src/acp-agent.ts:1432-1451`。它会把 baseUrl 和 headers 映射成 Claude Code 的环境变量，绕过标准登录。
+  - codex-acp：`authenticate {methodId: "gateway", _meta: {gateway: {baseUrl, headers, providerName?}}}`，见 `src/CodexAuthMethod.ts:48-66`。它声明的协议是 `openai`，`restartRequired: "false"`，内部按 `wire_api = "responses"` 配置 provider。是否提供这个方法由同文件约 `:76-84` 的 `supportsGatewayAuth` 判断。
+  - Claude 有两个网关方法：`gateway`（anthropic 协议）和 `gateway-bedrock`。`baseUrl` 必须是 http(s) 地址；它自己会设 `ANTHROPIC_AUTH_TOKEN="acp-proxy"`，并把 headers 映射成 `ANTHROPIC_CUSTOM_HEADERS`（`src/acp-agent.ts` 约 `:9559-9564`）。我们通过 headers 发的 `Authorization: Bearer <token>` 能不能覆盖它默认的 `Bearer acp-proxy`，要在 M10 第 15 项实测确认。如果覆盖不了，就改为同时发送 `x-api-key: <token>`，这种方式 New API 同样接受。
+- Hub 的做法按能力决定，不按 agent 名分支：
+  1. initialize 时声明 `auth._meta.gateway: true`（§3.2）。
+  2. 返回的方法里带 `_meta.gateway` 的，归为 gateway 类（§4.2.9）。
+  3. `agents.toml` 里给这个 agent 配了网关（§5.1）时，`HubOptions.launch` 会同时返回 `GatewayAuth`。Hub 在每次启动（包括崩溃后重启和 `restart()`）的 `Starting` 阶段，`initialize` 之后、进入 `Ready` 之前（§4.2.3），调用一次：
+
+     ```json
+     {"method":"authenticate","params":{"methodId":"<配置的 method_id，缺省为第一个 gateway 类方法>",
+       "_meta":{"gateway":{"baseUrl":"<base_url>","headers":{"Authorization":"Bearer <token>", "...":"<extra_headers>"},
+                           "providerName":"<provider_name，可选>"}}}}
+     ```
+
+  4. 成功后，`AuthState.status` 记为 ok。失败时记为 required，`message` 里写"网关登录失败：<错误信息>"，但不写出密钥。
+- 配置了网关的 agent，界面的登录区显示"已配置网关"，不再提示订阅登录或 terminal 登录。
+- 用户已经写在 `~/.claude/settings.json`（`env` 里的 `ANTHROPIC_BASE_URL` 等）或 `~/.codex/config.toml`（`model_providers`）里的网关配置照常生效：Claude 适配器会读取 user、project 和 local 三级设置（`src/acp-agent.ts:8710`），codex-acp 使用用户自己的 `CODEX_HOME`。Pocket-Codex 的网关配置是可选的，配了就以它为准。
+- OpenCode 不提供网关类方法，继续用它自己的 provider 配置。原生的 Codex 和 OpenCode provider 不受影响。
+- 密钥的处理：
+  - 以明文保存在 `agents.toml`（权限 0600），与 `config.toml` 保存账号 token 的做法一致。
+  - 不写日志，不进审计，不经远程管理路由返回。
+  - FRB 读取设置时只返回 `has_token`，不返回密钥本身。
+- 网关地址要求 https；只有回环地址和私有网段（`127.0.0.0/8`、`10/8`、`172.16/12`、`192.168/16`）允许 http，而且界面上要给出提示。
+
+**订阅登录（D21）**
+
+- 清单里 `claude-acp` 的 release 带条件参数：`allow_subscription_login` 为 false（默认）时，启动命令追加 `--hide-claude-auth`。
+- 带这个参数时，适配器不再提供 Claude.ai 订阅登录；如果某一轮要由订阅额度付费，它会按未登录处理（`src/hide-claude-auth.ts`）。这时用户需要使用网关、API key 或 Console 登录。
+- 主机桌面的 agent 管理页"高级"区里可以打开 `allow_subscription_login`。这个开关是按清单的 `conditional_args` 通用生成的（`AcpAgentFlagDto`），代码里不写死 agent 名。打开前弹出条款提示（Key `acp-flag-confirm-<setting>`，文案取 `confirm_key`，内容引用 research §3.1 的原文）；改动写进审计日志，之后重启该 agent 生效（`restart()` 会重新解析启动参数）。
+- 这样，默认配置下 Pocket-Codex 不提供 Claude.ai 登录入口，D8 的法务问题只和用户主动打开的这个选项有关，M10 的发布不再被法务确认卡住。
 
 ### 4.3 安装器（`pocket-codex-host-svc/src/acp/install/`，只在桌面编译）
 
@@ -1129,6 +1197,9 @@ package = "@agentclientprotocol/claude-agent-acp"
 entry = "node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js"
 lock = "claude-acp-0.84.0"
 omit = []
+# D21：设置项为 false（默认）时追加这些参数
+conditional_args = [{ setting = "allow_subscription_login", default = false, when_false = ["--hide-claude-auth"],
+                      label_key = "acpSubscriptionLogin", confirm_key = "acpSubscriptionLoginConfirmBody" }]
 platforms = ["darwin-aarch64", "darwin-x86_64", "linux-aarch64", "linux-x86_64", "windows-aarch64", "windows-x86_64"]
 
 [[agents]]
@@ -1210,6 +1281,14 @@ pub struct Release {
     pub version: String, pub engine_range: Option<String>, pub kind: ReleaseKind,
     pub args: Vec<String>, pub env: BTreeMap<String, String>, pub random_env: Vec<String>,
     pub data_family: Option<String>,
+    pub conditional_args: Vec<ConditionalArgs>,
+}
+/// Boolean setting read from `[agents.<id>]` in agents.toml. `label_key` / `confirm_key` are
+/// l10n keys the UI uses to render a switch (and a confirm dialog when turning it on).
+pub struct ConditionalArgs {
+    pub setting: String, pub default: bool,
+    pub when_true: Vec<String>, pub when_false: Vec<String>,
+    pub label_key: String, pub confirm_key: Option<String>,
 }
 pub enum ReleaseKind {
     Npm { package: String, entry: String, lock: String, omit: Vec<String>, platforms: Vec<String> },
@@ -1392,6 +1471,7 @@ pub fn engine_version(binary: &Path, args: &[String]) -> Result<semver::Version,
   4. 设置 `CODEX_PATH=<codex 的绝对路径>`。
 - **引擎覆盖（Claude）**：`agents.toml` 的 `[agents.claude-acp] engine_path` 有值时，设置 `CLAUDE_CODE_EXECUTABLE`。清单字段 `setting` 指明从 `[agents.<id>]` 下的哪个键读取：Claude 是 `engine_path`，Codex 是 `codex_binary`，archive 类是 `binary`。
 - **`random_env`**：每次启动为其中每个变量生成一个新的 32 字节十六进制随机值（用两个 uuid v4 拼成）。
+- **`conditional_args`**：读取 `[agents.<id>]` 下的布尔设置项，缺省时用 `default`，按取值把 `when_true` 或 `when_false` 放进 `LaunchSpec.launch_only_args`（D21）。不放进 `args`，原因见 §4.2.9。
 - **`data_family`**：按 D19 的结论（§11）决定是否设置 `OPENCODE_DB=<acp>/data/<data_family>/opencode.db`。
 - `pinned`：清单 agent 的已安装版本等于清单版本时为 true；自定义 agent 或 registry 来源的版本为 false。
 
@@ -1570,7 +1650,11 @@ pub fn start_with(name: Option<String>, agent_id: String, deps: StartDeps) -> Re
 
 ```rust
 // core::acp::pcx
-pub struct AcpSettingsView { pub remote_management: bool, pub npm_registry: Option<String>, pub claude_engine_path: Option<String>, pub codex_binary: Option<String>, pub binary_overrides: Vec<(String, String)>, pub opencode_data: Vec<(String, String)> }
+pub struct AcpSettingsView { pub remote_management: bool, pub npm_registry: Option<String>, pub claude_engine_path: Option<String>, pub codex_binary: Option<String>, pub binary_overrides: Vec<(String, String)>, pub opencode_data: Vec<(String, String)>, pub gateways: Vec<GatewayView>, pub flags: Vec<AgentFlagView> }
+/// (agent_id, setting, label_key, confirm_key, value); generated from every catalog agent's `conditional_args`.
+pub struct AgentFlagView { pub agent_id: String, pub setting: String, pub label_key: String, pub confirm_key: Option<String>, pub value: bool }
+/// Same semantics as `AcpGatewayDto` (token is write-only).
+pub struct GatewayView { pub agent_id: String, pub method_id: Option<String>, pub base_url: String, pub token: Option<String>, pub has_token: bool, pub provider_name: Option<String>, pub extra_headers: Vec<(String, String)>, pub clear: bool }
 pub struct CustomAgentDef { pub id: String, pub name: String, pub command: String, pub args: Vec<String>, pub env: Vec<(String, String)> }
 
 // engine::acp_manage (desktop) and engine::acp_desktop_stub::acp_manage (mobile), same signatures
@@ -1599,10 +1683,12 @@ pub fn auth_recheck(name: &str) -> Result<AuthState>;
 1. 要求已登录账号，和 `:127` 相同。
 2. 实例名默认取 `agent_id`，并做 sanitize。
 3. 名字冲突检查：`serve::is_hosting_codex(&name)` 或 `serve_opencode::is_hosting(&name)` 为真时，报错 "`{name}` is already hosting {Codex|OpenCode} on this device; choose another name"。本注册表里已有同名实例时：agent 相同就复用（`reused = true`，并按需 reregister）；agent 不同就报同样的错误。
-4. 用 `install::resolve_launch(agent_id, &ctx)` 得到启动规格。`ctx` 由 `acp_manage::install_context()` 构造，即 `InstallContext::production(codex_binary, in_use)`：
+4. 先调用一次 `StartDeps.resolve`（生产环境即 `install::resolve_launch(agent_id, &ctx)`），确认能得到启动规格，失败就直接报错。之后每次启动和重启，Hub 都会通过第 5 步的 `launch` 闭包重新解析。`ctx` 由 `acp_manage::install_context()` 构造，即 `InstallContext::production(codex_binary, in_use)`：
    - `codex_binary` 取 `serve::codex_locate()`（`serve.rs:232`，先查保存的配置再查 PATH，返回 `Option<String>`）。
    - `in_use` 按 `hosts()` 里各实例的 `agent_id` 和 `agent_version`（即 `LaunchSpec.version`，也就是清单里的 release 版本，不是 agent 自报的 `agentInfo.version`）判断。
-5. 调用 `AcpHub::start(spec, HubOptions { instance, state_dir, log_file: logs/acp-<name>.log, connector: ProcessConnector, terminal: Some(DesktopTerminal) })`。uploads 目录只交给 meta 服务（第 8 步），Hub 不需要它。失败时，错误里带上 `stderr_tail` 的最后 2 KiB。
+5. 调用 `AcpHub::start(HubOptions { instance, launch, state_dir, log_file: logs/acp-<name>.log, connector, terminal: Some(DesktopTerminal) })`。
+   - `launch` 闭包每次调用时都会：用 `StartDeps.resolve` 重新解析启动规格，读 `agents.toml` 里这个 agent 的网关配置，生成 `GatewayAuth`。
+   - uploads 目录只交给 meta 服务（第 8 步），Hub 不需要它。失败时，错误里带上 `stderr_tail` 的最后 2 KiB。
 6. 调用两次 `bind_loopback`：一个给 ws，一个给 meta。现在 `bind_loopback` 是 `serve_opencode.rs:346` 里的私有函数，把它原样移到 `serve.rs`，改成 `pub(super)`，供两个模块共用。
 7. ws 任务：`rt.spawn(serve::supervise("the ACP hub", ws_local, ws_std, move |l| pocket_codex_host_svc::acp::serve_ws(l, hub.clone())))`。
 8. meta 任务：`rt.spawn(serve::supervise("the ACP meta service", meta_local, meta_std, move |l| pocket_codex_host_svc::acp::serve_meta(l, store, host_store, uploads, hub.clone())))`。
@@ -1814,7 +1900,12 @@ pub struct AcpAgentsDto { pub remote_management: bool, pub agents: Vec<AcpAgentD
 pub struct AcpJobDto { pub id: String, pub kind: String, pub agent_id: String, pub version: String, pub state: String, pub bytes: u64, pub total: Option<u64>, pub message: Option<String>, pub error_code: Option<String>, pub service_key: Option<String> }
 pub struct AcpEnvVarDto { pub name: String, pub value: String }
 pub struct AcpCustomAgentDto { pub id: String, pub name: String, pub command: String, pub args: Vec<String>, pub env: Vec<AcpEnvVarDto> }
-pub struct AcpSettingsDto { pub remote_management: bool, pub npm_registry: Option<String>, pub claude_engine_path: Option<String>, pub codex_binary: Option<String>, pub binary_overrides: Vec<AcpBinaryOverrideDto>, pub opencode_data: Vec<AcpDataModeDto> }
+pub struct AcpSettingsDto { pub remote_management: bool, pub npm_registry: Option<String>, pub claude_engine_path: Option<String>, pub codex_binary: Option<String>, pub binary_overrides: Vec<AcpBinaryOverrideDto>, pub opencode_data: Vec<AcpDataModeDto>, pub gateways: Vec<AcpGatewayDto>, pub flags: Vec<AcpAgentFlagDto> }
+/// One `conditional_args` switch from the catalog (D21), e.g. claude-acp / allow_subscription_login.
+pub struct AcpAgentFlagDto { pub agent_id: String, pub setting: String, pub label_key: String, pub confirm_key: Option<String>, pub value: bool }
+/// D20. Reading returns `token: None` plus `has_token`; writing with `token: None` keeps the stored token,
+/// `Some("")` deletes it. `clear == true` removes the whole gateway entry.
+pub struct AcpGatewayDto { pub agent_id: String, pub method_id: Option<String>, pub base_url: String, pub token: Option<String>, pub has_token: bool, pub provider_name: Option<String>, pub extra_headers: Vec<AcpEnvVarDto>, pub clear: bool }
 pub struct AcpBinaryOverrideDto { pub agent_id: String, pub path: String }
 pub struct AcpSaveDto { pub saved: bool, pub warnings: Vec<String> }
 pub struct AcpDataModeDto { pub family: String, pub mode: String /* auto | shared | isolated */ }
@@ -2022,6 +2113,7 @@ url 模式：
   - `ProjectFoldersEditor`
 - 登录区 `_acpAuthSection(host)`：
   - 用 `appAuthState(host.appServiceKey)` 读状态。
+  - 有 gateway 类方法并且 `gateway_configured` 时，显示"已配置模型网关"和网关地址（不显示密钥），其余登录按钮收进"其他登录方式"。有 gateway 类方法但还没配置时，显示"配置模型网关"按钮，跳转到 `/settings/acp`，打开该 agent 的网关对话框。
   - 每个方法一个按钮，Key 为 `acp-login-<methodId>`：terminal 类且 `available` 的，调用 `acpAuthTerminal(name, id)`；agent 类的，调用 `acpAuthAgent(name, id)`。
   - 一个"重新检测"按钮（Key `acp-recheck-btn`），调用 `acpAuthRecheck(name)`。
 - `_stopAcp()`：
@@ -2046,6 +2138,16 @@ url 模式：
   - 每个 OpenCode 数据族的模式：自动、共享、隔离（D19）。选"共享"时弹风险确认框（Key `acp-shared-data-confirm`）。
   - 保存时先调用 `acpSettingsSet(settings, force: false)`：返回 `saved == false` 并带 warnings（D16 共存提示）时，弹确认框，用户确认后再用 `force: true` 保存。
   - archive 类 agent 的可执行文件覆盖，放在每个 agent 卡片的"高级"菜单里，对应 `binary_overrides`。
+- 模型网关（D20）：每个 agent 卡片的"网关"按钮（Key `acp-gateway-<id>`）打开编辑对话框，字段依次是：
+  - 按钮始终可用，因为 agent 没在托管时无法知道它提供哪些登录方式。
+  - 登录方法：agent 正在托管时，下拉框列出它返回的 gateway 类方法，按 `gateway_protocol` 标注（例如"Anthropic 协议"、"OpenAI 协议"）；两个 Claude 网关方法的名称都是"Custom model gateway"，所以必须按协议区分。没有在托管时显示"自动（第一个网关方法）"。
+  - agent 启动后如果发现它没有 gateway 类方法，`AuthState.message` 写"该 agent 没有提供网关登录方式，网关配置未生效"。
+  - 网关地址：输入框下方按协议显示提示。`anthropic` 填根地址，例如 `https://relay.example.com`，Claude Code 会自己拼上 `/v1/messages`；`openai` 填到 `/v1`，例如 `https://relay.example.com/v1`，而且网关需要支持 `/v1/responses`。
+  - 密钥：密码框。已保存过时显示"已保存，留空表示不修改"。
+  - provider 名称：可选。
+  - 额外请求头：每行一个 `KEY=VALUE`。
+  - 对话框底部写明："密钥只保存在这台主机的 agents.toml（权限 0600），不会发送给其他设备。"保存后，对正在托管的实例调用 `acpAuthRecheck`，让新配置生效。
+- 清单开关（D21）：`settings.flags` 里属于这个 agent 的每一项，都在它卡片的"高级"区显示一个 `Switch`：Key 为 `acp-flag-<agentId>-<setting>`，标签取 `label_key`。Claude Code 的 `allow_subscription_login` 默认关闭。打开时，如果有 `confirm_key`，先弹确认框（§4.2.12）；确认后保存，并提示"重启该 agent 后生效"。
 - 自定义 agent：
   - 列表来自 `acpCustomAgents()`，编辑时也用它的数据预填。"添加"按钮 Key 为 `acp-custom-add`。
   - 添加和编辑用同一个对话框，字段为 id、名称、命令（必须是绝对路径）、参数（每行一个）、环境变量（每行一个 `KEY=VALUE`）。
@@ -2134,6 +2236,7 @@ url 模式：
 - **agent 状态**：`acpNotInstalled`、`acpUnsupportedPlatform`、`acpEngineMissing`、`acpEngineIncompatible`（占位符 `found`、`required`）、`acpRegistryNewer`（占位符 `version`）、`acpRegistryInstallWarning`、`acpUnpinned`
 - **远程管理**：`acpRemoteManagement`、`acpRemoteManagementHint`、`acpRemoteDisabled`、`acpHostStart`
 - **登录**：`acpLogin`、`acpLoginOnHost`、`acpRecheck`、`acpAuthRequired`
+- **模型网关与订阅登录**：`acpGateway`、`acpGatewayConfigured`、`acpGatewayConfigure`、`acpGatewayUnsupported`、`acpGatewayMethod`、`acpGatewayUrl`、`acpGatewayToken`、`acpGatewayTokenKept`、`acpGatewayProvider`、`acpGatewayHeaders`、`acpGatewayNote`、`acpGatewayInsecureHttp`、`acpGatewayFailed`（占位符 `message`）、`acpSubscriptionLogin`、`acpSubscriptionLoginConfirmTitle`、`acpSubscriptionLoginConfirmBody`、`acpRestartToApply`
 - **设置与自定义 agent**：`acpCustomAgent`、`acpCustomCommand`、`acpCustomArgs`、`acpCustomEnv`、`acpCustomEnvNote`、`acpNpmRegistry`、`acpCodexBinary`、`acpClaudeEnginePath`、`acpDataMode`、`acpDataAuto`、`acpDataShared`、`acpDataIsolated`、`acpSharedDataWarning`
 - **会话界面**：`acpOptionConfirmTitle`、`acpOptionConfirmBody`、`acpUrlTitle`、`acpUrlOpen`、`acpUrlDecline`、`acpQueueFailed`（占位符 `count`）、`acpOlderUnavailable`、`acpSessionChanged`、`acpSessionNotLoadable`、`acpStopRunningConfirm`、`acpProcessRestarting`、`acpProcessFailed`
 
@@ -2148,6 +2251,14 @@ remote_management = true
 
 [agents.claude-acp]
 # engine_path = "/opt/homebrew/bin/claude"   # D7(b)：CLAUDE_CODE_EXECUTABLE
+allow_subscription_login = false             # D21：false 时带 --hide-claude-auth
+
+[agents.claude-acp.gateway]                  # D20：可选；配置后 Hub 每次启动自动网关登录
+base_url = "https://relay.example.com"
+token = "sk-…"                               # 以 Authorization: Bearer <token> 发送；只在本机保存
+# method_id = "gateway"                      # 缺省为 agent 返回的第一个 gateway 类方法
+# provider_name = "new-api"                  # codex-acp 用作 provider 名称
+# extra_headers = { "X-Custom" = "…" }
 
 [agents.codex-acp]
 # codex_binary = "/usr/local/bin/codex"      # 优先于 config.toml 的 [codex] binary 和 PATH
@@ -2169,7 +2280,7 @@ env = {}
 
 - Rust 结构体 `AcpSettings` 用 `#[serde(default)]`，**不加** `deny_unknown_fields`，这样老版本能读新版本写出的文件。
 - 保存时，先把磁盘上的文件读成 `toml::Value`，只改写本方案定义的键，其余键原样保留，然后写临时文件再 rename。这样老版本保存设置时，不会把新版本加的键弄丢。文件不存在时使用默认值。
-- 修改 `remote_management` 和自定义 agent 都要写审计日志。
+- 修改 `remote_management`、自定义 agent、网关配置和 `allow_subscription_login` 都要写审计日志；审计记录只写"改了哪一项"，不写地址以外的值，更不写密钥。
 
 ### 5.2 `<state_dir>/acp/installed.json`（新文件，权限 0600）
 
@@ -2265,9 +2376,14 @@ env = {}
   - 审计日志不记录环境变量的值。
   - stderr 日志可能包含用户内容，文件权限设为 0600。
   - `agents.toml` 里自定义 agent 的环境变量以明文保存，界面上会说明。
-- **合规**（D8，需要法务确认）：
-  - Pocket-Codex 不提供自己的 Claude.ai 登录入口，只启动未修改的 Claude Code 自带的登录。
-  - M10 时在 README 的 ACP 章节里写明：用户需要遵守各 agent 的使用条款。
+- **合规**（D8、D21）：
+  - 默认配置下，Claude 适配器带 `--hide-claude-auth` 启动，Pocket-Codex 不提供 Claude.ai 订阅登录，推荐的用法是模型网关或 API key（D20）。
+  - 用户在主机桌面上主动打开订阅登录时，只会启动未修改的 Claude Code 自带登录，并且事先显示条款提示。这个选项是否合规，仍以法务意见为准，但它不影响默认发布。
+  - M10 时在 README 的 ACP 章节里写明：用户需要遵守各 agent 和所用模型网关的使用条款。
+- **网关密钥**（D20）：
+  - 以明文保存在主机的 `agents.toml`（权限 0600）。
+  - 只在 Hub 调用 `authenticate` 时，通过 stdio 发给本机的 agent 进程。
+  - 不写日志，不进审计，不经 FRB 读回，不经远程管理路由返回。
 - **资源上限**：
 
   | 项 | 上限 |
@@ -2337,6 +2453,9 @@ env = {}
 - `five_crashes_in_five_minutes_enter_failed`
 - `auth_required_detected_from_list_and_new`
 - `legacy_terminal_auth_requires_matching_command`
+- `gateway_authenticate_runs_before_ready`：FakeAgent 返回带 `_meta.gateway` 的方法。设置了网关时，每次启动（包括重启后）都在第一个会话操作之前，收到带 `baseUrl` 和 `Authorization` 头的 `authenticate`
+- `restart_rereads_launch_provider`：修改 `LaunchProvider` 的返回值后调用 `restart()`，新进程用的是新参数和新网关
+- `gateway_failure_reports_required_without_leaking_token`
 - `fs_read_write_confined_to_session_cwd_and_rejects_symlink_escape`
 - `oversized_line_becomes_notice_item`
 - `idle_session_is_closed_after_ten_minutes`（用 tokio 的暂停时钟）
@@ -2363,6 +2482,10 @@ env = {}
 - `settings_round_trip_preserves_unknown_keys`
 - `validation_runs_from_staging_dir_with_empty_cwd`
 - `shared_data_mode_returns_coexistence_warning`
+- `conditional_args_add_hide_claude_auth_by_default`：参数只出现在 `launch_only_args` 里
+- `terminal_login_excludes_launch_only_args`：spec 写法和旧写法的登录命令里都没有 `--hide-claude-auth`
+- `gateway_token_is_write_only_and_not_audited`
+- `gateway_url_requires_https_except_private_networks`
 - `in_use_predicate_blocks_uninstall_and_defers_gc`
 
 下载类的测试用一个本地 HTTP 服务配合 `allow_loopback_http = true`。
@@ -2459,6 +2582,8 @@ env = {}
 | 12 | Codex-ACP：本机 codex 版本不兼容时提示升级，兼容时能正常工作 |
 | 13 | 重启 App：autoHostAcp 自动恢复托管 |
 | 14 | Codex、OpenCode 原生 provider 回归：托管、打开会话、发送都和以前一样 |
+| 15 | 模型网关（D20）：给 Claude Code 和 Codex（ACP）分别配置 New API 网关后，不做任何订阅登录也能正常对话；密钥不出现在日志、审计和远程设备上；删掉网关配置后，界面回到需要登录的状态 |
+| 16 | 订阅登录（D21）：默认情况下登录区没有 Claude.ai 登录；在高级设置里打开并确认条款后，重启 agent，登录区出现订阅登录 |
 
 ## 9. 里程碑
 
@@ -2503,7 +2628,7 @@ cd apps/flutter && fvm flutter pub get \
 | M7 | bridge 引擎、分发、能力和历史缓存 | `bridge/src/engine/acp/**`、`engine/mod.rs`（声明 `acp`、`app_events`）、`engine/meta.rs`（新增 `project_config_at(base: &Url)`，供 `connect_url` 的 `meta_url` 使用；现有按服务键解析地址的函数改为调用它）、`engine/app_events.rs`（T15）、`engine/opencode/events.rs`（改为从 app_events 导入）、`engine/session_sync.rs`、`engine/app_session.rs`（`older_unavailable`）、`api/bridge.rs`（§4.4.3 分发、§4.4.4 能力、§4.4.5 的会话部分）、FRB 重新生成、Dart 的 BridgeApi 同步 | §8.2 bridge 引擎用例通过（通过 `connect_url` 连接进程内的 Hub 和 meta，T19）；OpenCode 引擎测试不变 | M6 |
 | M8 | Flutter 托管与管理界面 | §4.7.1（`providers.dart` 除外）到 §4.7.4、§4.7.6、§4.7.7 涉及的文件，包括 `service_key.dart`（`isSessionKind` 加 `'acp'`）、`error_format.dart`、`hosting_support.dart`、`widgets/local_host_acp.dart`、`router.dart`、`settings_screen.dart`、`services_screen.dart`、`home_screen.dart`、`ui_prefs.dart`、`screens/acp_agents_screen.dart` | §8.2 中 `acp_hosting_test`、`acp_agents_screen_test`、`acp_hosts_test`、`service_key_test` 通过；现有 widget 测试通过 | M7 |
 | M9 | Flutter 会话界面 | §4.7.5 涉及的文件，包括 `app_session_screen.dart`、`composer_cards.dart`、`screens/app_session/acp_config_panel.dart`、`acp_slash_menu.dart`，以及 `providers.dart`（§4.7.1 的运行中清单和预取） | `acp_session_test` 通过；现有会话测试通过 | M8 |
-| M10 | 实测、文档和发布前检查 | 本文 §13 的验证记录、`CONTEXT.md`（§12 的术语）、`AGENTS.md`（路线图新增第 16 条）、`README.md`（Status 表和 ACP 章节）、替换实测的回放 fixture | §8.3 和 §8.4 全部完成；§7 全量通过；macOS 构建（CI）通过；安卓 APK 在真机上作为控制器完成 §8.4 第 10、11 项；D8 的法务确认已完成，未完成时从发布的清单中移除 `claude-acp`，并在 README 里写明 | M9 |
+| M10 | 实测、文档和发布前检查 | 本文 §13 的验证记录、`CONTEXT.md`（§12 的术语）、`AGENTS.md`（路线图新增第 16 条）、`README.md`（Status 表和 ACP 章节）、替换实测的回放 fixture | §8.3 和 §8.4 全部完成；§7 全量通过；macOS 构建（CI）通过；安卓 APK 在真机上作为控制器完成 §8.4 第 10、11 项；默认配置下 `claude-acp` 带 `--hide-claude-auth` 启动（D21），界面上不出现 Claude.ai 登录；用用户的 New API 网关完成 §8.4 第 15 项（需要用户提供网关，并征得同意） | M9 |
 
 每个里程碑的"接口"和"测试用例"，分别以 §4 和 §8.2 中对应的小节为准。
 
@@ -2513,7 +2638,9 @@ cd apps/flutter && fvm flutter pub get \
 |---|---|
 | codex-acp 运行时不检查 Codex 版本，版本不配时只会报透传的错误 | 安装和托管前按 `engine_range` 检查（§4.3.8），并给出建议的适配器版本 |
 | Claude 适配器自带的引擎和用户的 `claude` 共用 `~/.claude`，版本可能不一致 | 提供 D7(b) 高级选项；M10 实测两个版本交替使用 |
-| Anthropic 条款的边界 | 只启动未修改的 Claude Code 自带登录；需要法务确认（D8） |
+| Anthropic 条款的边界 | 默认带 `--hide-claude-auth`，不提供订阅登录（D21）；用户主动打开订阅登录时才会涉及，是否合规以法务意见为准（D8） |
+| 网关登录用的 `auth._meta.gateway` 不在 ACP 规范里，适配器升级后可能改变形状 | 按能力处理：没有 gateway 类方法就不显示入口；每次清单升级时，核对两个适配器的 `GatewayAuthMeta`；用户在 agent 自己的配置文件里写的网关继续可用 |
+| Codex（ACP）经 New API 使用时，要求网关支持 Codex 使用的 OpenAI Responses 接口（**未验证**） | M10 第 15 项实测；不支持时，提示用户在 `~/.codex/config.toml` 里配置 `wire_api` |
 | 全量回放体积很大（codex-acp #516） | 转录预算，超出后整轮删除并显示 `older_unavailable`；load 超时 300 s |
 | v1 的 `messageId` 可选且不保证跨 load 稳定，重载后 id 可能变化 | 用 generation 机制兜底：id 变化时换 generation，控制器重新读取窗口 |
 | OpenCode ≥2.0.4 的 `session/new` 缺少用户配置（#50236） | M10 实测。如果影响使用，就在清单 release 上加 quirk（例如固定 2.0.3），不在代码里写针对 OpenCode 的分支 |
