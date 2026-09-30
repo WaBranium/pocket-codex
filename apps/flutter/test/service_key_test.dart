@@ -56,6 +56,20 @@ void main() {
     expect(isSessionKind('api'), isFalse);
   });
 
+  test('ACP keys parse, even when the name equals a kind', () {
+    final self = parseServiceKey('pcx:box:acp:acp');
+    expect(self.device, 'box');
+    expect(self.kind, 'acp');
+    expect(self.name, 'acp');
+    final account = parseServiceKey('pcxu:u1:box:acp:claude');
+    expect(account.device, 'box');
+    expect(account.kind, 'acp');
+    expect(account.name, 'claude');
+    expect(isAcpKey('pcx:box:acp:claude'), isTrue);
+    expect(isAcpKey('pcx:box:opencode:acp'), isFalse);
+    expect(isOpenCodeKey('pcx:box:acp:opencode'), isFalse);
+  });
+
   test('a non-key yields empties, and labels fall back to the raw string', () {
     // Callers pass whatever they hold; an index-based parse would crash here.
     expect(parseServiceKey('not-a-key').device, '');

@@ -44,7 +44,11 @@ library;
 /// discovered key (it is derived from an app host), but it is a real kind and a
 /// key carrying it must still parse.
 bool _isKind(String part) =>
-    part == 'app' || part == 'api' || part == 'meta' || part == 'opencode';
+    part == 'app' ||
+    part == 'api' ||
+    part == 'meta' ||
+    part == 'opencode' ||
+    part == 'acp';
 
 /// Whether [kind] is a conversation service the session UI can open: a Codex
 /// app-server (`app`) or an OpenCode gateway (`opencode`).
@@ -52,6 +56,9 @@ bool isSessionKind(String kind) => kind == 'app' || kind == 'opencode';
 
 /// Whether [key] names an OpenCode session service.
 bool isOpenCodeKey(String key) => parseServiceKey(key).kind == 'opencode';
+
+/// Whether [key] names a generic ACP agent hub.
+bool isAcpKey(String key) => parseServiceKey(key).kind == 'acp';
 
 /// The device that publishes [key], or empty when [key] isn't a service key.
 String serviceKeyDevice(String key) => parseServiceKey(key).device;

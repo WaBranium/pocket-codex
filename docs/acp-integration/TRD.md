@@ -2697,3 +2697,17 @@ cd apps/flutter && fvm flutter pub get \
 ## 13. 验证记录
 
 施工完成后，按 OpenCode TRD §7 的格式，在这里补写自动验证结果、实测结果和人工检查结果。
+
+### 13.1 施工进度
+
+分支 `feat-acp`（从 `research-acp` 的 `7461280` 拉出）。每个里程碑结束时本地跑完 §9 的"§7 全量"。
+
+| M | 新增的测试 | 验证 | 偏差 |
+|---|---|---|---|
+| M1 | `acp_keys_round_trip_alongside_existing_services`（core）、`acp_keys_round_trip_without_merging_account_namespaces`（account-proto）、`acp_services_are_listed_only_on_request`（backend）、`service_key_test.dart` 的 "ACP keys parse…" | §7 全量通过（2026-09-30） | 无 |
+
+### 13.2 施工偏差
+
+实现时与本文不一致、但不影响 D1–D21、T1–T19、对外契约和安全模型的地方，逐条记在这里。
+
+（暂无）

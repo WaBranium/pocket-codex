@@ -6,7 +6,7 @@
 //!                      │      │          │        └── instance name
 //!                      │      │          │            (e.g. "default", "work")
 //!                      │      │          └─────────── ServiceKind::as_key_segment
-//!                      │      │                       ("app" | "api" | "meta" | "opencode")
+//!                      │      │                       ("app" | "api" | "meta" | "opencode" | "acp")
 //!                      │      └────────────────────── sanitised host id
 //!                      │                              (default: hostname)
 //!                      └───────────────────────────── SERVICE_KEY_PREFIX
@@ -45,6 +45,8 @@ pub enum ServiceKind {
     /// Host-side meta service (session inventory + per-thread config), exposed
     /// alongside an `app`/`api` host so its local sessions are remote-viewable.
     Meta,
+    /// Generic Agent Client Protocol (ACP) hub owned by an in-app host.
+    Acp,
     /// A service kind this build does not recognise — e.g. one a newer peer
     /// introduced. Only ever produced by **deserialization**
     /// (`#[serde(other)]`), so an older client tolerates a future kind in a
@@ -63,6 +65,7 @@ impl ServiceKind {
             Self::Api => "api",
             Self::OpenCode => "opencode",
             Self::Meta => "meta",
+            Self::Acp => "acp",
             Self::Unknown => "unknown",
         }
     }
@@ -83,6 +86,7 @@ impl FromStr for ServiceKind {
             "api" => Ok(Self::Api),
             "opencode" => Ok(Self::OpenCode),
             "meta" => Ok(Self::Meta),
+            "acp" => Ok(Self::Acp),
             _ => Err(()),
         }
     }
@@ -205,6 +209,32 @@ mod tests {
                 id.kind
             );
         }
+    }
+
+    #[test]
+    fn acp_keys_round_trip_alongside_existing_services() {
+        for key in [
+            "pcx:studio:acp:claude",
+            "pcx:studio:opencode:work",
+            "pcx:studio:app:work",
+            "pcx:studio:api:work",
+            "pcx:studio:meta:claude",
+        ] {
+            let id = ServiceId::parse_key(key).expect("recognized service key");
+            assert_eq!(id.key(), key);
+            let json = serde_json::to_string(&id.kind).expect("serialize kind");
+            assert_eq!(
+                serde_json::from_str::<ServiceKind>(&json).expect("deserialize kind"),
+                id.kind
+            );
+        }
+        assert_eq!(serde_json::to_string(&ServiceKind::Acp).expect("ser"), "\"acp\"");
+        assert_eq!(
+            ServiceId::parse_key("pcx:studio:acp:claude")
+                .expect("parse")
+                .kind,
+            ServiceKind::Acp
+        );
     }
 
     #[test]
