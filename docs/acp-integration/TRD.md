@@ -2142,7 +2142,7 @@ url 模式：
   - 按钮始终可用，因为 agent 没在托管时无法知道它提供哪些登录方式。
   - 登录方法：agent 正在托管时，下拉框列出它返回的 gateway 类方法，按 `gateway_protocol` 标注（例如"Anthropic 协议"、"OpenAI 协议"）；两个 Claude 网关方法的名称都是"Custom model gateway"，所以必须按协议区分。没有在托管时显示"自动（第一个网关方法）"。
   - agent 启动后如果发现它没有 gateway 类方法，`AuthState.message` 写"该 agent 没有提供网关登录方式，网关配置未生效"。
-  - 网关地址：输入框下方按协议显示提示。`anthropic` 填根地址，例如 `https://relay.example.com`，Claude Code 会自己拼上 `/v1/messages`；`openai` 填到 `/v1`，例如 `https://relay.example.com/v1`，而且网关需要支持 `/v1/responses`。
+  - 网关地址：输入框下方按协议显示提示。`anthropic` 填根地址，例如 `https://relay.example.com`，Claude Code 会自己拼上 `/v1/messages`；`openai` 填到 `/v1`，例如 `https://relay.example.com/v1`，而且网关需要支持 `/v1/responses`（用户的 New API 中转站已确认支持）。
   - 密钥：密码框。已保存过时显示"已保存，留空表示不修改"。
   - provider 名称：可选。
   - 额外请求头：每行一个 `KEY=VALUE`。
@@ -2640,7 +2640,7 @@ cd apps/flutter && fvm flutter pub get \
 | Claude 适配器自带的引擎和用户的 `claude` 共用 `~/.claude`，版本可能不一致 | 提供 D7(b) 高级选项；M10 实测两个版本交替使用 |
 | Anthropic 条款的边界 | 默认带 `--hide-claude-auth`，不提供订阅登录（D21）；用户主动打开订阅登录时才会涉及，是否合规以法务意见为准（D8） |
 | 网关登录用的 `auth._meta.gateway` 不在 ACP 规范里，适配器升级后可能改变形状 | 按能力处理：没有 gateway 类方法就不显示入口；每次清单升级时，核对两个适配器的 `GatewayAuthMeta`；用户在 agent 自己的配置文件里写的网关继续可用 |
-| Codex（ACP）经 New API 使用时，要求网关支持 Codex 使用的 OpenAI Responses 接口（**未验证**） | M10 第 15 项实测；不支持时，提示用户在 `~/.codex/config.toml` 里配置 `wire_api` |
+| Codex（ACP）经 New API 使用时，要求网关支持 Codex 使用的 OpenAI Responses 接口 | 用户确认（2026-09-30）其 New API 中转站支持 `/v1/responses`；M10 第 15 项仍要做端到端实测 |
 | 全量回放体积很大（codex-acp #516） | 转录预算，超出后整轮删除并显示 `older_unavailable`；load 超时 300 s |
 | v1 的 `messageId` 可选且不保证跨 load 稳定，重载后 id 可能变化 | 用 generation 机制兜底：id 变化时换 generation，控制器重新读取窗口 |
 | OpenCode ≥2.0.4 的 `session/new` 缺少用户配置（#50236） | M10 实测。如果影响使用，就在清单 release 上加 quirk（例如固定 2.0.3），不在代码里写针对 OpenCode 的分支 |
