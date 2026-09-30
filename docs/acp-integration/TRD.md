@@ -2704,10 +2704,14 @@ cd apps/flutter && fvm flutter pub get \
 
 | M | 新增的测试 | 验证 | 偏差 |
 |---|---|---|---|
-| M1 | `acp_keys_round_trip_alongside_existing_services`（core）、`acp_keys_round_trip_without_merging_account_namespaces`（account-proto）、`acp_services_are_listed_only_on_request`（backend）、`service_key_test.dart` 的 "ACP keys parse…" | §7 全量通过（2026-09-30） | 无 |
+| M1 | `acp_keys_round_trip_alongside_existing_services`（core）、`acp_keys_round_trip_without_merging_account_namespaces`（account-proto）、`acp_services_are_listed_only_on_request`（backend）、`service_key_test.dart` 的 "ACP keys parse…" | §7 全量通过（2026-09-30）；CI 全部通过 | 无 |
+| M2 | §4.1.4 的 16 个单元测试（`rpc.rs`、`update.rs`、`transcript.rs`），另加 `known_variants_round_trip`、`process_state_uses_state_tag_and_camel_case_fields`；契约测试 `tests/acp_schema.rs`：`every_used_method_exists_in_meta`、`message_samples_round_trip_and_match_schema`（45 条样例）、`validator_rejects_undeclared_properties_and_bad_enums`、`opencode_2_0_18_initialize_deserializes`、`replay_fixtures_fold_into_transcripts` | §7 全量通过（2026-10-01） | 见 §13.2 的 M2 条目 |
 
 ### 13.2 施工偏差
 
 实现时与本文不一致、但不影响 D1–D21、T1–T19、对外契约和安全模型的地方，逐条记在这里。
 
-（暂无）
+- M2：已知 `type`/`sessionUpdate` 的内容块、工具内容或 update，如果字段对不上对应变体，也保存为 `Unknown(Value)` 并原样序列化，而不是让整条消息反序列化失败。
+- M2：`Transcript` 在 §4.1.3 的接口之外多了 `turn_info`、`live_turn`、`push_notice`（Hub 插入 notice 用）；同一个 `messageId` 在不同轮次重复出现时，新条目的 id 加 `~n` 后缀保证唯一。
+- M2：会话级通知的参数结构体（`SessionLoadedParams` 等）都带 `seq`，与 §4.2.6"会话级通知都带 seq"一致；`RequestResolvedParams.session_id` 为可选，留给 Hub 级待办。
+- M2：只带 `_meta` 的响应（`AuthenticateResponse` 等）在契约测试里用 `CapabilityMarker` 往返。
