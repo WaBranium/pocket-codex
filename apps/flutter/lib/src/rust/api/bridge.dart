@@ -6,7 +6,7 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `acp_agent_dto`, `acp_auth_dto`, `acp_job_dto`, `acp_settings_dto`, `acp_settings_view`, `config_value_str`, `history_dto`, `holder_dto`, `item_dto`, `meta_follow_update_dto`, `meta_holder_dto`, `meta_liveness_dto`, `meta_thread_item_dto`, `pairs`, `project_config_dto`, `thread_config_dto`, `thread_config_from_dto`, `to_log_dto`, `turn_page_dto`, `unpairs`
+// These functions are ignored because they are not marked as `pub`: `acp_agent_dto`, `acp_auth_dto`, `acp_job_dto`, `acp_settings_dto`, `acp_settings_view`, `config_value_str`, `forward_app_events`, `forward_retained_requests`, `history_dto`, `holder_dto`, `item_dto`, `meta_follow_update_dto`, `meta_holder_dto`, `meta_liveness_dto`, `meta_thread_item_dto`, `pairs`, `project_config_dto`, `thread_config_dto`, `thread_config_from_dto`, `to_log_dto`, `turn_page_dto`, `unpairs`
 
 /// Initialise the engine with the platform app-support dir (from Dart's
 /// path_provider). Must be called once after `RustLib.init()`.
@@ -417,7 +417,7 @@ Stream<RetryProgressDto> metaRetryEvents() =>
 
 /// Stream live app-server events (turn/item notifications) for `service_key`.
 /// The Dart side receives one [`AppEventDto`] per notification until the
-/// session is disconnected.
+/// session is disconnected or the feed lags and requires history recovery.
 Stream<AppEventDto> appEvents({required String serviceKey}) =>
     RustLib.instance.api.crateApiBridgeAppEvents(serviceKey: serviceKey);
 
