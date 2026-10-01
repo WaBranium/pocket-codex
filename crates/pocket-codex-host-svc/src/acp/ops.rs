@@ -861,6 +861,20 @@ async fn ensure_known(hub: &Arc<AcpHub>, id: &str, cwd: Option<String>) -> Resul
     }
 }
 
+/// Load `id` without subscribing (history reads, D9).
+pub(super) async fn ensure_loaded_quietly(hub: &Arc<AcpHub>, id: &str) -> Result<(), AcpError> {
+    ensure_known(hub, id, None).await?;
+    let rx = {
+        let mut st = lock(&hub.state);
+        begin_load(hub, &mut st, id, false)?
+    };
+    if wait_load(rx, LOAD_TIMEOUT).await? {
+        Ok(())
+    } else {
+        Err(AcpError::SessionLoading)
+    }
+}
+
 // ----------------------------------------------------------------- attach
 
 async fn attach(

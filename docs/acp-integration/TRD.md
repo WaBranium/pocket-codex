@@ -2706,7 +2706,8 @@ cd apps/flutter && fvm flutter pub get \
 |---|---|---|---|
 | M1 | `acp_keys_round_trip_alongside_existing_services`（core）、`acp_keys_round_trip_without_merging_account_namespaces`（account-proto）、`acp_services_are_listed_only_on_request`（backend）、`service_key_test.dart` 的 "ACP keys parse…" | §7 全量通过（2026-09-30）；CI 全部通过 | 无 |
 | M2 | §4.1.4 的 16 个单元测试（`rpc.rs`、`update.rs`、`transcript.rs`），另加 `known_variants_round_trip`、`process_state_uses_state_tag_and_camel_case_fields`；契约测试 `tests/acp_schema.rs`：`every_used_method_exists_in_meta`、`message_samples_round_trip_and_match_schema`（45 条样例）、`validator_rejects_undeclared_properties_and_bad_enums`、`opencode_2_0_18_initialize_deserializes`、`replay_fixtures_fold_into_transcripts` | §7 全量通过（2026-10-01）；CI 全部通过 | 见 §13.2 的 M2 条目 |
-| M3 | `tests/acp_hub.rs` 中除 M4 的 3 个用例以外的全部 32 个（含 `process_connector_spawns_and_terminates_tree`，用 `tests/fixtures/acp/fake_agent.py`）；单元测试 `display_code_and_rpc_agree`、`backoff_doubles_and_caps`、`fifth_failure_within_window_gives_up`、`permission_answers_are_validated`、`form_answers_stay_within_schema`、`line_and_limit_select_lines`、`quoting_and_redaction`、`sessions_sort_newest_first_with_missing_last` | §7 全量通过（2026-10-01）；`acp_hub` 连续跑 6 次都通过 | 见 §13.2 的 M3 条目 |
+| M3 | `tests/acp_hub.rs` 中除 M4 的 3 个用例以外的全部 32 个（含 `process_connector_spawns_and_terminates_tree`，用 `tests/fixtures/acp/fake_agent.py`）；单元测试 `display_code_and_rpc_agree`、`backoff_doubles_and_caps`、`fifth_failure_within_window_gives_up`、`permission_answers_are_validated`、`form_answers_stay_within_schema`、`line_and_limit_select_lines`、`quoting_and_redaction`、`sessions_sort_newest_first_with_missing_last` | §7 全量通过（2026-10-01）；`acp_hub` 连续跑 6 次都通过；CI 全部通过 | 见 §13.2 的 M3 条目 |
+| M4 | `history_source_windows_items_and_groups`（同时经 `serve_meta` 读 `/history/v1/capabilities` 和 `/healthz`）、`slow_consumer_is_disconnected_with_1013`（真实 WebSocket）、`ws_rejects_non_loopback_listener`；`acp_hub` 共 35 个用例，连续跑 3 次都通过 | §7 全量通过（2026-10-01） | 见 §13.2 的 M4 条目 |
 
 ### 13.2 施工偏差
 
@@ -2725,3 +2726,5 @@ cd apps/flutter && fvm flutter pub get \
 - M3：Hub 自己开始的轮次会额外广播一条 `session/update`（`user_message_chunk`，`_meta.pcx.item` 为完整的用户条目），让其他控制器也能显示这条用户消息；超长行插入的 notice 以 `sessionUpdate: "_pcx_notice"` 广播，`_meta.pcx.item` 为 notice 条目。
 - M3：收到 `elicitation/complete` 时，仍在等待的 URL elicitation 以 `{"action":"accept"}` 回应 agent。
 - M3：`HubSession` 的待办统一存在 Hub 级的表里（带 `session_id`），没有按会话分表；`HubSession` 另加 `replay`、`load_rx`、`baseline_pending`、`materialized`、`last_access` 字段。会话按 `updatedAt` 排序时用 chrono 解析 RFC 3339，host-svc 因此新增对工作区已有的 `chrono` 的依赖（不引入新 crate）。
+- M4：`serve_meta` 和 `serve_ws` 一样，监听地址不是回环时直接报错。`metadata` 集合按 §4.2.10 把元数据放在窗口的 `metadata` 里，不产生文档。`items` 集合额外支持 `group = "t{turn}"`，只返回该轮的条目（与 Codex 适配器的 `group` 语义一致）。`groups` 接受 `projection` 为空、`desc` 或 `summary`，`asc` 报错。
+- M4：host-svc 的 dev-dependencies 新增工作区已有的 `tokio-tungstenite`，用于 WebSocket 传输层测试。

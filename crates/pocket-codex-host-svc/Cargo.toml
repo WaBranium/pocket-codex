@@ -55,3 +55,5 @@ reqwest = { workspace = true, features = ["zstd", "gzip"] }
 # Integration tests under tests/ use acp::testing; paused clocks need test-util.
 pocket-codex-host-svc = { path = ".", features = ["acp-testing"] }
 tokio = { workspace = true, features = ["test-util"] }
+# Raw WebSocket client for the hub transport tests; already in the lockfile.
+tokio-tungstenite = { workspace = true }

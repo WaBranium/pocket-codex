@@ -161,6 +161,20 @@ pub async fn serve_generic(
     uploads_dir: PathBuf,
     session_dirs: Arc<dyn file_links::SessionDirResolver>,
 ) -> Result<()> {
+    let app = generic_app(store, host, uploads_dir, session_dirs);
+    axum::serve(listener, app)
+        .await
+        .context("running meta service")
+}
+
+/// The provider-neutral meta router served by [`serve_generic`]; the ACP meta
+/// service extends it with its history routes.
+pub(crate) fn generic_app(
+    store: Arc<ConfigStore>,
+    host: Arc<HostStore>,
+    uploads_dir: PathBuf,
+    session_dirs: Arc<dyn file_links::SessionDirResolver>,
+) -> Router {
     let state = Arc::new(AppState {
         // Never read by the generic routes.
         app_ws_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
@@ -169,13 +183,10 @@ pub async fn serve_generic(
         uploads_dir: Some(uploads_dir),
         session_dirs: Some(session_dirs),
     });
-    let app = generic_routes()
+    generic_routes()
         .route("/fs/thread-file", get(file_links::read))
         .layer(tower_http::compression::CompressionLayer::new())
-        .with_state(state);
-    axum::serve(listener, app)
-        .await
-        .context("running meta service")
+        .with_state(state)
 }
 
 /// An error rendered as `500` with the full anyhow chain in the body. The meta

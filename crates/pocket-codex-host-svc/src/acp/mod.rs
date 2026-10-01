@@ -6,19 +6,25 @@
 mod auth;
 mod error;
 mod fs;
+mod history;
 mod hub;
 mod inbound;
 mod launch;
+mod meta;
 mod ops;
 mod peer;
 mod pending;
 mod process;
+mod server;
 mod session;
 #[cfg(any(test, feature = "acp-testing"))]
 pub mod testing;
 
 pub use auth::{GatewayAuth, TerminalLaunch, TerminalLauncher};
 pub use error::AcpError;
+pub use history::{AcpHistorySource, AcpSessionDirs, PROVIDER as HISTORY_PROVIDER};
 pub use hub::{AcpHub, ConnId, HubConnection, HubInfo, HubOptions, LaunchProvider};
 pub use launch::{AgentConnector, AgentIo, ChildHandle, LaunchSpec, ProcessConnector};
+pub use meta::serve_meta;
 pub use peer::{Inbound, PeerExit, MAX_LINE_BYTES};
+pub use server::{serve_ws, CLOSE_TRY_AGAIN_LATER, MAX_MESSAGE_BYTES};

@@ -1323,3 +1323,231 @@ async fn process_connector_spawns_and_terminates_tree() {
     assert!(gone.is_ok(), "the agent's child process was terminated");
     assert_eq!(hub.info().process, ProcessState::Stopped);
 }
+
+fn history_script() -> FakeScript {
+    let user = |text: &str| user_chunk(text);
+    let agent = |text: &str, mid: &str| json!({"sessionUpdate": "agent_message_chunk", "messageId": mid, "content": {"type": "text", "text": text}});
+    FakeScript {
+        sessions: vec![listed("h1", "/w", Some("2026-01-01T00:00:00Z"))],
+        replays: [(
+            "h1".to_string(),
+            vec![
+                user("q1"),
+                agent("a1", "m1"),
+                json!({"sessionUpdate": "tool_call", "toolCallId": "t1", "title": "ls", "status": "completed"}),
+                user("q2"),
+                agent("a2", "m2"),
+                user("q3"),
+                agent("a3", "m3"),
+            ],
+        )]
+        .into(),
+        ..FakeScript::default()
+    }
+}
+
+#[tokio::test]
+async fn history_source_windows_items_and_groups() {
+    use pocket_codex_core::history_sync::WindowQuery;
+    use pocket_codex_host_svc::{
+        acp::{serve_meta, AcpHistorySource},
+        history_sync::SessionHistorySource,
+        store::{ConfigStore, HostStore},
+    };
+    let s = start(history_script()).await;
+    let source = AcpHistorySource::new(s.hub.clone());
+    assert_eq!(source.provider(), "acp/hub-v1");
+    let query = |collection: &str, cursor: Option<&str>, limit: u32, projection: Option<&str>| {
+        WindowQuery {
+            session: "h1".into(),
+            collection: collection.into(),
+            group: None,
+            cursor: cursor.map(str::to_string),
+            limit,
+            projection: projection.map(str::to_string),
+        }
+    };
+    let page = source
+        .read_window(&query("items", None, 3, None))
+        .await
+        .expect("items");
+    assert_eq!(page.order, vec!["m:agent:m3", "s:3:0", "m:agent:m2"]);
+    assert_eq!(page.metadata["nextCursor"], "b:m:agent:m2");
+    assert_eq!(page.metadata["hasOlder"], true);
+    assert_eq!(page.documents["m:agent:m3"]["content"][0]["text"], "a3");
+    let generation = page.generation.clone();
+    let page = source
+        .read_window(&query("items", Some("b:m:agent:m2"), 3, Some("desc")))
+        .await
+        .expect("older");
+    assert_eq!(page.order, vec!["s:2:0", "tc:t1", "m:agent:m1"]);
+    let page = source
+        .read_window(&query("items", Some("b:m:agent:m1"), 3, None))
+        .await
+        .expect("oldest");
+    assert_eq!(page.order, vec!["s:1:0"]);
+    assert!(page.metadata.get("nextCursor").is_none());
+    assert_eq!(page.metadata["hasOlder"], false);
+    assert_eq!(page.metadata["olderUnavailable"], false);
+    let asc = source
+        .read_window(&query("items", None, 4, Some("asc")))
+        .await
+        .expect("asc");
+    assert_eq!(asc.order, vec!["s:1:0", "m:agent:m1", "tc:t1", "s:2:0"]);
+    assert_eq!(asc.metadata["nextCursor"], "a:s:2:0");
+    let groups = source
+        .read_window(&query("groups", None, 2, None))
+        .await
+        .expect("groups");
+    assert_eq!(groups.order, vec!["t3", "t2"]);
+    assert_eq!(groups.metadata["nextCursor"], "t:2");
+    assert_eq!(groups.documents["t3"]["userPreview"], "q3");
+    let groups = source
+        .read_window(&query("groups", Some("t:2"), 2, None))
+        .await
+        .expect("groups");
+    assert_eq!(groups.order, vec!["t1"]);
+    let mut in_turn = query("items", None, 10, None);
+    in_turn.group = Some("t2".into());
+    let turn = source.read_window(&in_turn).await.expect("turn items");
+    assert_eq!(turn.order, vec!["m:agent:m2", "s:2:0"]);
+    assert_eq!(turn.metadata["hasOlder"], true);
+    let meta = source
+        .read_window(&query("metadata", None, 1, None))
+        .await
+        .expect("metadata");
+    assert!(meta.order.is_empty());
+    assert_eq!(meta.metadata["turns"], 3);
+    assert_eq!(meta.generation, generation);
+    let bad = source
+        .read_window(&query("items", Some("b:nope"), 3, None))
+        .await
+        .expect_err("cursor");
+    let message = format!("{bad:#}");
+    assert!(message.contains("invalid") && message.contains("cursor"), "{message}");
+    assert!(source
+        .read_window(&query("groups", None, 2, Some("asc")))
+        .await
+        .is_err());
+    assert_eq!(s.fake.count("session/load"), 1, "history reads load once");
+
+    // The meta service exposes the same source.
+    let dir = tempfile::tempdir().expect("dir");
+    let store = Arc::new(
+        ConfigStore::open(dir.path().join("threads.json"))
+            .await
+            .expect("store"),
+    );
+    let host = Arc::new(
+        HostStore::open(dir.path().join("host.json"))
+            .await
+            .expect("host"),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    let hub = s.hub.clone();
+    tokio::spawn(async move {
+        let _ = serve_meta(listener, store, host, dir.path().join("uploads"), hub).await;
+    });
+    let caps: Value = reqwest::get(format!("http://{addr}/history/v1/capabilities"))
+        .await
+        .expect("capabilities")
+        .json()
+        .await
+        .expect("json");
+    assert_eq!(caps["provider"], "acp/hub-v1");
+    let health = reqwest::get(format!("http://{addr}/healthz"))
+        .await
+        .expect("healthz");
+    assert!(health.status().is_success());
+}
+
+#[tokio::test]
+async fn slow_consumer_is_disconnected_with_1013() {
+    use futures::{SinkExt, StreamExt};
+    use pocket_codex_host_svc::acp::serve_ws;
+    use tokio_tungstenite::tungstenite::{protocol::frame::coding::CloseCode, Message};
+
+    let chunk = "y".repeat(2048);
+    let mut steps: Vec<Step> = (0..6000)
+        .map(|_| Step::Update(agent_chunk(&chunk)))
+        .collect();
+    steps.push(Step::Finish("end_turn".into()));
+    let mut script = FakeScript::default();
+    script.prompts.push_back(steps);
+    let s = start(script).await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    let hub = s.hub.clone();
+    tokio::spawn(async move {
+        let _ = serve_ws(listener, hub).await;
+    });
+    let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://{addr}/acp"))
+        .await
+        .expect("connect");
+    let call = |id: i64, method: &str, params: Value| {
+        Message::text(
+            json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}).to_string(),
+        )
+    };
+    ws.send(call(1, "initialize", json!({"protocolVersion": 1})))
+        .await
+        .expect("send");
+    ws.send(call(2, "session/new", json!({"cwd": "/w"})))
+        .await
+        .expect("send");
+    let mut session = None;
+    while session.is_none() {
+        let Some(Ok(Message::Text(text))) = ws.next().await else { panic!("closed early") };
+        let value: Value = serde_json::from_str(&text).expect("json");
+        if value["id"] == 2 {
+            session = value["result"]["sessionId"].as_str().map(str::to_string);
+        }
+    }
+    let session = session.expect("session");
+    ws.send(call(
+        3,
+        "_pcx/session/submit",
+        json!({"sessionId": session, "prompt": [{"type": "text", "text": "flood"}], "clientSubmissionId": "k"}),
+    ))
+    .await
+    .expect("send");
+    // Stop reading while the hub floods this connection.
+    s.fake.wait_for("session/prompt", 1).await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let close = tokio::time::timeout(WAIT, async {
+        while let Some(message) = ws.next().await {
+            match message {
+                Ok(Message::Close(frame)) => return frame,
+                Ok(_) => continue,
+                Err(_) => return None,
+            }
+        }
+        None
+    })
+    .await
+    .expect("close in time");
+    let frame = close.expect("a close frame");
+    assert_eq!(frame.code, CloseCode::from(1013));
+    // The hub keeps running for other controllers.
+    let mut ctl = Ctl::connected(&s.hub).await;
+    ctl.call("_pcx/sessions/running", json!({}))
+        .await
+        .expect("hub still serves");
+}
+
+#[tokio::test]
+async fn ws_rejects_non_loopback_listener() {
+    let s = start(FakeScript::default()).await;
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:0")
+        .await
+        .expect("bind");
+    let error = pocket_codex_host_svc::acp::serve_ws(listener, s.hub.clone())
+        .await
+        .expect_err("refused");
+    assert!(error.to_string().contains("loopback"), "{error}");
+}
