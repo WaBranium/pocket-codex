@@ -295,12 +295,16 @@ class _DeviceFirstServices extends ConsumerWidget {
       }
 
       synthesize(
-        host.isOpenCode ? 'opencode' : 'app',
+        host.isOpenCode
+            ? 'opencode'
+            : host.isAcp
+            ? 'acp'
+            : 'app',
         host.appServiceKey,
         registered: host.appRegistered,
       );
-      // An OpenCode host publishes no Responses API proxy.
-      if (!host.isOpenCode) {
+      // Only a Codex host publishes a Responses API proxy.
+      if (host.isCodex) {
         synthesize('api', host.apiServiceKey, registered: host.apiRegistered);
       }
     }
@@ -382,16 +386,18 @@ class _DeviceFirstServices extends ConsumerWidget {
     // probed through appProbe, which dispatches by key kind.
     final localAppAddr = <String, String>{
       for (final host in localHosts)
-        if (!host.isOpenCode) host.appServiceKey: host.appListenAddr,
+        if (host.isCodex) host.appServiceKey: host.appListenAddr,
     };
     final localApiAddr = <String, String>{
       for (final host in localHosts)
-        if (!host.isOpenCode) host.apiServiceKey: host.apiListenAddr,
+        if (host.isCodex) host.apiServiceKey: host.apiListenAddr,
     };
     final localTunnels = <String, ({String name, String kind})>{
       for (final host in localHosts)
         if (host.isOpenCode)
           host.appServiceKey: (name: host.name, kind: 'opencode')
+        else if (host.isAcp)
+          host.appServiceKey: (name: host.name, kind: 'acp')
         else ...{
           host.appServiceKey: (name: host.name, kind: 'app'),
           host.apiServiceKey: (name: host.name, kind: 'api'),
@@ -578,11 +584,23 @@ class _DeviceFirstServices extends ConsumerWidget {
           key: Key('device-capability-${service.key}'),
           icon: Icons.chat_bubble_outline,
           title: l10n.servicesChatCapability,
-          provider: service.kind == 'opencode' ? 'opencode' : 'codex',
-          protocol: protocolOf(
-            service.kind == 'opencode' ? 'OpenCode' : 'App-server',
-            service,
-          ),
+          provider: switch (service.kind) {
+            'opencode' => 'opencode',
+            'acp' => 'acp',
+            _ => 'codex',
+          },
+          label: service.kind == 'acp'
+              ? (localHosts
+                        .where((h) => h.appServiceKey == service.key)
+                        .firstOrNull
+                        ?.agentName ??
+                    bridge.appCapabilities(service.key).agentName)
+              : null,
+          protocol: protocolOf(switch (service.kind) {
+            'opencode' => 'OpenCode',
+            'acp' => 'ACP',
+            _ => 'App-server',
+          }, service),
           localAddr: localAppAddr[service.key],
           menuKey: Key('capability-menu-${service.key}'),
           status: offlineChip(service.key) ?? appStates[service.key]!.chip,
@@ -712,6 +730,16 @@ class _DeviceFirstServices extends ConsumerWidget {
         onClean: unreachableEntries.isEmpty
             ? null
             : () => _batchRemove(context, ref, unreachableEntries),
+        // Any session service of a remote device reaches its meta service,
+        // which serves the host's `/acp/v1` management routes.
+        onManageAcp:
+            activeDevice == null ||
+                localDevices.contains(activeDevice) ||
+                apps.isEmpty
+            ? null
+            : () => context.push(
+                '/settings/acp?svc=${Uri.encodeQueryComponent(apps.first.key)}',
+              ),
       ),
       GroupCard(
         title: l10n.servicesCapabilities,
@@ -1085,12 +1113,17 @@ class _DeviceDetailHeader extends StatelessWidget {
     required this.local,
     required this.isDefault,
     required this.onClean,
+    this.onManageAcp,
   });
 
   final String? device;
   final bool local;
   final bool isDefault;
   final VoidCallback? onClean;
+
+  /// Opens the remote device's ACP agent management, when it has a session
+  /// service to reach it through.
+  final VoidCallback? onManageAcp;
 
   @override
   Widget build(BuildContext context) {
@@ -1121,6 +1154,19 @@ class _DeviceDetailHeader extends StatelessWidget {
           if (local) _CountPill(label: l10n.servicesLocalDevice),
           if (local && isDefault) const SizedBox(width: 8),
           if (isDefault) _CountPill(label: l10n.servicesDefault, accent: true),
+          if (onManageAcp != null)
+            PopupMenuButton<VoidCallback>(
+              key: const Key('host-menu'),
+              icon: const Icon(Icons.more_horiz),
+              onSelected: (action) => action(),
+              itemBuilder: (_) => [
+                PopupMenuItem(
+                  key: const Key('host-acp-manage'),
+                  value: onManageAcp,
+                  child: Text(l10n.acpManageHost),
+                ),
+              ],
+            ),
           if (onClean != null) ...[
             const SizedBox(width: 8),
             TextButton.icon(
@@ -1145,6 +1191,7 @@ class _CapabilityRow extends StatelessWidget {
     required this.actionLabel,
     required this.onAction,
     this.provider,
+    this.label,
     this.status,
     this.reason,
     this.localAddr,
@@ -1161,9 +1208,12 @@ class _CapabilityRow extends StatelessWidget {
   final String actionLabel;
   final VoidCallback onAction;
 
-  /// The session provider (`codex` / `opencode`) to badge, or null for rows
-  /// that are not a chat host.
+  /// The session provider (`codex` / `opencode` / `acp`) to badge, or null
+  /// for rows that are not a chat host.
   final String? provider;
+
+  /// Agent name shown on an ACP badge.
+  final String? label;
   final Widget? status;
 
   /// Why this capability is unavailable, when it is. A bare "unreachable" leaves
@@ -1219,7 +1269,7 @@ class _CapabilityRow extends StatelessWidget {
                     ),
                     if (provider != null) ...[
                       const SizedBox(width: 6),
-                      ProviderBadge(provider: provider!),
+                      ProviderBadge(provider: provider!, label: label),
                     ],
                   ],
                 ),
@@ -1599,9 +1649,9 @@ class _LocalHostCard extends ConsumerWidget {
     } else {
       codexChip = ref
           .watch(
-            host.isOpenCode
-                ? appReachableProvider(host.appServiceKey)
-                : appReachableLocalProvider(host.appListenAddr),
+            host.isCodex
+                ? appReachableLocalProvider(host.appListenAddr)
+                : appReachableProvider(host.appServiceKey),
           )
           .when(
             data: (ok) => ok
@@ -1676,7 +1726,10 @@ class _LocalHostCard extends ConsumerWidget {
                                   ),
                                 ),
                                 const SizedBox(width: 6),
-                                ProviderBadge(provider: host.provider),
+                                ProviderBadge(
+                                  provider: host.provider,
+                                  label: host.agentName,
+                                ),
                               ],
                             ),
                             const SizedBox(height: 2),

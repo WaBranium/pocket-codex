@@ -51,8 +51,9 @@ bool _isKind(String part) =>
     part == 'acp';
 
 /// Whether [kind] is a conversation service the session UI can open: a Codex
-/// app-server (`app`) or an OpenCode gateway (`opencode`).
-bool isSessionKind(String kind) => kind == 'app' || kind == 'opencode';
+/// app-server (`app`), an OpenCode gateway (`opencode`) or an ACP hub (`acp`).
+bool isSessionKind(String kind) =>
+    kind == 'app' || kind == 'opencode' || kind == 'acp';
 
 /// Whether [key] names an OpenCode session service.
 bool isOpenCodeKey(String key) => parseServiceKey(key).kind == 'opencode';

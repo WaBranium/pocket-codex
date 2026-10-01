@@ -43,6 +43,7 @@ class HomeScreen extends ConsumerStatefulWidget {
   static void debugResetAutoHost() {
     _HomeScreenState._autoHostAttempted = false;
     _HomeScreenState._autoHostOpenCodeAttempted = false;
+    _HomeScreenState._autoHostAcpAttempted = false;
   }
 }
 
@@ -80,6 +81,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   /// The same once-per-run guard for the OpenCode hosting record.
   static bool _autoHostOpenCodeAttempted = false;
+
+  /// The same once-per-run guard for the ACP hosting records.
+  static bool _autoHostAcpAttempted = false;
 
   _Phase _phase = _Phase.resolving;
   String? _serviceKey;
@@ -359,19 +363,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
   }
 
-  /// Restore the Codex and OpenCode hosting the user left running, each at most
-  /// once per run and only when this machine is not already hosting that
-  /// provider. True when at least one restore succeeded (discovery is stale).
+  /// Restore the Codex, OpenCode and ACP hosting the user left running, each
+  /// at most once per run and only when this machine is not already hosting
+  /// it. True when at least one restore succeeded (discovery is stale).
   Future<bool> _restoreHosting(
     BridgeApi api, {
     required int gen,
     required bool background,
   }) async {
-    if (_autoHostAttempted && _autoHostOpenCodeAttempted) return false;
+    if (_autoHostAttempted &&
+        _autoHostOpenCodeAttempted &&
+        _autoHostAcpAttempted) {
+      return false;
+    }
     final prefs = await _prefs();
     final host = _autoHostAttempted ? null : prefs.autoHost;
     final openCode = _autoHostOpenCodeAttempted ? null : prefs.autoHostOpenCode;
-    if (host == null && openCode == null) return false;
+    final acpHosts = _autoHostAcpAttempted
+        ? const <AutoHostAcpPrefs>[]
+        : prefs.autoHostAcp;
+    if (host == null && openCode == null && acpHosts.isEmpty) return false;
     var local = const <AppServeStatus>[];
     try {
       local = await api.appServeStatus();
@@ -380,13 +391,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       // failure) settle it.
     }
     if (!mounted || gen != _generation) return false;
-    final codex = local.any((h) => !h.isOpenCode) ? null : host;
+    final codex = local.any((h) => h.isCodex) ? null : host;
     final open = local.any((h) => h.isOpenCode) ? null : openCode;
-    if (codex == null && open == null) return false;
+    final acp = [
+      for (final p in acpHosts)
+        if (!local.any((h) => h.name == p.name)) p,
+    ];
+    if (codex == null && open == null && acp.isEmpty) return false;
     // Burn the once-per-run flags only for a real attempt, so a slow prefs
     // load on the first pass doesn't forfeit the restore.
     if (codex != null) _autoHostAttempted = true;
     if (open != null) _autoHostOpenCodeAttempted = true;
+    if (acp.isNotEmpty) _autoHostAcpAttempted = true;
     if (!background) setState(() => _rehosting = true);
     var restored = false;
     try {
@@ -414,6 +430,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           restored = true;
         } catch (_) {
           // Same fallback; OpenCode may simply not be installed any more.
+        }
+      }
+      for (final p in acp) {
+        try {
+          await api.appServeStartAcp(name: p.name, agentId: p.agentId);
+          restored = true;
+        } catch (_) {
+          // The agent may have been uninstalled or need a login on the host.
         }
       }
     } finally {

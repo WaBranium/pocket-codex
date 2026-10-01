@@ -66,6 +66,7 @@ void main() {
     expect(account.kind, 'acp');
     expect(account.name, 'claude');
     expect(isAcpKey('pcx:box:acp:claude'), isTrue);
+    expect(isSessionKind('acp'), isTrue);
     expect(isAcpKey('pcx:box:opencode:acp'), isFalse);
     expect(isOpenCodeKey('pcx:box:acp:opencode'), isFalse);
   });

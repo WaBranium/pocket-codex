@@ -15,17 +15,22 @@ extension _OpenCodeHost on _LocalHostDialogState {
         value: 'opencode',
         label: Text(l10n.providerOpenCode, key: const Key('provider-opencode')),
       ),
+      ButtonSegment(
+        value: 'acp',
+        label: Text(l10n.providerAcp, key: const Key('provider-acp')),
+      ),
     ],
-    selected: {_openCode ? 'opencode' : 'codex'},
+    selected: {_provider},
     onSelectionChanged: _busy
         ? null
         : (selection) {
-            final openCode = selection.first == 'opencode';
+            final provider = selection.first;
             _update(() {
-              _openCode = openCode;
+              _provider = provider;
               _error = null;
             });
-            if (openCode && !_ocChecked) _detectOpenCode();
+            if (provider == 'opencode' && !_ocChecked) _detectOpenCode();
+            if (provider == 'acp' && _acpAgents == null) _loadAcpAgents();
           },
   );
 
