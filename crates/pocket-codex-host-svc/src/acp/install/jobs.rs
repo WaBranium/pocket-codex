@@ -144,14 +144,18 @@ impl Plan {
 }
 
 #[cfg_attr(
-    target_os = "linux",
-    allow(clippy::useless_conversion, reason = "fsblkcnt_t is u32 on macOS but u64 on Linux")
+    unix,
+    allow(
+        clippy::useless_conversion,
+        reason = "statvfs field widths differ across macOS, 64-bit and 32-bit Linux"
+    )
 )]
 fn free_mb(path: &Path) -> Option<u64> {
     #[cfg(unix)]
     {
         let stat = nix::sys::statvfs::statvfs(path).ok()?;
-        let bytes = u64::from(stat.blocks_available()).saturating_mul(stat.fragment_size());
+        let bytes =
+            u64::from(stat.blocks_available()).saturating_mul(u64::from(stat.fragment_size()));
         Some(bytes / (1024 * 1024))
     }
     #[cfg(not(unix))]
