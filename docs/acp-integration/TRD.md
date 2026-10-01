@@ -2710,7 +2710,8 @@ cd apps/flutter && fvm flutter pub get \
 | M4 | `history_source_windows_items_and_groups`（同时经 `serve_meta` 读 `/history/v1/capabilities` 和 `/healthz`）、`slow_consumer_is_disconnected_with_1013`（真实 WebSocket）、`ws_rejects_non_loopback_listener`；`acp_hub` 共 35 个用例，连续跑 3 次都通过 | §7 全量通过（2026-10-01）；CI 全部通过 | 见 §13.2 的 M4 条目 |
 | M5(a) | `tests/acp_install.rs` 的 §8.2 安装器用例全部 21 个，另加 `management_routes_answer_404_until_registered`；单元测试 `ids_follow_the_pattern`。占位清单 `catalog.toml` 和空的 `locks.rs` 通过 `acp_catalog.py check` | §7 全量通过（2026-10-01） | 见 §13.2 的 M5 条目 |
 | M5(b) | `embedded_catalog_parses` 现在覆盖真实清单：4 个 agent、5 个 release、3 个 lockfile（都是 `lockfileVersion: 3`，`resolved` 全部来自 `https://registry.npmjs.org/`）；`acp_catalog.py check` 通过；`acp_catalog.py verify-node` 用 gpgv 和 Node.js 发布密钥校验了 SHASUMS256.txt 的签名，并核对 6 个 Node 包的哈希 | `acp_catalog.py update` 于 2026-10-01 执行（临时目录在 `$TMPDIR/opencode` 下，用完已删除）；§7 全量通过；CI 全部通过 | 见 §13.2 的 M5(b) 条目 |
-| M6 | bridge 托管：`start_registers_meta_then_acp`、`name_reported_by_other_hosting_is_refused`、`is_hosting_is_true_after_start_with`、`same_name_same_agent_is_reused`、`stop_shuts_down_hub_and_forgets_host`、`status_reports_agent_fields`；`acp_terminal` 的 `scripts_quote_every_argument`。FRB 重新生成；Dart 的 `BridgeApi`、`RustBridgeApi`、`FakeBridgeApi` 加上托管与管理接口；CI 新增 `android cargo check` job | §7 全量通过（2026-10-01）；android-check 见 CI | 见 §13.2 的 M6 条目 |
+| M6 | bridge 托管：`start_registers_meta_then_acp`、`name_reported_by_other_hosting_is_refused`、`is_hosting_is_true_after_start_with`、`same_name_same_agent_is_reused`、`stop_shuts_down_hub_and_forgets_host`、`status_reports_agent_fields`；`acp_terminal` 的 `scripts_quote_every_argument`。FRB 重新生成；Dart 的 `BridgeApi`、`RustBridgeApi`、`FakeBridgeApi` 加上托管与管理接口；CI 新增 `android cargo check` job | §7 全量通过（2026-10-01）；CI 全部通过，含 android-check | 见 §13.2 的 M6 条目 |
+| M7 | `engine/acp/engine_tests.rs` 的 §8.2 用例全部 19 个（经 `connect_url` 连进程内的 Hub、`serve_ws` 和 `serve_meta`；重连用例经一个可断开的 TCP 代理）；`mapping.rs` 的 `hub_item_mapping_table`、`stop_reason_mapping`、`config_option_roles`，另加 `approvals_and_forms_round_trip`；`acp_keys_are_recognized_in_both_namespaces`。`live_tests.rs` 只在设置 `PCX_ACP_LIVE` 时运行，本轮没有运行。OpenCode 引擎测试未改动并通过；FRB 重新生成，Dart 的 `BridgeApi` 同步 | §7 全量通过（2026-10-01）；ACP 引擎用例连续跑 3 次都通过 | 见 §13.2 的 M7 条目 |
 
 ### 13.2 施工偏差
 
@@ -2746,3 +2747,12 @@ cd apps/flutter && fvm flutter pub get \
 - M6：远程 `host` 只接受清单 agent；自定义 agent 运行的是用户自己的命令，只能在主机桌面上开始托管（对应 §7"自定义命令只能在主机桌面上操作"），远程请求返回 `acp.unknown_agent`。
 - M6：`meta_acp_*` 把 `/acp/v1` 的 `{code, message}` 错误体转成 `[acp.<code>] message`；没有 JSON 错误体的 404（对方主机没有注册管理实现，例如旧版本）报"this host does not support remote ACP management"。
 - M6：`scripts/ci_affected.py` 新增输出 `android`：全量运行，或者受影响的测试集合里包含 bridge（bridge 依赖 core 和 host-svc，所以这两个 crate 改动时也会触发）。
+- M7：引擎返回 `acp::Capabilities`，`AppCapabilitiesDto` 在 `api/bridge.rs` 里组装。连上 Hub 之前按 §4.4.4 返回保守值；`multi_select_questions`、`approval_options`、`url_elicitation`、`session_reload` 只在连上之后为 true。
+- M7：回应权限或 elicitation 之后，引擎立即删掉这条待办；如果 Hub 认为答案无效，会用新的请求 id 重发，界面就再显示一张卡片（带 `_meta.pcx.rejected`）。
+- M7：重连时，每条待办记下送达它的连接代次。重新 attach 并重新提交之后，再发一次 `_pcx/sessions/running` 作为收尾往返：Hub 在回应它之前重发的请求，此时都已进入接收队列。处理完队列后，仍属于旧代次的待办视为在断线期间已经解决，删除并发出 `serverRequest/resolved`。重新提交被 Hub 拒绝时（不是断线），发出 `acp/queue/failed`。
+- M7：`turn_start` 提交时如果连接断开，提交保留在"未确认"表里并返回成功，由重连后的重新提交完成（Hub 按 `clientSubmissionId` 去重）；其他错误照常返回。
+- M7：`thread_reload` 在 generation 变化时由引擎自己发出 `acp/session/generation`：Hub 的 `_pcx/session/generation` 发生在重载快照之前，它的 `seq` 已包含在快照里，会被丢弃。`_pcx/session/window` 返回 `acp.generation_changed` 时也发出这个事件。
+- M7：`running_sessions` 返回正在运行或有排队提示的会话。`AcpCommandDto.hint` 取自 `input.hint`。
+- M7：§4.4.6 的 ACP 预取写在 `engine/acp/history.rs` 的 `prefetch_history`，由 `session_sync::prefetch` 在协商到 `acp/hub-v1` 时调用；能力缓存条目多记一个 provider，`session_sync::request` 遇到 ACP provider 时报错。
+- M7：`live_tests.rs`（只在设置 `PCX_ACP_LIVE` 时运行）用已安装的 agent 在测试进程内启动 Hub、`serve_ws` 和 `serve_meta` 并通过 `connect_url` 连接，不需要先在 App 里托管，也不需要中继；Hub 的会话索引和日志写到临时目录。`PCX_ACP_LIVE_WRITE=1` 时在 `$TMPDIR/pocket-acp-e2e` 新建一个会话并发送一条短提示。
+- M7：测试用的 FakeAgent 在脚本给了 `configOptions` 时，`session/set_config_option` 会更新对应项的当前值并返回全部选项（更接近真实 agent）。Dart 侧新增 `AppCapabilities.acpDefault`，`FakeBridgeApi` 新增 `acpCaps`、`acpConfig`、`acpCommands`、`acpAnswers`、`acpConfigSets`、`acpReloads`、`acpAuthState`。

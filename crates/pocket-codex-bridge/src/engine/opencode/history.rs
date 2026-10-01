@@ -76,6 +76,7 @@ pub fn thread_read(service_key: &str, thread_id: &str) -> Result<ThreadHistory> 
         sandbox_mode: None,
         config_confirmed: true,
         turn_pages: Vec::new(),
+        older_unavailable: false,
     };
     s.windows.insert(thread_id.to_string(), Window {
         messages: tail.messages,
@@ -120,6 +121,7 @@ pub fn thread_older_page(service_key: &str, thread_id: &str) -> Result<OlderPage
     Ok(OlderPage {
         items,
         has_older,
+        older_unavailable: false,
     })
 }
 

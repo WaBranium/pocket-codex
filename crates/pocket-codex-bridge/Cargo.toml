@@ -52,6 +52,8 @@ once_cell = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 futures = { workspace = true }
+# ACP session timestamps (already in the mobile tree through core).
+chrono = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"

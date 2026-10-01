@@ -680,6 +680,19 @@ class AppCapabilities {
     required this.approveAlwaysPersistsProject,
     required this.multiSelectQuestions,
     required this.childSessions,
+    this.agentName = '',
+    this.steer = false,
+    this.rename = false,
+    this.compact = false,
+    this.gitDiff = false,
+    this.images = false,
+    this.configOptions = false,
+    this.slashCommands = false,
+    this.approvalOptions = false,
+    this.urlElicitation = false,
+    this.runningViaThreads = false,
+    this.historyPrefetch = false,
+    this.sessionReload = false,
   });
 
   /// The Codex app-server's capabilities.
@@ -697,6 +710,19 @@ class AppCapabilities {
     approveAlwaysPersistsProject: false,
     multiSelectQuestions: false,
     childSessions: false,
+    agentName: '',
+    steer: true,
+    rename: true,
+    compact: true,
+    gitDiff: true,
+    images: true,
+    configOptions: false,
+    slashCommands: false,
+    approvalOptions: false,
+    urlElicitation: false,
+    runningViaThreads: false,
+    historyPrefetch: true,
+    sessionReload: false,
   );
 
   /// The OpenCode gateway's capabilities.
@@ -714,9 +740,42 @@ class AppCapabilities {
     approveAlwaysPersistsProject: true,
     multiSelectQuestions: true,
     childSessions: true,
+    agentName: '',
+    steer: true,
+    rename: true,
+    compact: true,
+    gitDiff: true,
+    images: true,
+    configOptions: false,
+    slashCommands: false,
+    approvalOptions: false,
+    urlElicitation: false,
+    runningViaThreads: true,
+    historyPrefetch: false,
+    sessionReload: false,
   );
 
-  /// `codex` or `opencode`.
+  /// An ACP service before its hub answered: every optional capability off
+  /// except the running list and history prefetch.
+  static const acpDefault = AppCapabilities(
+    provider: 'acp',
+    fast: false,
+    permissionPresets: false,
+    guardian: false,
+    rateLimits: false,
+    takeover: false,
+    externalWriterMonitor: false,
+    localSessions: false,
+    planMode: false,
+    effortLabel: 'effort',
+    approveAlwaysPersistsProject: false,
+    multiSelectQuestions: false,
+    childSessions: false,
+    runningViaThreads: true,
+    historyPrefetch: true,
+  );
+
+  /// `codex`, `opencode` or `acp`.
   final String provider;
 
   /// Fast service tier toggle.
@@ -754,6 +813,129 @@ class AppCapabilities {
 
   /// Child (subagent) sessions that can be opened read-only.
   final bool childSessions;
+
+  /// Agent display name (ACP; empty otherwise).
+  final String agentName;
+
+  /// Supplementing a running turn.
+  final bool steer;
+
+  /// Renaming a conversation.
+  final bool rename;
+
+  /// Manual compaction.
+  final bool compact;
+
+  /// Git diff review.
+  final bool gitDiff;
+
+  /// Image attachments.
+  final bool images;
+
+  /// The generic config option panel (ACP).
+  final bool configOptions;
+
+  /// Agent slash commands (ACP).
+  final bool slashCommands;
+
+  /// Approval cards offer the agent's own options (ACP).
+  final bool approvalOptions;
+
+  /// URL elicitation cards (ACP).
+  final bool urlElicitation;
+
+  /// Running sessions come from `appRunningThreads`.
+  final bool runningViaThreads;
+
+  /// Running-session tails can be prefetched.
+  final bool historyPrefetch;
+
+  /// The host can re-materialize a session (ACP).
+  final bool sessionReload;
+
+  /// Whether this is an ACP service.
+  bool get isAcp => provider == 'acp';
+}
+
+/// One ACP session config option. [role] is `model` | `effort` | `mode` |
+/// `other`; the generic panel shows `mode` and `other`.
+class AcpConfigOption {
+  /// Creates a config option.
+  const AcpConfigOption({
+    required this.id,
+    required this.name,
+    this.description = '',
+    this.category = '',
+    required this.role,
+    required this.kind,
+    required this.currentValue,
+    this.options = const [],
+  });
+
+  /// Option id.
+  final String id;
+
+  /// Display name.
+  final String name;
+
+  /// Description.
+  final String description;
+
+  /// ACP category (may be empty).
+  final String category;
+
+  /// `model` | `effort` | `mode` | `other`.
+  final String role;
+
+  /// `select` | `boolean`.
+  final String kind;
+
+  /// Current value (`true` / `false` for booleans).
+  final String currentValue;
+
+  /// Values of a select option.
+  final List<AcpConfigValue> options;
+
+  /// Whether this is a boolean switch.
+  bool get isBoolean => kind == 'boolean';
+}
+
+/// One value of a select config option.
+class AcpConfigValue {
+  /// Creates a select value.
+  const AcpConfigValue({
+    required this.value,
+    required this.name,
+    this.description = '',
+    this.group,
+  });
+
+  /// Value id.
+  final String value;
+
+  /// Display name.
+  final String name;
+
+  /// Description.
+  final String description;
+
+  /// Group name, when grouped.
+  final String? group;
+}
+
+/// One agent slash command.
+class AcpCommand {
+  /// Creates a slash command.
+  const AcpCommand({required this.name, this.description = '', this.hint});
+
+  /// Command name (without `/`).
+  final String name;
+
+  /// Description.
+  final String description;
+
+  /// Input hint.
+  final String? hint;
 }
 
 /// View of persisted config (relay/key presence, locale, account state).
@@ -1055,7 +1237,11 @@ class ThreadHistory {
     this.turns = const [],
     this.firstTurnId,
     this.turnPages = const [],
+    this.olderUnavailable = false,
   });
+
+  /// Older history exists but is no longer available (ACP transcripts).
+  final bool olderUnavailable;
 
   /// Conversation items, oldest first.
   final List<ThreadItem> items;
@@ -1177,13 +1363,20 @@ class TurnSummary {
 /// One page of older items, and whether history continues before them.
 class OlderPage {
   /// Creates an older page.
-  const OlderPage({required this.items, required this.hasOlder});
+  const OlderPage({
+    required this.items,
+    required this.hasOlder,
+    this.olderUnavailable = false,
+  });
 
   /// Older items, oldest first, to prepend to the transcript.
   final List<ThreadItem> items;
 
   /// Whether older items still remain.
   final bool hasOlder;
+
+  /// Older history exists but is no longer available (ACP transcripts).
+  final bool olderUnavailable;
 }
 
 /// The server-reported runtime configuration of a thread — what its turns
@@ -1931,8 +2124,51 @@ abstract interface class BridgeApi {
   /// Static capabilities of the provider behind [serviceKey] (no network).
   AppCapabilities appCapabilities(String serviceKey);
 
-  /// Ids of an OpenCode service's sessions that are executing now.
+  /// Ids of an OpenCode or ACP service's sessions that are executing now.
   Future<List<String>> appRunningThreads(String serviceKey);
+
+  // --- ACP sessions ---
+
+  /// Answer an ACP permission request with one of the agent's own options.
+  Future<void> appRespondPermissionOption(
+    String serviceKey,
+    String requestId,
+    String optionId,
+  );
+
+  /// Accept or decline an ACP URL elicitation.
+  Future<void> appRespondElicitationUrl(
+    String serviceKey,
+    String requestId,
+    bool accept,
+  );
+
+  /// Config options of an ACP session.
+  Future<List<AcpConfigOption>> appConfigOptions(
+    String serviceKey,
+    String threadId,
+  );
+
+  /// Set an ACP session option; [boolean] sends `value == 'true'` as a bool.
+  Future<void> appSetConfigOption(
+    String serviceKey,
+    String threadId,
+    String configId,
+    String value, {
+    bool boolean = false,
+  });
+
+  /// Slash commands an ACP session currently offers.
+  Future<List<AcpCommand>> appSlashCommands(String serviceKey, String threadId);
+
+  /// Ask the host to re-materialize an ACP session from the agent.
+  Future<void> appThreadReload(String serviceKey, String threadId);
+
+  /// Cached authentication state of an ACP service; `null` before connect.
+  AcpAuth? appAuthState(String serviceKey);
+
+  /// Start an agent-type login on the host; returns `inProgress`.
+  Future<AcpAuth> appAuthAuthenticate(String serviceKey, String methodId);
 
   // --- App-server remote control ---
 

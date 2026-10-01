@@ -7,7 +7,10 @@ use pocket_codex_host_svc::opencode::{Event, Form, Permission};
 use serde_json::{json, Value};
 
 use super::mapping;
-use crate::engine::app_session::{AppEvent, ThreadItem};
+use crate::engine::{
+    app_events::{bare_item, event, item_event},
+    app_session::AppEvent,
+};
 
 /// Bound on remembered tool calls (name + input between start and result).
 const MAX_TOOLS: usize = 2048;
@@ -19,49 +22,6 @@ pub struct Translator {
     pub turns: HashMap<String, String>,
     /// (message id, call id) → (tool name, latest input).
     tools: HashMap<(String, String), (String, Value)>,
-}
-
-fn event(kind: &str, thread: &str, raw: Value) -> AppEvent {
-    AppEvent {
-        kind: kind.to_string(),
-        thread_id: Some(thread.to_string()),
-        item_id: None,
-        item_type: None,
-        title: None,
-        text: None,
-        images: Vec::new(),
-        request_id: None,
-        raw: raw.to_string(),
-    }
-}
-
-fn item_event(kind: &str, thread: &str, item: &ThreadItem, text: Option<String>) -> AppEvent {
-    let raw = json!({"threadId": thread, "itemId": item.id, "item": {"id": item.id, "type": item.item_type}});
-    AppEvent {
-        kind: kind.to_string(),
-        thread_id: Some(thread.to_string()),
-        item_id: Some(item.id.clone()),
-        item_type: Some(item.item_type.clone()),
-        title: Some(item.title.clone()),
-        text,
-        images: item.images.clone(),
-        request_id: None,
-        raw: raw.to_string(),
-    }
-}
-
-fn bare_item(id: String, item_type: &str) -> ThreadItem {
-    ThreadItem {
-        id,
-        item_type: item_type.to_string(),
-        title: String::new(),
-        text: String::new(),
-        questions_json: None,
-        images: Vec::new(),
-        turn_id: String::new(),
-        turn_completed_at: None,
-        turn_duration_ms: None,
-    }
 }
 
 /// A request that was answered or withdrawn: the UI drops its card.

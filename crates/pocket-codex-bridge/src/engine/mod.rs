@@ -6,6 +6,7 @@ pub mod acp;
 pub mod acp_manage;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub mod acp_terminal;
+pub mod app_events;
 pub mod app_session;
 pub mod config;
 pub mod discovery;

@@ -2454,6 +2454,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "base64 0.22.1",
+ "chrono",
  "flutter_rust_bridge",
  "futures",
  "once_cell",

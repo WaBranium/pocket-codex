@@ -742,11 +742,107 @@ class FakeBridgeApi implements BridgeApi {
     return _newAcpJob('host', agentId);
   }
 
+  /// Capabilities reported for ACP keys (every ACP capability on by default).
+  AppCapabilities acpCaps = const AppCapabilities(
+    provider: 'acp',
+    fast: false,
+    permissionPresets: false,
+    guardian: false,
+    rateLimits: false,
+    takeover: false,
+    externalWriterMonitor: false,
+    localSessions: false,
+    planMode: true,
+    effortLabel: 'effort',
+    approveAlwaysPersistsProject: false,
+    multiSelectQuestions: true,
+    childSessions: false,
+    agentName: 'Claude Code',
+    images: true,
+    configOptions: true,
+    slashCommands: true,
+    approvalOptions: true,
+    urlElicitation: true,
+    runningViaThreads: true,
+    historyPrefetch: true,
+    sessionReload: true,
+  );
+
   @override
-  AppCapabilities appCapabilities(String serviceKey) =>
-      isOpenCodeKey(serviceKey)
+  AppCapabilities appCapabilities(String serviceKey) => isAcpKey(serviceKey)
+      ? acpCaps
+      : isOpenCodeKey(serviceKey)
       ? AppCapabilities.openCode
       : AppCapabilities.codex;
+
+  /// Config options per ACP thread id.
+  final Map<String, List<AcpConfigOption>> acpConfig = {};
+
+  /// Slash commands per ACP thread id.
+  final Map<String, List<AcpCommand>> acpCommands = {};
+
+  /// Records ACP answers as `(kind, requestId, value)`.
+  final List<(String, String, String)> acpAnswers = [];
+
+  /// Records [appSetConfigOption] calls as `(threadId, configId, value)`.
+  final List<(String, String, String)> acpConfigSets = [];
+
+  /// Records [appThreadReload] calls.
+  final List<String> acpReloads = [];
+
+  /// Cached auth state returned by [appAuthState].
+  AcpAuth? acpAuthState;
+
+  @override
+  Future<void> appRespondPermissionOption(
+    String serviceKey,
+    String requestId,
+    String optionId,
+  ) async => acpAnswers.add(('option', requestId, optionId));
+
+  @override
+  Future<void> appRespondElicitationUrl(
+    String serviceKey,
+    String requestId,
+    bool accept,
+  ) async => acpAnswers.add(('url', requestId, '$accept'));
+
+  @override
+  Future<List<AcpConfigOption>> appConfigOptions(
+    String serviceKey,
+    String threadId,
+  ) async => acpConfig[threadId] ?? const [];
+
+  @override
+  Future<void> appSetConfigOption(
+    String serviceKey,
+    String threadId,
+    String configId,
+    String value, {
+    bool boolean = false,
+  }) async => acpConfigSets.add((threadId, configId, value));
+
+  @override
+  Future<List<AcpCommand>> appSlashCommands(
+    String serviceKey,
+    String threadId,
+  ) async => acpCommands[threadId] ?? const [];
+
+  @override
+  Future<void> appThreadReload(String serviceKey, String threadId) async =>
+      acpReloads.add(threadId);
+
+  @override
+  AcpAuth? appAuthState(String serviceKey) => acpAuthState;
+
+  @override
+  Future<AcpAuth> appAuthAuthenticate(
+    String serviceKey,
+    String methodId,
+  ) async {
+    acpAuthCalls.add(('session', serviceKey, methodId));
+    return AcpAuth(status: 'inProgress', methods: acpAuth.methods);
+  }
 
   /// Running session ids per OpenCode service key.
   final Map<String, List<String>> runningThreads = {};

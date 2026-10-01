@@ -566,6 +566,8 @@ pub struct OlderPage {
     pub items: Vec<ThreadItem>,
     /// Whether history continues before these.
     pub has_older: bool,
+    /// Older history exists but is no longer available (ACP transcripts).
+    pub older_unavailable: bool,
 }
 
 /// Walk one page further back through a paginated thread's history.
@@ -581,6 +583,7 @@ pub fn thread_older_page(service_key: &str, thread_id: &str) -> Result<OlderPage
     let empty = || OlderPage {
         items: Vec::new(),
         has_older: false,
+        older_unavailable: false,
     };
     let Some(mut state) = pagination_of(service_key, thread_id) else {
         return Ok(empty());
@@ -648,6 +651,7 @@ pub fn thread_older_page(service_key: &str, thread_id: &str) -> Result<OlderPage
     Ok(OlderPage {
         items,
         has_older,
+        older_unavailable: false,
     })
 }
 
@@ -1548,6 +1552,9 @@ pub struct ThreadHistory {
     pub first_turn_id: Option<String>,
     /// Cached independently loaded turns, including their continuation state.
     pub turn_pages: Vec<TurnItemsPage>,
+    /// Older history exists but is no longer available (ACP transcripts).
+    #[serde(default)]
+    pub older_unavailable: bool,
 }
 
 /// A turn reduced to what the rail shows: the question, and how it was
@@ -2181,6 +2188,7 @@ fn thread_read_inner(
         } else {
             Vec::new()
         },
+        older_unavailable: false,
     })
 }
 

@@ -6,7 +6,7 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `acp_agent_dto`, `acp_auth_dto`, `acp_job_dto`, `acp_settings_dto`, `acp_settings_view`, `history_dto`, `holder_dto`, `item_dto`, `meta_follow_update_dto`, `meta_holder_dto`, `meta_liveness_dto`, `meta_thread_item_dto`, `pairs`, `project_config_dto`, `thread_config_dto`, `thread_config_from_dto`, `to_log_dto`, `turn_page_dto`, `unpairs`
+// These functions are ignored because they are not marked as `pub`: `acp_agent_dto`, `acp_auth_dto`, `acp_job_dto`, `acp_settings_dto`, `acp_settings_view`, `config_value_str`, `history_dto`, `holder_dto`, `item_dto`, `meta_follow_update_dto`, `meta_holder_dto`, `meta_liveness_dto`, `meta_thread_item_dto`, `pairs`, `project_config_dto`, `thread_config_dto`, `thread_config_from_dto`, `to_log_dto`, `turn_page_dto`, `unpairs`
 
 /// Initialise the engine with the platform app-support dir (from Dart's
 /// path_provider). Must be called once after `RustLib.init()`.
@@ -668,6 +668,83 @@ Future<List<String>> appRunningThreads({required String serviceKey}) => RustLib
     .instance
     .api
     .crateApiBridgeAppRunningThreads(serviceKey: serviceKey);
+
+/// Answer a permission request with one of the agent's own options.
+Future<void> appRespondPermissionOption({
+  required String serviceKey,
+  required String requestId,
+  required String optionId,
+}) => RustLib.instance.api.crateApiBridgeAppRespondPermissionOption(
+  serviceKey: serviceKey,
+  requestId: requestId,
+  optionId: optionId,
+);
+
+/// Accept or decline a URL elicitation.
+Future<void> appRespondElicitationUrl({
+  required String serviceKey,
+  required String requestId,
+  required bool accept,
+}) => RustLib.instance.api.crateApiBridgeAppRespondElicitationUrl(
+  serviceKey: serviceKey,
+  requestId: requestId,
+  accept: accept,
+);
+
+/// Config options of an ACP session (falling back to the hub defaults).
+Future<List<AcpConfigOptionDto>> appConfigOptions({
+  required String serviceKey,
+  required String threadId,
+}) => RustLib.instance.api.crateApiBridgeAppConfigOptions(
+  serviceKey: serviceKey,
+  threadId: threadId,
+);
+
+/// Set an ACP session option; `boolean` sends `value == "true"` as a bool.
+Future<void> appSetConfigOption({
+  required String serviceKey,
+  required String threadId,
+  required String configId,
+  required String value,
+  required bool boolean,
+}) => RustLib.instance.api.crateApiBridgeAppSetConfigOption(
+  serviceKey: serviceKey,
+  threadId: threadId,
+  configId: configId,
+  value: value,
+  boolean: boolean,
+);
+
+/// Slash commands an ACP session currently offers.
+Future<List<AcpCommandDto>> appSlashCommands({
+  required String serviceKey,
+  required String threadId,
+}) => RustLib.instance.api.crateApiBridgeAppSlashCommands(
+  serviceKey: serviceKey,
+  threadId: threadId,
+);
+
+/// Ask the hub to re-materialize an ACP session from the agent.
+Future<void> appThreadReload({
+  required String serviceKey,
+  required String threadId,
+}) => RustLib.instance.api.crateApiBridgeAppThreadReload(
+  serviceKey: serviceKey,
+  threadId: threadId,
+);
+
+/// Cached authentication state of an ACP service; `None` before connect.
+AcpAuthDto? appAuthState({required String serviceKey}) =>
+    RustLib.instance.api.crateApiBridgeAppAuthState(serviceKey: serviceKey);
+
+/// Start an agent-type login on the host; returns `inProgress`.
+Future<AcpAuthDto> appAuthAuthenticate({
+  required String serviceKey,
+  required String methodId,
+}) => RustLib.instance.api.crateApiBridgeAppAuthAuthenticate(
+  serviceKey: serviceKey,
+  methodId: methodId,
+);
 
 /// List every codex session under the shared `CODEX_HOME`, newest first,
 /// each annotated with whether it is safe to resume.
@@ -1382,6 +1459,136 @@ class AcpBinaryOverrideDto {
           path == other.path;
 }
 
+/// One agent slash command.
+class AcpCommandDto {
+  /// Command name (without `/`).
+  final String name;
+
+  /// Description.
+  final String description;
+
+  /// Input hint.
+  final String? hint;
+
+  const AcpCommandDto({
+    required this.name,
+    required this.description,
+    this.hint,
+  });
+
+  @override
+  int get hashCode => name.hashCode ^ description.hashCode ^ hint.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AcpCommandDto &&
+          runtimeType == other.runtimeType &&
+          name == other.name &&
+          description == other.description &&
+          hint == other.hint;
+}
+
+/// One ACP session config option. `role` is `model` | `effort` | `mode` |
+/// `other` (§4.5.3); the generic panel shows `mode` and `other`.
+class AcpConfigOptionDto {
+  /// Option id.
+  final String id;
+
+  /// Display name.
+  final String name;
+
+  /// Description.
+  final String description;
+
+  /// ACP category (may be empty).
+  final String category;
+
+  /// `model` | `effort` | `mode` | `other`.
+  final String role;
+
+  /// `select` | `boolean`.
+  final String kind;
+
+  /// Current value (`true` / `false` for booleans).
+  final String currentValue;
+
+  /// Values of a select option.
+  final List<AcpConfigValueDto> options;
+
+  const AcpConfigOptionDto({
+    required this.id,
+    required this.name,
+    required this.description,
+    required this.category,
+    required this.role,
+    required this.kind,
+    required this.currentValue,
+    required this.options,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      name.hashCode ^
+      description.hashCode ^
+      category.hashCode ^
+      role.hashCode ^
+      kind.hashCode ^
+      currentValue.hashCode ^
+      options.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AcpConfigOptionDto &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          name == other.name &&
+          description == other.description &&
+          category == other.category &&
+          role == other.role &&
+          kind == other.kind &&
+          currentValue == other.currentValue &&
+          options == other.options;
+}
+
+/// One value of a select option.
+class AcpConfigValueDto {
+  /// Value id.
+  final String value;
+
+  /// Display name.
+  final String name;
+
+  /// Description.
+  final String description;
+
+  /// Group name, when grouped.
+  final String? group;
+
+  const AcpConfigValueDto({
+    required this.value,
+    required this.name,
+    required this.description,
+    this.group,
+  });
+
+  @override
+  int get hashCode =>
+      value.hashCode ^ name.hashCode ^ description.hashCode ^ group.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AcpConfigValueDto &&
+          runtimeType == other.runtimeType &&
+          value == other.value &&
+          name == other.name &&
+          description == other.description &&
+          group == other.group;
+}
+
 /// A user-defined agent.
 class AcpCustomAgentDto {
   /// Id.
@@ -1813,6 +2020,45 @@ class AppCapabilitiesDto {
   /// Child (subagent) sessions that can be opened read-only.
   final bool childSessions;
 
+  /// Agent display name (ACP; empty otherwise).
+  final String agentName;
+
+  /// Supplementing a running turn.
+  final bool steer;
+
+  /// Renaming a conversation.
+  final bool rename;
+
+  /// Manual compaction.
+  final bool compact;
+
+  /// Git diff review.
+  final bool gitDiff;
+
+  /// Image attachments.
+  final bool images;
+
+  /// The generic config option panel (ACP).
+  final bool configOptions;
+
+  /// Agent slash commands (ACP).
+  final bool slashCommands;
+
+  /// Approval cards offer the agent's own options (ACP).
+  final bool approvalOptions;
+
+  /// URL elicitation cards (ACP).
+  final bool urlElicitation;
+
+  /// Running sessions come from `app_running_threads`.
+  final bool runningViaThreads;
+
+  /// Running-session tails can be prefetched.
+  final bool historyPrefetch;
+
+  /// The hub can re-materialize a session (ACP).
+  final bool sessionReload;
+
   const AppCapabilitiesDto({
     required this.provider,
     required this.fast,
@@ -1827,6 +2073,19 @@ class AppCapabilitiesDto {
     required this.approveAlwaysPersistsProject,
     required this.multiSelectQuestions,
     required this.childSessions,
+    required this.agentName,
+    required this.steer,
+    required this.rename,
+    required this.compact,
+    required this.gitDiff,
+    required this.images,
+    required this.configOptions,
+    required this.slashCommands,
+    required this.approvalOptions,
+    required this.urlElicitation,
+    required this.runningViaThreads,
+    required this.historyPrefetch,
+    required this.sessionReload,
   });
 
   @override
@@ -1843,7 +2102,20 @@ class AppCapabilitiesDto {
       effortLabel.hashCode ^
       approveAlwaysPersistsProject.hashCode ^
       multiSelectQuestions.hashCode ^
-      childSessions.hashCode;
+      childSessions.hashCode ^
+      agentName.hashCode ^
+      steer.hashCode ^
+      rename.hashCode ^
+      compact.hashCode ^
+      gitDiff.hashCode ^
+      images.hashCode ^
+      configOptions.hashCode ^
+      slashCommands.hashCode ^
+      approvalOptions.hashCode ^
+      urlElicitation.hashCode ^
+      runningViaThreads.hashCode ^
+      historyPrefetch.hashCode ^
+      sessionReload.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -1862,7 +2134,20 @@ class AppCapabilitiesDto {
           effortLabel == other.effortLabel &&
           approveAlwaysPersistsProject == other.approveAlwaysPersistsProject &&
           multiSelectQuestions == other.multiSelectQuestions &&
-          childSessions == other.childSessions;
+          childSessions == other.childSessions &&
+          agentName == other.agentName &&
+          steer == other.steer &&
+          rename == other.rename &&
+          compact == other.compact &&
+          gitDiff == other.gitDiff &&
+          images == other.images &&
+          configOptions == other.configOptions &&
+          slashCommands == other.slashCommands &&
+          approvalOptions == other.approvalOptions &&
+          urlElicitation == other.urlElicitation &&
+          runningViaThreads == other.runningViaThreads &&
+          historyPrefetch == other.historyPrefetch &&
+          sessionReload == other.sessionReload;
 }
 
 /// One app-server event mirrored for Dart. `kind` is the JSON-RPC method
@@ -2768,10 +3053,18 @@ class OlderPageDto {
   /// Whether older items still remain.
   final bool hasOlder;
 
-  const OlderPageDto({required this.items, required this.hasOlder});
+  /// Older history exists but is no longer available (ACP transcripts).
+  final bool olderUnavailable;
+
+  const OlderPageDto({
+    required this.items,
+    required this.hasOlder,
+    required this.olderUnavailable,
+  });
 
   @override
-  int get hashCode => items.hashCode ^ hasOlder.hashCode;
+  int get hashCode =>
+      items.hashCode ^ hasOlder.hashCode ^ olderUnavailable.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -2779,7 +3072,8 @@ class OlderPageDto {
       other is OlderPageDto &&
           runtimeType == other.runtimeType &&
           items == other.items &&
-          hasOlder == other.hasOlder;
+          hasOlder == other.hasOlder &&
+          olderUnavailable == other.olderUnavailable;
 }
 
 /// Result of attaching and publishing a local OpenCode service.
@@ -3177,6 +3471,9 @@ class ThreadHistoryDto {
   /// Cached pages of independently selected turns.
   final List<TurnItemsPageDto> turnPages;
 
+  /// Older history exists but is no longer available (ACP transcripts).
+  final bool olderUnavailable;
+
   const ThreadHistoryDto({
     this.historyEpoch,
     required this.items,
@@ -3199,6 +3496,7 @@ class ThreadHistoryDto {
     required this.turns,
     this.firstTurnId,
     required this.turnPages,
+    required this.olderUnavailable,
   });
 
   @override
@@ -3223,7 +3521,8 @@ class ThreadHistoryDto {
       hasOlder.hashCode ^
       turns.hashCode ^
       firstTurnId.hashCode ^
-      turnPages.hashCode;
+      turnPages.hashCode ^
+      olderUnavailable.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -3250,7 +3549,8 @@ class ThreadHistoryDto {
           hasOlder == other.hasOlder &&
           turns == other.turns &&
           firstTurnId == other.firstTurnId &&
-          turnPages == other.turnPages;
+          turnPages == other.turnPages &&
+          olderUnavailable == other.olderUnavailable;
 }
 
 /// One materialised conversation item mirrored for Dart.

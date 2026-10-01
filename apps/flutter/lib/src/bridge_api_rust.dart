@@ -523,12 +523,124 @@ class RustBridgeApi implements BridgeApi {
       approveAlwaysPersistsProject: c.approveAlwaysPersistsProject,
       multiSelectQuestions: c.multiSelectQuestions,
       childSessions: c.childSessions,
+      agentName: c.agentName,
+      steer: c.steer,
+      rename: c.rename,
+      compact: c.compact,
+      gitDiff: c.gitDiff,
+      images: c.images,
+      configOptions: c.configOptions,
+      slashCommands: c.slashCommands,
+      approvalOptions: c.approvalOptions,
+      urlElicitation: c.urlElicitation,
+      runningViaThreads: c.runningViaThreads,
+      historyPrefetch: c.historyPrefetch,
+      sessionReload: c.sessionReload,
     );
   }
 
   @override
   Future<List<String>> appRunningThreads(String serviceKey) =>
       frb.appRunningThreads(serviceKey: serviceKey);
+
+  @override
+  Future<void> appRespondPermissionOption(
+    String serviceKey,
+    String requestId,
+    String optionId,
+  ) => frb.appRespondPermissionOption(
+    serviceKey: serviceKey,
+    requestId: requestId,
+    optionId: optionId,
+  );
+
+  @override
+  Future<void> appRespondElicitationUrl(
+    String serviceKey,
+    String requestId,
+    bool accept,
+  ) => frb.appRespondElicitationUrl(
+    serviceKey: serviceKey,
+    requestId: requestId,
+    accept: accept,
+  );
+
+  @override
+  Future<List<AcpConfigOption>> appConfigOptions(
+    String serviceKey,
+    String threadId,
+  ) async =>
+      (await frb.appConfigOptions(serviceKey: serviceKey, threadId: threadId))
+          .map(
+            (o) => AcpConfigOption(
+              id: o.id,
+              name: o.name,
+              description: o.description,
+              category: o.category,
+              role: o.role,
+              kind: o.kind,
+              currentValue: o.currentValue,
+              options: o.options
+                  .map(
+                    (v) => AcpConfigValue(
+                      value: v.value,
+                      name: v.name,
+                      description: v.description,
+                      group: v.group,
+                    ),
+                  )
+                  .toList(),
+            ),
+          )
+          .toList();
+
+  @override
+  Future<void> appSetConfigOption(
+    String serviceKey,
+    String threadId,
+    String configId,
+    String value, {
+    bool boolean = false,
+  }) => frb.appSetConfigOption(
+    serviceKey: serviceKey,
+    threadId: threadId,
+    configId: configId,
+    value: value,
+    boolean: boolean,
+  );
+
+  @override
+  Future<List<AcpCommand>> appSlashCommands(
+    String serviceKey,
+    String threadId,
+  ) async =>
+      (await frb.appSlashCommands(serviceKey: serviceKey, threadId: threadId))
+          .map(
+            (c) => AcpCommand(
+              name: c.name,
+              description: c.description,
+              hint: c.hint,
+            ),
+          )
+          .toList();
+
+  @override
+  Future<void> appThreadReload(String serviceKey, String threadId) =>
+      frb.appThreadReload(serviceKey: serviceKey, threadId: threadId);
+
+  @override
+  AcpAuth? appAuthState(String serviceKey) {
+    final a = frb.appAuthState(serviceKey: serviceKey);
+    return a == null ? null : _acpAuth(a);
+  }
+
+  @override
+  Future<AcpAuth> appAuthAuthenticate(
+    String serviceKey,
+    String methodId,
+  ) async => _acpAuth(
+    await frb.appAuthAuthenticate(serviceKey: serviceKey, methodId: methodId),
+  );
 
   @override
   Future<void> setRelay(String relay) => frb.setRelay(relay: relay);
@@ -804,6 +916,7 @@ class RustBridgeApi implements BridgeApi {
     hasOlder: h.hasOlder,
     firstTurnId: h.firstTurnId,
     turnPages: h.turnPages.map(_turnPage).toList(),
+    olderUnavailable: h.olderUnavailable,
     turns: h.turns
         .map(
           (t) => TurnSummary(
@@ -862,6 +975,7 @@ class RustBridgeApi implements BridgeApi {
     return OlderPage(
       items: page.items.map(_item).toList(),
       hasOlder: page.hasOlder,
+      olderUnavailable: page.olderUnavailable,
     );
   }
 

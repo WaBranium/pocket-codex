@@ -467,7 +467,16 @@ pub fn force_resume(service_key: &str, thread_id: &str) -> Result<ForceResumeOut
 /// Read the host's project-folder config (configured roots + default project)
 /// over its meta tunnel — what a new session's folder browser starts from.
 pub fn project_config(service_key: &str) -> Result<HostConfig> {
-    let url = endpoint(service_key, &["projects"])?;
+    project_config_at(&base_url(service_key)?)
+}
+
+/// [`project_config`] against an explicit meta base URL (the ACP engine's
+/// direct test connections pass their loopback meta address).
+pub fn project_config_at(base: &Url) -> Result<HostConfig> {
+    let mut url = base.clone();
+    url.path_segments_mut()
+        .map_err(|_| anyhow!("meta base url cannot be a base"))?
+        .push("projects");
     runtime::runtime().block_on(get_json(url))
 }
 

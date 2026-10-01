@@ -534,10 +534,29 @@ impl FakeHandle {
             },
             "session/resume" => Some(Ok(lock(&self.state).script.session_setup.clone())),
             "session/close" | "session/set_mode" => Some(Ok(json!({}))),
-            "session/set_config_option" => Some(Ok(json!({
-                "configOptions": [{"id": params["configId"], "name": "Option", "type": "select",
-                    "currentValue": params["value"], "options": [{"value": params["value"], "name": "v"}]}]
-            }))),
+            "session/set_config_option" => {
+                let mut st = lock(&self.state);
+                let scripted = st
+                    .script
+                    .session_setup
+                    .get_mut("configOptions")
+                    .and_then(Value::as_array_mut);
+                match scripted {
+                    // Scripted options: update the current value and return all of them.
+                    Some(options) => {
+                        for option in options.iter_mut() {
+                            if option["id"] == params["configId"] {
+                                option["currentValue"] = params["value"].clone();
+                            }
+                        }
+                        Some(Ok(json!({ "configOptions": options.clone() })))
+                    },
+                    None => Some(Ok(json!({
+                        "configOptions": [{"id": params["configId"], "name": "Option", "type": "select",
+                            "currentValue": params["value"], "options": [{"value": params["value"], "name": "v"}]}]
+                    }))),
+                }
+            },
             "session/prompt" => Some(self.prompt(instance, params).await),
             _ => {
                 Some(Err(RpcError::new(code::METHOD_NOT_FOUND, format!("{method} not supported"))))
