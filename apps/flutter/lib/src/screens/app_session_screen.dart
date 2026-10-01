@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:pocket_codex/l10n/gen/app_localizations.dart';
 import 'package:pocket_codex/src/app_modes.dart';
+import 'package:pocket_codex/src/acp_errors.dart';
 import 'package:pocket_codex/src/attachment_refs.dart';
 import 'package:flutter/services.dart';
 import 'package:pasteboard/pasteboard.dart';
@@ -26,10 +27,13 @@ import 'package:pocket_codex/src/desktop_theme.dart';
 import 'package:pocket_codex/src/error_format.dart';
 import 'package:pocket_codex/src/fonts.dart';
 import 'package:pocket_codex/src/git_diff.dart';
+import 'package:pocket_codex/src/hosting_support.dart';
 import 'package:pocket_codex/src/ide_context.dart';
 import 'package:pocket_codex/src/image_attachments.dart';
 import 'package:pocket_codex/src/providers.dart';
 import 'package:pocket_codex/src/service_key.dart';
+import 'package:pocket_codex/src/screens/app_session/acp_config_panel.dart';
+import 'package:pocket_codex/src/screens/app_session/acp_slash_menu.dart';
 import 'package:pocket_codex/src/screens/app_session/async_questions.dart';
 import 'package:pocket_codex/src/screens/app_session/activity_cards.dart';
 import 'package:pocket_codex/src/screens/app_session/composer_cards.dart';
@@ -233,6 +237,13 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
   }
 
   final List<AppEvent> _approvals = []; // pending command-approval prompts
+
+  // ACP hub state (TRD §4.7.5): login and process banners, the "changed
+  // elsewhere" chip, and whether earlier history is gone for good.
+  AcpAuth? _acpAuth;
+  String? _acpProcess;
+  bool _acpChanged = false;
+  bool _olderUnavailable = false;
 
   // What the provider behind [widget.serviceKey] supports, read once per key.
   // Controls are gated on these flags, never on the provider's name.
@@ -1091,6 +1102,8 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
       // The previous thread's turns and pagination say nothing about this one.
       _turnSummaries = const [];
       _hasOlder = false;
+      _olderUnavailable = false;
+      _acpChanged = false;
       _historyError = false;
       _fetchedTurns.clear();
       _turnWindows.clear();
@@ -1203,6 +1216,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
 
   @override
   void dispose() {
+    _acpConfigRev.dispose();
     _healthTimer?.cancel();
     _externalHistoryTimer?.cancel();
     _externalWriterReconnect?.cancel();
@@ -1713,6 +1727,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
         _spliceTranscriptItems(items, atStart: true);
         if (turnId == null) {
           _hasOlder = older!.hasOlder;
+          _olderUnavailable = older.olderUnavailable;
           _sequentialHistoryIds.addAll(items.map((item) => item.id));
         } else {
           _fetchedTurns.add(turnId);
@@ -1861,6 +1876,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
             _mergeHistoryLiveItems(liveItems, partialItems);
             _asyncQuestions.addAll(liveQuestions);
             _hasOlder = cached.hasOlder;
+            _olderUnavailable = cached.olderUnavailable;
             _firstTurnId = cached.firstTurnId;
             _sequentialHistoryIds.addAll(cached.items.map((item) => item.id));
             _cwd ??= cached.cwd;
@@ -1899,6 +1915,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
         _replaceTranscriptItems(history.items, activeTurnId: activeTurnId);
         _turnSummaries = history.turns;
         _hasOlder = history.hasOlder;
+        _olderUnavailable = history.olderUnavailable;
         _historyError = false;
         _fetchedTurns.clear();
         _turnWindows.clear();
@@ -2296,6 +2313,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
         _turnSummaries = history.turns;
         _firstTurnId = history.firstTurnId;
         _hasOlder = history.hasOlder;
+        _olderUnavailable = history.olderUnavailable;
         _sequentialHistoryIds.addAll(history.items.map((item) => item.id));
         for (final item in history.items) {
           final index = _itemIndex[item.id];
@@ -2486,8 +2504,229 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
     setState(() => _approvals.removeWhere((a) => a.requestId == id));
   }
 
+  /// Bumped on `acp/config/updated`, so the generic option panel re-reads.
+  final ValueNotifier<int> _acpConfigRev = ValueNotifier(0);
+
+  static AcpAuth? _parseAcpAuth(Object? raw) {
+    if (raw is! Map) return null;
+    final methods = <AcpAuthMethod>[
+      for (final m in (raw['methods'] as List?) ?? const [])
+        if (m is Map)
+          AcpAuthMethod(
+            id: '${m['id'] ?? ''}',
+            name: '${m['name'] ?? ''}',
+            description: '${m['description'] ?? ''}',
+            kind: '${m['kind'] ?? 'agent'}',
+            remote: m['remote'] == true,
+            available: m['available'] != false,
+            gatewayProtocol: m['gatewayProtocol'] as String?,
+            gatewayConfigured: m['gatewayConfigured'] == true,
+          ),
+    ];
+    return AcpAuth(
+      status: '${raw['status'] ?? 'unknown'}',
+      methods: methods,
+      message: raw['message'] as String?,
+    );
+  }
+
+  /// Hub-level and ACP-only events (TRD §4.7.5); true when handled.
+  bool _onAcpEvent(AppEvent e) {
+    if (!e.kind.startsWith('acp/')) return false;
+    final ours = e.threadId == null || e.threadId == _threadId;
+    switch (e.kind) {
+      case 'acp/capabilities':
+        setState(() => _capsCache = null);
+      case 'acp/hub/state':
+        Map<String, dynamic>? raw;
+        try {
+          raw = jsonDecode(e.raw) as Map<String, dynamic>?;
+        } catch (_) {}
+        final process = (raw?['process'] as Map?)?['state'] as String?;
+        setState(() {
+          _acpAuth = _parseAcpAuth(raw?['auth']);
+          _acpProcess = process == 'restarting' || process == 'failed'
+              ? process
+              : null;
+          _capsCache = null;
+        });
+      case 'acp/sessions/changed':
+        _loadThreads();
+      case 'acp/session/changed':
+        if (ours && e.threadId != null) setState(() => _acpChanged = true);
+      case 'acp/session/generation':
+        if (ours && e.threadId != null && _threadId != null) {
+          setState(() => _acpChanged = false);
+          _resumeAndLoad();
+        }
+      case 'acp/config/updated':
+        if (ours) {
+          _acpConfigRev.value++;
+          setState(() => _capsCache = null);
+        }
+      case 'acp/queue/failed':
+        if (ours && e.threadId != null) _showQueueFailed(e);
+      case 'acp/elicitation/url':
+        // A URL card: hub-level ones (no thread) show in every open session.
+        if (ours &&
+            e.requestId != null &&
+            !_approvals.any((a) => a.requestId == e.requestId)) {
+          setState(() => _approvals.add(e));
+        }
+    }
+    return true;
+  }
+
+  void _showQueueFailed(AppEvent e) {
+    final l10n = AppLocalizations.of(context);
+    var prompts = const <String>[];
+    try {
+      final raw = jsonDecode(e.raw) as Map<String, dynamic>;
+      prompts = [
+        for (final p in (raw['prompts'] as List?) ?? const [])
+          if (p is Map && p['text'] is String) p['text'] as String,
+      ];
+    } catch (_) {}
+    if (prompts.isEmpty) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(
+        key: const Key('acp-queue-failed'),
+        content: Text(l10n.acpQueueFailed(prompts.length)),
+        action: SnackBarAction(
+          label: l10n.copy,
+          onPressed: () =>
+              Clipboard.setData(ClipboardData(text: prompts.join('\n\n'))),
+        ),
+      ),
+    );
+  }
+
+  /// The local ACP host behind this service, when this desktop hosts it.
+  AppServeStatus? get _localAcpHost {
+    if (!hostingSupportedPlatform()) return null;
+    final hosts = ref.read(localServeListProvider).valueOrNull ?? const [];
+    return hosts
+        .where((h) => h.isAcp && h.appServiceKey == widget.serviceKey)
+        .firstOrNull;
+  }
+
+  Future<void> _acpLogin(AcpAuthMethod method) async {
+    final api = ref.read(bridgeApiProvider);
+    final host = _localAcpHost;
+    try {
+      if (host != null && method.kind == 'terminal') {
+        await api.acpAuthTerminal(host.name, method.id);
+      } else if (host != null) {
+        final auth = await api.acpAuthAgent(host.name, method.id);
+        if (mounted) setState(() => _acpAuth = auth);
+      } else {
+        final auth = await api.appAuthAuthenticate(
+          widget.serviceKey,
+          method.id,
+        );
+        if (mounted) setState(() => _acpAuth = auth);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(
+          () => _error = acpErrorMessage(AppLocalizations.of(context), e),
+        );
+      }
+    }
+  }
+
+  Widget _acpBanner({
+    required Key key,
+    required String text,
+    List<Widget> actions = const [],
+    bool error = false,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    final bg = error ? scheme.errorContainer : scheme.secondaryContainer;
+    final fg = error ? scheme.onErrorContainer : scheme.onSecondaryContainer;
+    return Container(
+      key: key,
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      padding: const EdgeInsets.fromLTRB(14, 6, 8, 6),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(kPanelRadius),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(text, style: TextStyle(color: fg)),
+          ),
+          ...actions,
+        ],
+      ),
+    );
+  }
+
+  Widget _acpAuthBanner(AppLocalizations l10n) {
+    final auth = _acpAuth!;
+    final local = _localAcpHost != null;
+    final methods = [
+      for (final m in auth.methods)
+        if (local
+            ? (m.kind == 'agent' || (m.kind == 'terminal' && m.available))
+            : (m.kind == 'agent' && m.remote))
+          m,
+    ];
+    return _acpBanner(
+      key: const Key('acp-auth-banner'),
+      text: local
+          ? (auth.message ?? l10n.acpAuthRequired)
+          : '${l10n.acpAuthRequired} ${l10n.acpLoginOnHost}',
+      actions: [
+        for (final m in methods)
+          TextButton(
+            key: Key('acp-banner-login-${m.id}'),
+            onPressed: () => _acpLogin(m),
+            child: Text(m.name.isEmpty ? l10n.acpLogin : m.name),
+          ),
+      ],
+    );
+  }
+
+  Widget _acpProcessBanner(AppLocalizations l10n) => _acpBanner(
+    key: const Key('acp-process-banner'),
+    text: _acpProcess == 'failed'
+        ? l10n.acpProcessFailed
+        : l10n.acpProcessRestarting,
+    error: _acpProcess == 'failed',
+  );
+
+  Widget _acpReloadChip(AppLocalizations l10n) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 4),
+    child: ActionChip(
+      key: const Key('acp-reload-chip'),
+      avatar: const Icon(Icons.refresh, size: 16),
+      label: Text(l10n.acpSessionChanged),
+      onPressed: _reloadAcpSession,
+    ),
+  );
+
+  Future<void> _reloadAcpSession() async {
+    final tid = _threadId;
+    if (tid == null) return;
+    setState(() => _acpChanged = false);
+    try {
+      await ref.read(bridgeApiProvider).appThreadReload(widget.serviceKey, tid);
+    } catch (e) {
+      if (mounted) {
+        setState(
+          () => _error = acpErrorMessage(AppLocalizations.of(context), e),
+        );
+      }
+      return;
+    }
+    if (mounted && _threadId == tid) await _resumeAndLoad();
+  }
+
   void _onEvent(AppEvent e) {
     if (!mounted) return;
+    if (_onAcpEvent(e)) return;
     // A rename — possibly from another device, since the server persists the
     // title — applies to whichever thread it names, so it has to be handled
     // BEFORE the other-thread guard below: a sidebar row's rename would
@@ -3543,6 +3782,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
   /// Refresh the diff-vs-main for the branch/changes badge. Keyed on the
   /// project cwd (what `gitDiffToRemote` needs); a no-op without one.
   Future<void> _loadGit() async {
+    if (!_caps.gitDiff) return;
     final cwd = _cwd?.trim();
     if (cwd == null || cwd.isEmpty) return;
     try {
@@ -3765,6 +4005,8 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
         // Let the bridge retain a live socket if only its event subscription ended.
         await api.appConnect(widget.serviceKey, appLocalPort);
         _connectionLost = false;
+        // Capabilities of an ACP service are only known once its hub answered.
+        if (mounted) setState(() => _capsCache = null);
         _subscribe();
         if (reload && _threadId != null) {
           if (_externalWriterMode) {
@@ -3839,6 +4081,38 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
         m.contains('not connected');
   }
 
+  /// Answer an ACP permission request with one of the agent's own options.
+  Future<void> _decideOption(AppEvent prompt, String optionId) async {
+    setState(() => _approvals.remove(prompt));
+    try {
+      await ref
+          .read(bridgeApiProvider)
+          .appRespondPermissionOption(
+            widget.serviceKey,
+            prompt.requestId!,
+            optionId,
+          );
+    } catch (e) {
+      debugPrint('appRespondPermissionOption failed: $e');
+    }
+  }
+
+  /// Open (accept) or decline an ACP URL elicitation.
+  Future<void> _answerUrlElicitation(AppEvent prompt, bool accept) async {
+    setState(() => _approvals.remove(prompt));
+    try {
+      await ref
+          .read(bridgeApiProvider)
+          .appRespondElicitationUrl(
+            widget.serviceKey,
+            prompt.requestId!,
+            accept,
+          );
+    } catch (e) {
+      debugPrint('appRespondElicitationUrl failed: $e');
+    }
+  }
+
   Future<void> _decide(AppEvent prompt, String decision) async {
     setState(() => _approvals.remove(prompt));
     try {
@@ -3892,7 +4166,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
     setState(() => _localSending = true);
     try {
       final api = ref.read(bridgeApiProvider);
-      if (_streaming) {
+      if (_streaming && _caps.steer) {
         final turnId = _turnId;
         await api.appTurnSteer(widget.serviceKey, threadId, turnId, text);
       } else {
@@ -4108,7 +4382,15 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
     key: const ValueKey('history-header'),
     height: isDesktop ? 36 : 44,
     child: Center(
-      child: _startsAtBeginning
+      child: _startsAtBeginning && _olderUnavailable
+          ? Text(
+              l10n.acpOlderUnavailable,
+              key: const Key('acp-older-unavailable'),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            )
+          : _startsAtBeginning
           ? Text(
               l10n.historyStart,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -4965,7 +5247,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
             // Same place as on desktop. It has to be here rather than in the
             // sessions pane, which on a phone lives behind the drawer.
             const ThemeToggle(),
-            if (_threadId != null)
+            if (_threadId != null && _caps.compact)
               PopupMenuButton<String>(
                 tooltip: l10n.moreActions,
                 onSelected: (v) {
@@ -5158,7 +5440,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
               // one frequently-used control that moved (or vanished) with the
               // sidebar.
               const ThemeToggle(),
-              if (_threadId != null)
+              if (_threadId != null && (_caps.rename || _caps.compact))
                 PopupMenuButton<String>(
                   tooltip: l10n.moreActions,
                   onSelected: (v) {
@@ -5166,11 +5448,16 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
                     if (v == 'rename') _beginTitleEdit();
                   },
                   itemBuilder: (c) => [
-                    PopupMenuItem(
-                      value: 'rename',
-                      child: Text(l10n.renameConversation),
-                    ),
-                    PopupMenuItem(value: 'compact', child: Text(l10n.compact)),
+                    if (_caps.rename)
+                      PopupMenuItem(
+                        value: 'rename',
+                        child: Text(l10n.renameConversation),
+                      ),
+                    if (_caps.compact)
+                      PopupMenuItem(
+                        value: 'compact',
+                        child: Text(l10n.compact),
+                      ),
                   ],
                 ),
               if (isFramelessDesktop && !isMac)
@@ -5187,7 +5474,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
   /// Enter title-edit mode, seeded with the current title and fully selected
   /// (so typing replaces it, the way a rename should).
   void _beginTitleEdit() {
-    if (_threadId == null) return;
+    if (_threadId == null || !_caps.rename) return;
     final l10n = AppLocalizations.of(context);
     _titleCtrl.text = _barTitle(l10n);
     _titleCtrl.selection = TextSelection(
@@ -5720,6 +6007,9 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
       children: [
         _statusBar(l10n),
         if (_childReadOnly) _subSessionBanner(l10n),
+        if (_caps.isAcp && (_acpAuth?.required ?? false)) _acpAuthBanner(l10n),
+        if (_caps.isAcp && _acpProcess != null) _acpProcessBanner(l10n),
+        if (_caps.isAcp && _acpChanged) _acpReloadChip(l10n),
         if (_historySyncing || _showingCachedHistory)
           Padding(
             key: const Key('history-sync-status'),
@@ -5969,11 +6259,18 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
               prompt: a,
               onAnswer: _answerUserInput,
             )
+          else if (a.kind == 'acp/elicitation/url')
+            UrlElicitationCard(
+              key: ValueKey(a.requestId),
+              prompt: a,
+              onAnswer: _answerUrlElicitation,
+            )
           else
             ApprovalCard(
               key: ValueKey(a.requestId),
               prompt: a,
               onDecide: _decide,
+              onOption: _caps.approvalOptions ? _decideOption : null,
             ),
         if (!_externalWriterMode &&
             !_childReadOnly &&
@@ -6001,6 +6298,22 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
         if (!_externalWriterMode && !_childReadOnly && _planReady)
           _implementBar(l10n),
         if (_error != null) _errorBanner(l10n),
+        if (_caps.slashCommands &&
+            _threadId != null &&
+            !_childReadOnly &&
+            !_externalWriterMode)
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: _kColumnWidth + 48),
+              child: AcpSlashMenu(
+                serviceKey: widget.serviceKey,
+                threadId: _threadId!,
+                controller: _input,
+                revision: _acpConfigRev,
+              ),
+            ),
+          ),
         if (_childReadOnly)
           const SizedBox.shrink()
         else if (_externalWriterMode)
@@ -6860,7 +7173,17 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
                                   ),
                                 ),
                                 const SizedBox(width: 6),
-                                ProviderBadge.forKey(s.key),
+                                // An agent name may be long; it shrinks with
+                                // the title rather than overflowing the row.
+                                Flexible(
+                                  child: ProviderBadge.forKey(
+                                    s.key,
+                                    label: ref
+                                        .read(bridgeApiProvider)
+                                        .appCapabilities(s.key)
+                                        .agentName,
+                                  ),
+                                ),
                               ],
                             ),
                           ),
@@ -6886,7 +7209,12 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
                         ),
                       ),
                       const SizedBox(width: 6),
-                      ProviderBadge.forKey(widget.serviceKey),
+                      Flexible(
+                        child: ProviderBadge.forKey(
+                          widget.serviceKey,
+                          label: _caps.agentName,
+                        ),
+                      ),
                     ],
                   ),
           ),
@@ -7706,6 +8034,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
   /// processed (EXIF-bake / downscale / JPEG re-encode) on a background
   /// isolate before it becomes sendable, showing a spinner chip meanwhile.
   Future<void> _pickImages() async {
+    if (!_caps.images) return;
     final draft = _draft;
     final l10n = AppLocalizations.of(context);
     final messenger = ToastMessenger.of(context);
@@ -7959,7 +8288,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
     if (_sending || !mounted) return;
     final draft = _draft;
     try {
-      final img = await Pasteboard.image;
+      final img = _caps.images ? await Pasteboard.image : null;
       if (img != null && img.isNotEmpty) {
         if (!mounted) return;
         if (draft.attachments.where((a) => !a.isFile).length >=
@@ -8507,7 +8836,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
                                     },
                             ),
                           ),
-                        if (_streaming)
+                        if (_streaming && _caps.steer)
                           Tooltip(
                             message: l10n.steerMessageHint,
                             child: FilterChip(
@@ -8701,6 +9030,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
     itemBuilder: (_) => [
       PopupMenuItem<void>(
         key: const Key('attach-btn'),
+        enabled: _caps.images,
         onTap: _pickImages,
         child: _menuRow(Icons.add_photo_alternate_outlined, l10n.attachImage),
       ),
@@ -8868,18 +9198,28 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
             const Divider(height: 9),
             _effortSlider(l10n),
           ],
-          const Divider(height: 9),
-          ListTile(
-            key: const Key('advanced-turn-settings'),
-            dense: true,
-            leading: const Icon(Icons.tune, size: 16),
-            title: Text(l10n.advancedSettings),
-            trailing: const Icon(Icons.chevron_right, size: 16),
-            onTap: () {
-              _modelMenu.close();
-              _showAdvancedSettings(l10n);
-            },
-          ),
+          if (_caps.configOptions && _threadId != null) ...[
+            const Divider(height: 9),
+            AcpConfigOptionsPanel(
+              serviceKey: widget.serviceKey,
+              threadId: _threadId!,
+              revision: _acpConfigRev,
+            ),
+          ],
+          if (_caps.planMode) ...[
+            const Divider(height: 9),
+            ListTile(
+              key: const Key('advanced-turn-settings'),
+              dense: true,
+              leading: const Icon(Icons.tune, size: 16),
+              title: Text(l10n.advancedSettings),
+              trailing: const Icon(Icons.chevron_right, size: 16),
+              onTap: () {
+                _modelMenu.close();
+                _showAdvancedSettings(l10n);
+              },
+            ),
+          ],
         ],
       ),
     );
@@ -9029,11 +9369,18 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
             label: _effortTitle(l10n),
             description: _effectiveEffort?.label(l10n),
           ),
-        _PickerOption(
-          value: 'advanced',
-          icon: Icons.tune,
-          label: l10n.advancedSettings,
-        ),
+        if (_caps.configOptions && _threadId != null)
+          _PickerOption(
+            value: 'acp-options',
+            icon: Icons.tune,
+            label: l10n.acpAgentLabel,
+          ),
+        if (_caps.planMode)
+          _PickerOption(
+            value: 'advanced',
+            icon: Icons.tune,
+            label: l10n.advancedSettings,
+          ),
         // The working directory is fixed once the thread exists, so offer it
         // only before the first turn.
         if (_threadId == null)
@@ -9055,7 +9402,28 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
         await _pickProject();
       case 'advanced':
         await _showAdvancedSettings(l10n);
+      case 'acp-options':
+        await _showAcpOptionsSheet();
     }
+  }
+
+  /// The agent's own options (modes, other selects and switches) in a sheet.
+  Future<void> _showAcpOptionsSheet() async {
+    final tid = _threadId;
+    if (tid == null) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (_) => SafeArea(
+        child: SingleChildScrollView(
+          child: AcpConfigOptionsPanel(
+            serviceKey: widget.serviceKey,
+            threadId: tid,
+            revision: _acpConfigRev,
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _showAdvancedSettings(AppLocalizations l10n) async {
@@ -9605,7 +9973,8 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
                   ),
                   if (_caps.permissionPresets)
                     row(_modeIcon(), l10n.permissionLabel, permText),
-                  row(Icons.checklist_rtl, l10n.planMode, planText),
+                  if (_caps.planMode)
+                    row(Icons.checklist_rtl, l10n.planMode, planText),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
                     child: Row(

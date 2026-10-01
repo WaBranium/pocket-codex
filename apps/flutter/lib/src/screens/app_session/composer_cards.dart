@@ -365,9 +365,83 @@ class _UserInputCardState extends State<UserInputCard> {
 }
 
 class ApprovalCard extends StatelessWidget {
-  const ApprovalCard({super.key, required this.prompt, required this.onDecide});
+  const ApprovalCard({
+    super.key,
+    required this.prompt,
+    required this.onDecide,
+    this.onOption,
+  });
   final AppEvent prompt;
   final Future<void> Function(AppEvent, String) onDecide;
+
+  /// Answers with one of an ACP agent's own options (`raw.acpOptions`); when
+  /// null, or the request carries no options, the standard buttons show.
+  final Future<void> Function(AppEvent, String optionId)? onOption;
+
+  /// The agent's options, in its order.
+  List<({String id, String name, String kind})> get _acpOptions {
+    try {
+      final p = jsonDecode(prompt.raw);
+      final list = p is Map ? p['acpOptions'] : null;
+      if (list is! List) return const [];
+      return [
+        for (final o in list)
+          if (o is Map && o['optionId'] is String)
+            (
+              id: o['optionId'] as String,
+              name: '${o['name'] ?? o['optionId']}',
+              kind: '${o['kind'] ?? ''}',
+            ),
+      ];
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<void> _pickOption(
+    BuildContext context,
+    ({String id, String name, String kind}) option,
+  ) async {
+    if (option.kind == 'allow_always' || option.kind == 'reject_always') {
+      final l10n = AppLocalizations.of(context);
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          key: const Key('acp-option-confirm'),
+          title: Text(l10n.acpOptionConfirmTitle(option.name)),
+          content: Text(l10n.acpOptionConfirmBody),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: Text(l10n.cancel),
+            ),
+            FilledButton(
+              key: const Key('acp-option-confirm-ok'),
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: Text(option.name),
+            ),
+          ],
+        ),
+      );
+      if (ok != true) return;
+    }
+    await onOption!(prompt, option.id);
+  }
+
+  List<Widget> _optionButtons(BuildContext context) => [
+    for (final o in _acpOptions)
+      o.kind == 'allow_once'
+          ? FilledButton(
+              key: Key('acp-option-${o.id}'),
+              onPressed: () => _pickOption(context, o),
+              child: Text(o.name),
+            )
+          : TextButton(
+              key: Key('acp-option-${o.id}'),
+              onPressed: () => _pickOption(context, o),
+              child: Text(o.name),
+            ),
+  ];
 
   ({IconData icon, String title}) _meta(AppLocalizations l10n) {
     final k = prompt.kind;
@@ -498,29 +572,126 @@ class ApprovalCard extends StatelessWidget {
             Wrap(
               alignment: WrapAlignment.end,
               spacing: 8,
-              children: [
-                TextButton(
-                  onPressed: () => onDecide(prompt, 'decline'),
-                  child: Text(l10n.deny),
-                ),
-                TextButton(
-                  key: const Key('approve-session-btn'),
-                  onPressed: () => _acceptForSession(context),
-                  child: Text(
-                    _persistsProject
-                        ? l10n.approveAlwaysProject
-                        : l10n.approveForSession,
-                  ),
-                ),
-                FilledButton(
-                  key: const Key('approve-btn'),
-                  onPressed: () => onDecide(prompt, 'accept'),
-                  child: Text(l10n.approve),
-                ),
-              ],
+              children: onOption != null && _acpOptions.isNotEmpty
+                  ? _optionButtons(context)
+                  : [
+                      TextButton(
+                        onPressed: () => onDecide(prompt, 'decline'),
+                        child: Text(l10n.deny),
+                      ),
+                      TextButton(
+                        key: const Key('approve-session-btn'),
+                        onPressed: () => _acceptForSession(context),
+                        child: Text(
+                          _persistsProject
+                              ? l10n.approveAlwaysProject
+                              : l10n.approveForSession,
+                        ),
+                      ),
+                      FilledButton(
+                        key: const Key('approve-btn'),
+                        onPressed: () => onDecide(prompt, 'accept'),
+                        child: Text(l10n.approve),
+                      ),
+                    ],
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// An ACP URL elicitation (`acp/elicitation/url`): the agent asks the user to
+/// open a page (for example a device-code login). The host is shown
+/// prominently so the user can judge where the link goes before opening it.
+class UrlElicitationCard extends StatelessWidget {
+  const UrlElicitationCard({
+    super.key,
+    required this.prompt,
+    required this.onAnswer,
+  });
+
+  final AppEvent prompt;
+
+  /// `true` after the page was opened, `false` when declined.
+  final Future<void> Function(AppEvent, bool accept) onAnswer;
+
+  Map<String, dynamic> get _raw {
+    try {
+      final p = jsonDecode(prompt.raw);
+      return p is Map<String, dynamic> ? p : const {};
+    } catch (_) {
+      return const {};
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final raw = _raw;
+    final url = '${raw['url'] ?? ''}';
+    final host = Uri.tryParse(url)?.host ?? '';
+    final message = '${raw['message'] ?? prompt.title ?? ''}';
+    return Container(
+      key: const Key('acp-url-card'),
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHigh,
+        border: Border.all(color: scheme.outlineVariant, width: 0.5),
+        borderRadius: BorderRadius.circular(kPanelRadius),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.open_in_new, size: 18, color: scheme.primary),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  l10n.acpUrlTitle,
+                  style: const TextStyle(fontWeight: FontWeight.w500),
+                ),
+              ),
+            ],
+          ),
+          if (message.isNotEmpty) ...[const SizedBox(height: 8), Text(message)],
+          const SizedBox(height: 8),
+          Text(
+            host,
+            key: const Key('acp-url-host'),
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 15,
+              color: scheme.primary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            alignment: WrapAlignment.end,
+            spacing: 8,
+            children: [
+              TextButton(
+                key: const Key('acp-url-decline'),
+                onPressed: () => onAnswer(prompt, false),
+                child: Text(l10n.acpUrlDecline),
+              ),
+              FilledButton(
+                key: const Key('acp-url-open'),
+                onPressed: url.isEmpty
+                    ? null
+                    : () async {
+                        await openWebUrl(context, url);
+                        await onAnswer(prompt, true);
+                      },
+                child: Text(l10n.acpUrlOpen(host)),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
