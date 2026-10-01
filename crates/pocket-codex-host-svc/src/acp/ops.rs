@@ -168,6 +168,9 @@ async fn dispatch(
         pcx::methods::SESSION_WINDOW => rpc(parse(params).and_then(|p| window(hub, p))),
         pcx::methods::SESSION_SUBMIT => rpc(async { submit(hub, parse(params)?) }.await),
         pcx::methods::SESSIONS_RUNNING => rpc(running(hub)),
+        pcx::methods::HUB_DEFAULTS => {
+            rpc(async { to_value(&super::defaults::defaults(hub).await?) }.await)
+        },
         pcx::methods::AUTH_AUTHENTICATE => rpc(async {
             let p: pcx::AuthenticateParams = parse(params)?;
             let kind = lock(&hub.state)
@@ -361,10 +364,14 @@ fn start_refresh(hub: &Arc<AcpHub>) -> oneshot::Receiver<()> {
 
 async fn refresh(hub: Arc<AcpHub>) {
     let result = fetch_all(&hub).await;
+    let probe_dir = super::defaults::probe_dir(&hub.options.state_dir);
     let mut st = lock(&hub.state);
     st.list_refreshing = false;
     match result {
-        Ok(listed) => apply_listing(&mut st, listed),
+        Ok(mut listed) => {
+            listed.retain(|info| !super::defaults::is_hidden(&st, info, &probe_dir));
+            apply_listing(&mut st, listed);
+        },
         Err(e) => {
             if e.is_auth_required() {
                 st.auth_required(Some(e.detail()));
@@ -549,7 +556,7 @@ async fn new_session(
         session.subscribers.insert(conn);
         session.touch();
         let updated = session.updated_at.clone();
-        adopt_setup(&mut st, &id, &setup);
+        adopt_setup(&hub2, &mut st, &id, &setup);
         st.created.push(SessionInfo {
             session_id: id.clone(),
             cwd: cwd.clone(),
@@ -572,12 +579,13 @@ async fn new_session(
 }
 
 /// Record config options and modes from a session response.
-fn adopt_setup(st: &mut HubState, id: &str, setup: &SessionSetup) {
+fn adopt_setup(hub: &AcpHub, st: &mut HubState, id: &str, setup: &SessionSetup) {
     let mut caps_changed = false;
     if let Some(options) = &setup.config_options {
         caps_changed |= !st.caps.config_options;
         st.caps.config_options = true;
         st.default_config_options = options.clone();
+        super::defaults::save(st, &hub.options.state_dir, &hub.options.instance);
     }
     if setup.modes.is_some() {
         caps_changed |= !st.caps.modes;
@@ -755,7 +763,7 @@ fn finish_load(hub: &Arc<AcpHub>, st: &mut HubState, id: &str, plan: Plan, setup
         .as_ref()
         .map(|t| t.generation().to_string())
         .unwrap_or_default();
-    adopt_setup(st, id, setup);
+    adopt_setup(hub, st, id, setup);
     let session_id = id.to_string();
     st.notify_session(id, notifications::SESSION_LOADED, |seq| {
         serde_json::to_value(SessionLoadedParams {
@@ -1424,7 +1432,10 @@ async fn set_config(hub: &Arc<AcpHub>, method: &str, params: Value) -> Result<Va
         if let Some(s) = st.sessions.get_mut(&session_id) {
             s.config_options = response.config_options.clone();
         }
-        st.default_config_options = response.config_options.clone();
+        if !response.config_options.is_empty() {
+            st.default_config_options = response.config_options.clone();
+            super::defaults::save(&mut st, &hub.options.state_dir, &hub.options.instance);
+        }
         json!({"sessionUpdate": "config_option_update", "configOptions": response.config_options})
     } else {
         let mode = params

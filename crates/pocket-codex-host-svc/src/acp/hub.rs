@@ -36,6 +36,7 @@ use tracing::{info, warn};
 
 use super::{
     auth::{self, GatewayAuth, TerminalLauncher},
+    defaults::Defaults,
     error::AcpError,
     launch::{AgentConnector, ChildHandle, LaunchSpec},
     peer::{AgentPeer, PeerExit},
@@ -70,7 +71,8 @@ pub struct HubOptions {
     /// Production: `install::resolve_launch` plus the agent's gateway
     /// settings; tests return fixed values.
     pub launch: LaunchProvider,
-    /// `<state_dir>/acp`; holds `sessions/<instance>.json` and `run/`.
+    /// `<state_dir>/acp`; holds `sessions/<instance>.json`,
+    /// `defaults/<instance>.json`, `probe/` and `run/`.
     pub state_dir: PathBuf,
     /// Agent stderr log.
     pub log_file: Option<PathBuf>,
@@ -140,6 +142,7 @@ pub(super) struct HubState {
     /// Persistent note shown with the auth state (gateway without method).
     pub(super) auth_note: Option<String>,
     pub(super) default_config_options: Vec<ConfigOption>,
+    pub(super) defaults: Defaults,
     pub(super) sessions: HashMap<String, HubSession>,
     pub(super) created: Vec<SessionInfo>,
     pub(super) list_cache: Option<(tokio::time::Instant, Vec<SessionInfo>)>,
@@ -295,6 +298,8 @@ pub struct AcpHub {
     pub(super) epoch: String,
     pub(super) state: Mutex<HubState>,
     pub(super) shutdown: CancellationToken,
+    /// Serializes `_pcx/hub/defaults` probes.
+    pub(super) probe: tokio::sync::Mutex<()>,
 }
 
 /// Lowest-level lock helper; recovers from poisoning.
@@ -353,6 +358,7 @@ impl AcpHub {
                 },
                 auth_note: None,
                 default_config_options: Vec::new(),
+                defaults: Defaults::default(),
                 sessions: HashMap::new(),
                 created,
                 list_cache: None,
@@ -368,6 +374,7 @@ impl AcpHub {
                 shut_down: false,
             }),
             shutdown: CancellationToken::new(),
+            probe: tokio::sync::Mutex::new(()),
         });
         let first = match tokio::time::timeout(INITIALIZE_TIMEOUT, hub.launch_once()).await {
             Ok(result) => result,
@@ -559,6 +566,7 @@ impl AcpHub {
             let mut st = lock(&self.state);
             st.next_run += 1;
             st.last_spec = spec.clone();
+            super::defaults::restore(&mut st, &self.options.state_dir, &self.options.instance);
             st.next_run
         };
         let weak = Arc::downgrade(self);

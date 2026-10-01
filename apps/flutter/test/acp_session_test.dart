@@ -323,6 +323,44 @@ void main() {
     expect(find.byKey(const Key('acp-process-banner')), findsNothing);
   });
 
+  testWidgets('a new conversation re-reads models once the hub is ready', (
+    t,
+  ) async {
+    final api = AcpApi()..emptyModelList = true;
+    await open(t, api: api, threadId: null);
+    final before = api.modelListCalls;
+    expect(before, greaterThan(0));
+    api.emptyModelList = false;
+    api.pushEvent(
+      acp,
+      _event(
+        'acp/hub/state',
+        '{"auth":{"status":"ok","methods":[]},"process":{"state":"starting"}}',
+      ),
+    );
+    await frames(t);
+    expect(api.modelListCalls, before);
+    api.pushEvent(
+      acp,
+      _event(
+        'acp/hub/state',
+        '{"auth":{"status":"ok","methods":[]},"process":{"state":"ready"}}',
+      ),
+    );
+    await frames(t);
+    expect(api.modelListCalls, before + 1);
+    // Known models are not re-read on later hub states.
+    api.pushEvent(
+      acp,
+      _event(
+        'acp/hub/state',
+        '{"auth":{"status":"ok","methods":[]},"process":{"state":"ready"}}',
+      ),
+    );
+    await frames(t);
+    expect(api.modelListCalls, before + 1);
+  });
+
   testWidgets('unavailable older history is announced at the top', (t) async {
     await open(
       t,

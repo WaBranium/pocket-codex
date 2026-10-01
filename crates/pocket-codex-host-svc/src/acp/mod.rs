@@ -4,6 +4,7 @@
 //! Desktop only; the module is not compiled for Android or iOS.
 
 mod auth;
+mod defaults;
 mod error;
 mod fs;
 mod history;

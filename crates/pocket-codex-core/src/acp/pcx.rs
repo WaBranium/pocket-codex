@@ -32,6 +32,8 @@ pub mod methods {
     pub const SESSIONS_RUNNING: &str = "_pcx/sessions/running";
     /// `_pcx/auth/authenticate`
     pub const AUTH_AUTHENTICATE: &str = "_pcx/auth/authenticate";
+    /// `_pcx/hub/defaults`
+    pub const HUB_DEFAULTS: &str = "_pcx/hub/defaults";
 }
 
 /// Hub → controller notifications.
@@ -205,6 +207,14 @@ pub struct RunningSession {
 pub struct RunningResult {
     /// Sessions with activity.
     pub sessions: Vec<RunningSession>,
+}
+
+/// `_pcx/hub/defaults` result: the options a new session starts from.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HubDefaultsResult {
+    /// Empty when the agent reports no config options.
+    pub config_options: Vec<ConfigOption>,
 }
 
 /// Agent process state.

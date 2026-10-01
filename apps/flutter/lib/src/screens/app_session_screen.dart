@@ -2550,6 +2550,9 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
               : null;
           _capsCache = null;
         });
+        // A new conversation opened before the agent was ready (or before
+        // the hub knew its options) has no models yet; ask again.
+        if (_models.isEmpty && process == 'ready') unawaited(_ensureModels());
       case 'acp/sessions/changed':
         _loadThreads();
       case 'acp/session/changed':

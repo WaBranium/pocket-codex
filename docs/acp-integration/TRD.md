@@ -937,7 +937,7 @@ Hub 调用 agent 时，如果 agent 侧的超时（§3.3）比上表的期限长
   - `configOptions`、`modes`：最近一次会话响应里带了 `configOptions`、`modes`。
   - `commands`：收到过 `available_commands_update`。
   - `queue`、`urlElicitation` 固定为 true；`steer` 固定为 false。`queue` 表示 Hub 会给多个控制器之间、或者和界面自己的本地排队撞上的提交兜底排队；界面不为它单独提供控件。
-- `defaultConfigOptions`：Hub 记住的最近一次 `session/new`、`load` 或 `resume` 返回的 configOptions。还没有打开任何会话时，模型列表就用它。
+- `defaultConfigOptions`：Hub 记住的最近一次 `session/new`、`load` 或 `resume` 返回的 configOptions。还没有打开任何会话时，模型列表就用它。它按实例保存在 `<state_dir>/acp/defaults/<instance>.json`（0600，只在 agent id 相同时恢复），重启后不等会话打开就可用；见 `_pcx/hub/defaults`。
 
 标准方法（Hub 对控制器表现为一个"虚拟 agent"）：
 
@@ -962,6 +962,7 @@ Hub 调用 agent 时，如果 agent 侧的超时（§3.3）比上表的期限长
 | `_pcx/session/reload` | `{sessionId}` | `AttachResult`，和 attach 一样最多等 20 s |
 | `_pcx/sessions/running` | `{}` | `{sessions: RunningSession[]}` |
 | `_pcx/auth/authenticate` | `{methodId}` | 立即返回 `AuthState`（`status: "inProgress"`），结果之后通过 `_pcx/hub/state` 广播；terminal 类方法返回 `HOST_ONLY` |
+| `_pcx/hub/defaults` | `{}` | `{configOptions: ConfigOption[]}`：新会话的默认配置项。Hub 已知时直接返回；一无所知、agent 支持 `session/close`、不需要登录、而且这个 agent 版本还没探测过时，Hub 在 `<state_dir>/acp/probe/` 里新建一个探测会话读出配置项，随即关闭它。探测会话记入 defaults 文件，`session/list` 永远不列出它（也不列出 cwd 为探测目录的会话）。探测拿到配置项后广播 `_pcx/hub/state` |
 
 - `older_unavailable` 在 `dropped_turns > 0`、而且窗口已经到达最早保留的条目时为 true。
 - 回应大小上限：attach、reload、window 的结果序列化后不超过 16 MiB（低于 `AppClient` 的 64 MiB 帧上限）。超出时，从最早的条目开始去掉，直到满足上限，同时把 `has_older` 置为 true。单个条目本身已经受 `MAX_ITEM_TEXT` 和 `MAX_RAW_JSON` 约束；图片块单张超过 4 MiB 时，Hub 在回应里换成一个 text 块 `[图片过大，未传输]`。
@@ -1981,7 +1982,7 @@ AppEvent 统一用 T15 移出来的 `event`、`item_event`、`bare_item` 构造�
 
 #### 4.5.3 配置项 → 模型、推理强度、模式
 
-- 配置项的来源：当前会话 `SessionView.config_options`，没有时用 `HubMeta.defaultConfigOptions`。
+- 配置项的来源：当前会话 `SessionView.config_options`，没有时用 `HubMeta.defaultConfigOptions`。两者都为空（新对话第一次发送之前）时，`model_list` 调用 `_pcx/hub/defaults`，结果写回缓存的 `HubMeta`；旧版 Hub 没有这个方法时返回空列表。界面在没有模型时，收到 `process.state == ready` 的 `acp/hub/state` 会重新读取模型列表。
 - 模型选项：`category == "model"` 的 select 项；没有 category 时，取 `id == "model"` 的项。
 - 推理强度选项：`category == "thought_level"` 的项；没有 category 时，依次找 `id` 为 `effort`、`reasoning_effort`、`thought_level` 的项。
 - `model_list`：模型选项的每个值生成一个 `ModelInfo`：
@@ -2769,4 +2770,5 @@ cd apps/flutter && fvm flutter pub get \
 - M9：登录提示条在本机桌面托管时提供 terminal（可用的）和 agent 类方法；远程时只提供 `remote` 的 agent 类方法，调用 `appAuthAuthenticate`。排队失败的 SnackBar 用已有的 `copy` 文案作为"复制原文"按钮。
 - M9：会话界面里的 ACP 标签显示 agent 名称，放在 `Flexible` 里，名称长时和标题一起收缩，不会撑破侧栏的服务切换行。
 - M9：`runningSessionInventoryProvider` 按 `appCapabilities(key).runningViaThreads` 走 `appRunningThreads`（OpenCode 和 ACP），`historyPrefetch` 为真（ACP）时按原来的轮换规则预取最多 2 个运行中会话；OpenCode 的行为不变。
+- M1–M9 之后：新对话在第一次发送前拿不到模型等配置项（ACP 只在会话响应里给出配置项，Hub 原来只记在内存里）。新增 `_pcx/hub/defaults`、`defaults/<instance>.json` 持久化和一次性的隐藏探测会话（`host-svc/src/acp/defaults.rs`）；探测要求 agent 支持 `session/close`，否则只靠持久化。`session/set_config_option` 返回空配置项时不再清空默认值。
 - M1–M9 之后：按 AGENTS.md"每完成一个里程碑就更新 README Status 表和路线图"的规则，README 的 Status 表加了一行 ACP、AGENTS.md 路线图加了第 16 条，两处都写明实测尚未完成。M10 的其余文档项（`CONTEXT.md` 的 §12 术语、README 的 ACP 章节、用实测回放替换 fixture）仍留给 M10。

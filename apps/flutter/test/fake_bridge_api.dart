@@ -1063,8 +1063,12 @@ class FakeBridgeApi implements BridgeApi {
   Completer<void>? modelListGate;
   Completer<void>? configReadGate;
 
+  /// Calls of [appModelList].
+  int modelListCalls = 0;
+
   @override
   Future<List<ModelInfo>> appModelList(String serviceKey) async {
+    modelListCalls++;
     await modelListGate?.future;
     return emptyModelList
         ? const []

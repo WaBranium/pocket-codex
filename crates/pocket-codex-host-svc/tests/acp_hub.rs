@@ -1551,3 +1551,128 @@ async fn ws_rejects_non_loopback_listener() {
         .expect_err("refused");
     assert!(error.to_string().contains("loopback"), "{error}");
 }
+
+fn model_options(current: &str) -> Value {
+    json!({"configOptions": [{
+        "id": "model", "name": "Model", "category": "model", "type": "select",
+        "currentValue": current,
+        "options": [{"value": "p/a", "name": "A"}, {"value": "p/b", "name": "B"}]
+    }]})
+}
+
+#[tokio::test]
+async fn defaults_probe_once_in_a_hidden_closed_session() {
+    let script = FakeScript {
+        session_setup: model_options("p/a"),
+        sessions: vec![
+            listed("fake-1", "/elsewhere", Some("2026-01-02T00:00:00Z")),
+            listed("real", "/w", Some("2026-01-01T00:00:00Z")),
+        ],
+        ..FakeScript::default()
+    };
+    let s = start(script).await;
+    let mut ctl = Ctl::connected(&s.hub).await;
+    let init_meta = ctl.drain();
+    assert!(init_meta.is_empty(), "{init_meta:?}");
+
+    let found = ctl
+        .call("_pcx/hub/defaults", json!({}))
+        .await
+        .expect("defaults");
+    assert_eq!(found["configOptions"][0]["currentValue"], "p/a");
+    let state = ctl.notification("_pcx/hub/state").await;
+    assert_eq!(state["caps"]["configOptions"], true);
+    assert_eq!(state["defaultConfigOptions"][0]["id"], "model");
+
+    let probe = s.fake.params_of("session/new");
+    assert_eq!(probe.len(), 1);
+    let cwd = probe[0]["cwd"].as_str().expect("cwd");
+    assert_eq!(PathBuf::from(cwd), s._dir.path().join("acp").join("probe"));
+    s.fake.wait_for("session/close", 1).await;
+    assert_eq!(s.fake.params_of("session/close")[0]["sessionId"], "fake-1");
+
+    // Known now: no second probe, and the probe session is never listed.
+    ctl.call("_pcx/hub/defaults", json!({}))
+        .await
+        .expect("defaults again");
+    assert_eq!(s.fake.count("session/new"), 1);
+    let listing = ctl.call("session/list", json!({})).await.expect("list");
+    let ids: Vec<&str> = listing["sessions"]
+        .as_array()
+        .expect("sessions")
+        .iter()
+        .filter_map(|s| s["sessionId"].as_str())
+        .collect();
+    assert_eq!(ids, ["real"]);
+}
+
+#[tokio::test]
+async fn defaults_without_options_probe_once_per_version() {
+    let s = start(FakeScript::default()).await;
+    let mut ctl = Ctl::connected(&s.hub).await;
+    for _ in 0..2 {
+        let found = ctl
+            .call("_pcx/hub/defaults", json!({}))
+            .await
+            .expect("defaults");
+        assert_eq!(found["configOptions"], json!([]));
+    }
+    assert_eq!(s.fake.count("session/new"), 1);
+}
+
+#[tokio::test]
+async fn defaults_never_probe_an_agent_that_cannot_close() {
+    let mut script = FakeScript {
+        session_setup: model_options("p/a"),
+        ..FakeScript::default()
+    };
+    script.initialize["agentCapabilities"]["sessionCapabilities"] = json!({"list": {}});
+    let s = start(script).await;
+    let mut ctl = Ctl::connected(&s.hub).await;
+    let found = ctl
+        .call("_pcx/hub/defaults", json!({}))
+        .await
+        .expect("defaults");
+    assert_eq!(found["configOptions"], json!([]));
+    assert_eq!(s.fake.count("session/new"), 0);
+}
+
+#[tokio::test]
+async fn defaults_survive_a_restart_without_probing() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let options_in = |script: FakeScript| {
+        let (connector, fake) = FakeAgent::spawn(script);
+        let options = HubOptions {
+            instance: "test".into(),
+            launch: Arc::new(|| Ok((spec(), None))),
+            state_dir: dir.path().join("acp"),
+            log_file: None,
+            connector: Arc::new(connector),
+            terminal: None,
+        };
+        (options, fake)
+    };
+    let script = FakeScript {
+        session_setup: model_options("p/b"),
+        ..FakeScript::default()
+    };
+    let (options, _first) = options_in(script.clone());
+    let hub = AcpHub::start(options).await.expect("first hub");
+    let mut ctl = Ctl::connected(&hub).await;
+    ctl.new_session("/w").await;
+    hub.shutdown(Duration::from_millis(200)).await;
+
+    let (options, fake) = options_in(script);
+    let hub = AcpHub::start(options).await.expect("second hub");
+    let mut ctl = Ctl::open(&hub);
+    let init = ctl.init(true, true).await;
+    let pcx = &init["_meta"]["pcx"];
+    assert_eq!(pcx["caps"]["configOptions"], true);
+    assert_eq!(pcx["defaultConfigOptions"][0]["currentValue"], "p/b");
+    let found = ctl
+        .call("_pcx/hub/defaults", json!({}))
+        .await
+        .expect("defaults");
+    assert_eq!(found["configOptions"][0]["currentValue"], "p/b");
+    assert_eq!(fake.count("session/new"), 0);
+}

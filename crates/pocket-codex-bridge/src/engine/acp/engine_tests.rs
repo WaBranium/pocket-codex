@@ -415,6 +415,24 @@ fn config_setup() -> Value {
 }
 
 #[test]
+fn model_list_before_any_session_reads_hub_defaults() {
+    let script = FakeScript {
+        session_setup: config_setup(),
+        ..FakeScript::default()
+    };
+    let env = env("defaults", script);
+    assert!(!super::capabilities(&env.key).plan_mode);
+    let models = super::model_list(&env.key).expect("models");
+    assert_eq!(models.len(), 3);
+    assert!(models[0].is_default);
+    assert_eq!(env.fake.count("session/new"), 1);
+    // Remembered from then on: plan mode is known and nothing probes again.
+    assert!(super::capabilities(&env.key).plan_mode);
+    assert_eq!(super::model_list(&env.key).expect("models").len(), 3);
+    assert_eq!(env.fake.count("session/new"), 1);
+}
+
+#[test]
 fn turn_start_applies_config_then_submits() {
     let script = FakeScript {
         session_setup: config_setup(),

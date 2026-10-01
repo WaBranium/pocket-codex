@@ -5,7 +5,7 @@ use std::sync::Arc;
 use anyhow::{anyhow, Context, Result};
 use pocket_codex_core::acp::{
     methods,
-    pcx::{methods as pcx_methods, RunningResult},
+    pcx::{methods as pcx_methods, HubDefaultsResult, RunningResult},
     AvailableCommand, ConfigOption, ListSessionsResponse, SetConfigOptionRequest,
     SetConfigOptionResponse,
 };
@@ -89,10 +89,34 @@ pub(super) fn options_of(ctx: &Ctx, thread_id: Option<&str>) -> Vec<ConfigOption
     }
 }
 
-/// Models offered by the agent's model option.
+/// Models offered by the agent's model option. With no session options
+/// known yet (a new conversation before its first prompt), ask the hub.
 pub fn model_list(service_key: &str) -> Result<Vec<ModelInfo>> {
     let ctx = ctx(service_key)?;
-    Ok(mapping::model_list(&options_of(&ctx, None)))
+    let mut options = options_of(&ctx, None);
+    if options.is_empty() {
+        options = runtime::runtime().block_on(hub_defaults(&ctx));
+    }
+    Ok(mapping::model_list(&options))
+}
+
+/// `_pcx/hub/defaults`, kept in the hub metadata; empty when the hub has
+/// none, is not ready, or predates the method.
+async fn hub_defaults(ctx: &Ctx) -> Vec<ConfigOption> {
+    let found = match ctx.call(pcx_methods::HUB_DEFAULTS, json!({})).await {
+        Ok(value) => serde_json::from_value::<HubDefaultsResult>(value).unwrap_or_default(),
+        Err(e) => {
+            tracing::debug!(error = %format!("{e:#}"), "reading the hub's default options failed");
+            return Vec::new();
+        },
+    };
+    if !found.config_options.is_empty() {
+        if let Some(meta) = ctx.shared().meta.as_mut() {
+            meta.default_config_options
+                .clone_from(&found.config_options);
+        }
+    }
+    found.config_options
 }
 
 fn default_project(ctx: &Ctx) -> Option<String> {
