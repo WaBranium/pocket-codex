@@ -440,6 +440,17 @@ The order below is our current best guess; it is not a contract.
     [PRD](docs/opencode-unified/PRD.md), [TRD](docs/opencode-unified/TRD.md) and
     [ADR-0002](docs/adr/0002-opencode-shared-session-ui.md).
 
+16. **Generic ACP provider (2026-10-01, branch `feat-acp`).** One desktop
+    `AcpHub` per hosted instance is the only ACP client of its agent process
+    and multiplexes sessions to controllers over `_pcx`-extended ACP
+    (`acp:<name>` plus `meta:<name>`); the bridge never folds updates itself.
+    Agents install from the pinned catalog (`scripts/acp_catalog.py`, CI runs
+    `check`) with SRI-verified HTTPS downloads and no silent upgrades; gateway
+    tokens are write-only and remote management needs the host toggle. Hosting
+    is desktop only (an `android cargo check` job guards the mobile stubs).
+    Live checks with real agents (M10) are still open. See
+    [TRD](docs/acp-integration/TRD.md).
+
 When you ship a milestone, update `README.md` (Status table) **and**
 this file's roadmap so the source of truth stays in sync.
 
