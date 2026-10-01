@@ -2769,3 +2769,4 @@ cd apps/flutter && fvm flutter pub get \
 - M9：登录提示条在本机桌面托管时提供 terminal（可用的）和 agent 类方法；远程时只提供 `remote` 的 agent 类方法，调用 `appAuthAuthenticate`。排队失败的 SnackBar 用已有的 `copy` 文案作为"复制原文"按钮。
 - M9：会话界面里的 ACP 标签显示 agent 名称，放在 `Flexible` 里，名称长时和标题一起收缩，不会撑破侧栏的服务切换行。
 - M9：`runningSessionInventoryProvider` 按 `appCapabilities(key).runningViaThreads` 走 `appRunningThreads`（OpenCode 和 ACP），`historyPrefetch` 为真（ACP）时按原来的轮换规则预取最多 2 个运行中会话；OpenCode 的行为不变。
+- M1–M9 之后：按 AGENTS.md"每完成一个里程碑就更新 README Status 表和路线图"的规则，README 的 Status 表加了一行 ACP、AGENTS.md 路线图加了第 16 条，两处都写明实测尚未完成。M10 的其余文档项（`CONTEXT.md` 的 §12 术语、README 的 ACP 章节、用实测回放替换 fixture）仍留给 M10。
