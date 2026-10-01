@@ -2705,7 +2705,8 @@ cd apps/flutter && fvm flutter pub get \
 | M | 新增的测试 | 验证 | 偏差 |
 |---|---|---|---|
 | M1 | `acp_keys_round_trip_alongside_existing_services`（core）、`acp_keys_round_trip_without_merging_account_namespaces`（account-proto）、`acp_services_are_listed_only_on_request`（backend）、`service_key_test.dart` 的 "ACP keys parse…" | §7 全量通过（2026-09-30）；CI 全部通过 | 无 |
-| M2 | §4.1.4 的 16 个单元测试（`rpc.rs`、`update.rs`、`transcript.rs`），另加 `known_variants_round_trip`、`process_state_uses_state_tag_and_camel_case_fields`；契约测试 `tests/acp_schema.rs`：`every_used_method_exists_in_meta`、`message_samples_round_trip_and_match_schema`（45 条样例）、`validator_rejects_undeclared_properties_and_bad_enums`、`opencode_2_0_18_initialize_deserializes`、`replay_fixtures_fold_into_transcripts` | §7 全量通过（2026-10-01） | 见 §13.2 的 M2 条目 |
+| M2 | §4.1.4 的 16 个单元测试（`rpc.rs`、`update.rs`、`transcript.rs`），另加 `known_variants_round_trip`、`process_state_uses_state_tag_and_camel_case_fields`；契约测试 `tests/acp_schema.rs`：`every_used_method_exists_in_meta`、`message_samples_round_trip_and_match_schema`（45 条样例）、`validator_rejects_undeclared_properties_and_bad_enums`、`opencode_2_0_18_initialize_deserializes`、`replay_fixtures_fold_into_transcripts` | §7 全量通过（2026-10-01）；CI 全部通过 | 见 §13.2 的 M2 条目 |
+| M3 | `tests/acp_hub.rs` 中除 M4 的 3 个用例以外的全部 32 个（含 `process_connector_spawns_and_terminates_tree`，用 `tests/fixtures/acp/fake_agent.py`）；单元测试 `display_code_and_rpc_agree`、`backoff_doubles_and_caps`、`fifth_failure_within_window_gives_up`、`permission_answers_are_validated`、`form_answers_stay_within_schema`、`line_and_limit_select_lines`、`quoting_and_redaction`、`sessions_sort_newest_first_with_missing_last` | §7 全量通过（2026-10-01）；`acp_hub` 连续跑 6 次都通过 | 见 §13.2 的 M3 条目 |
 
 ### 13.2 施工偏差
 
@@ -2715,3 +2716,12 @@ cd apps/flutter && fvm flutter pub get \
 - M2：`Transcript` 在 §4.1.3 的接口之外多了 `turn_info`、`live_turn`、`push_notice`（Hub 插入 notice 用）；同一个 `messageId` 在不同轮次重复出现时，新条目的 id 加 `~n` 后缀保证唯一。
 - M2：会话级通知的参数结构体（`SessionLoadedParams` 等）都带 `seq`，与 §4.2.6"会话级通知都带 seq"一致；`RequestResolvedParams.session_id` 为可选，留给 Hub 级待办。
 - M2：只带 `_meta` 的响应（`AuthenticateResponse` 等）在契约测试里用 `CapabilityMarker` 往返。
+- M3：Hub 的全部状态放在一把同步互斥锁里，持锁期间不 await；状态变更和它引起的通知在同一次加锁里写进各连接的出站通道，所以通知顺序与折叠顺序一致，attach 的快照与通知按 `seq` 有序。§4.2.4 写的"会话自己的串行任务"由这把锁代替，效果相同。
+- M3：`AgentPeer::start` 不返回 inbound 接收端，改为接收一个同步回调，在读循环里按行处理完再读下一行。这样 `session/prompt` 的响应不会跑在它之前的 `session/update` 前面（否则 `_pcx/turn/completed` 可能早于最后几条更新）。peer 只保留同步的 `notify_now`、`respond_now`。
+- M3：`hub.rs` 拆成 `hub.rs`（进程监管、连接表）、`ops.rs`（控制器方法、会话加载、排队、空闲回收、LRU）、`inbound.rs`（agent 发来的消息、待办路由、崩溃清理）三个文件；`GatewayAuth` 定义在 `auth.rs` 并从 `acp` 模块导出。
+- M3：首次启动（`AcpHub::start`）失败时直接返回错误，不进入自动重启；自动重启只在曾经 Ready 过的进程退出后发生。
+- M3：`session/prompt` 因进程退出而失败时，由退出清理统一以 `_pcx_agent_exited` 结束轮次，prompt 任务本身不再结束它。
+- M3：网关登录分三种结果：成功（状态 ok，跳过认证检测）、`authenticate` 失败（required，message 为"网关登录失败：…"，密钥替换为 `***`，跳过检测）、agent 没有网关方法（照常检测，message 保留"该 agent 没有提供网关登录方式，网关配置未生效"）。
+- M3：Hub 自己开始的轮次会额外广播一条 `session/update`（`user_message_chunk`，`_meta.pcx.item` 为完整的用户条目），让其他控制器也能显示这条用户消息；超长行插入的 notice 以 `sessionUpdate: "_pcx_notice"` 广播，`_meta.pcx.item` 为 notice 条目。
+- M3：收到 `elicitation/complete` 时，仍在等待的 URL elicitation 以 `{"action":"accept"}` 回应 agent。
+- M3：`HubSession` 的待办统一存在 Hub 级的表里（带 `session_id`），没有按会话分表；`HubSession` 另加 `replay`、`load_rx`、`baseline_pending`、`materialized`、`last_access` 字段。会话按 `updatedAt` 排序时用 chrono 解析 RFC 3339，host-svc 因此新增对工作区已有的 `chrono` 的依赖（不引入新 crate）。

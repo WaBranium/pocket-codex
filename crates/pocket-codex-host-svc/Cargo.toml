@@ -12,6 +12,10 @@ readme.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Exposes acp::testing (FakeAgent, DuplexConnector) to other crates' tests.
+acp-testing = []
+
 [dependencies]
 pocket-codex-core = { workspace = true }
 pocket-codex-codex = { workspace = true }
@@ -36,9 +40,11 @@ reqwest = { workspace = true, features = ["zstd", "gzip"] }
 thiserror = { workspace = true }
 futures = { workspace = true }
 bytes = { workspace = true }
+# ACP hub: RFC 3339 timestamps of listed sessions; already in the lockfile.
+chrono = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
-nix = { workspace = true, features = ["user"] }
+nix = { workspace = true, features = ["user", "signal", "fs"] }
 
 [dev-dependencies]
 tempfile = "3"
@@ -46,3 +52,6 @@ tempfile = "3"
 # the same rustls-webpki reqwest the bridge's meta client uses, so no new
 # workspace dep and the exact request path is exercised.
 reqwest = { workspace = true, features = ["zstd", "gzip"] }
+# Integration tests under tests/ use acp::testing; paused clocks need test-util.
+pocket-codex-host-svc = { path = ".", features = ["acp-testing"] }
+tokio = { workspace = true, features = ["test-util"] }

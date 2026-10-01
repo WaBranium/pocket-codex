@@ -14,6 +14,8 @@
 
 #![forbid(unsafe_code)]
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub mod acp;
 pub mod file_links;
 pub mod fs;
 pub mod history_sync;
