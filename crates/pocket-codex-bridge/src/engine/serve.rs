@@ -169,6 +169,10 @@ pub struct ServeStatus {
     pub provider_version: Option<String>,
     /// Whether that version is the one this build was verified against.
     pub provider_verified: bool,
+    /// ACP hosts: catalog or custom agent id.
+    pub agent_id: Option<String>,
+    /// ACP hosts: agent display name.
+    pub agent_name: Option<String>,
 }
 
 fn hosts() -> &'static Mutex<HashMap<String, LocalServe>> {
@@ -691,6 +695,9 @@ pub fn serve_start(
     if super::serve_opencode::is_hosting(&name) {
         bail!("`{name}` is already hosting OpenCode on this device; choose another name");
     }
+    if super::serve_acp::is_hosting(&name) {
+        bail!("`{name}` is already hosting an ACP agent on this device; choose another name");
+    }
     if let Some(report) = reuse_or_retire_host(&name, port)? {
         return Ok(report);
     }
@@ -936,10 +943,13 @@ pub fn serve_status() -> Vec<ServeStatus> {
             provider: "codex".to_string(),
             provider_version: None,
             provider_verified: true,
+            agent_id: None,
+            agent_name: None,
         })
         .collect();
     drop(guard);
     out.extend(super::serve_opencode::status());
+    out.extend(super::serve_acp::status());
     out.sort_by(|a, b| a.name.cmp(&b.name));
     out
 }
@@ -956,7 +966,19 @@ pub(super) fn local_endpoints(service_key: &str) -> Option<(String, String)> {
         .values()
         .find(|host| host.app_key == service_key)
         .map(|host| (host.app_local.to_string(), host.meta_local.to_string()));
-    codex.or_else(|| super::serve_opencode::local_endpoints(service_key))
+    codex
+        .or_else(|| super::serve_opencode::local_endpoints(service_key))
+        .or_else(|| super::serve_acp::local_endpoints(service_key))
+}
+
+/// Bind a loopback listener on an ephemeral port (shared by the OpenCode and
+/// ACP hosts).
+pub(super) fn bind_loopback(label: &str) -> Result<(std::net::TcpListener, SocketAddr)> {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")
+        .with_context(|| format!("binding the {label}"))?;
+    listener.set_nonblocking(true)?;
+    let addr = listener.local_addr()?;
+    Ok((listener, addr))
 }
 
 /// Re-publish every host's permanently-refused services, quietly.
@@ -1013,6 +1035,9 @@ pub fn serve_deregister(name: &str, kind: &str) -> Result<()> {
     if super::serve_opencode::is_hosting(name) {
         return super::serve_opencode::deregister(name, kind);
     }
+    if super::serve_acp::is_hosting(name) {
+        return super::serve_acp::deregister(name, kind);
+    }
     let kind: ServiceKind = kind
         .parse()
         .map_err(|_| anyhow!("invalid service kind `{kind}`"))?;
@@ -1043,6 +1068,9 @@ pub fn serve_deregister(name: &str, kind: &str) -> Result<()> {
 pub fn serve_reregister(name: &str, kind: &str) -> Result<()> {
     if super::serve_opencode::is_hosting(name) {
         return super::serve_opencode::reregister(name, kind);
+    }
+    if super::serve_acp::is_hosting(name) {
+        return super::serve_acp::reregister(name, kind);
     }
     let kind: ServiceKind = kind
         .parse()
@@ -1077,6 +1105,10 @@ pub fn serve_stop(name: &str) -> Result<()> {
         super::serve_opencode::stop(name);
         return Ok(());
     }
+    if super::serve_acp::is_hosting(name) {
+        super::serve_acp::stop(name);
+        return Ok(());
+    }
     let removed = hosts_locked().remove(name);
     if let Some(ls) = removed {
         stop_host_tasks(ls);
@@ -1087,6 +1119,7 @@ pub fn serve_stop(name: &str) -> Result<()> {
 /// Stop every host (called on app quit so a real quit leaves no orphan codex).
 pub fn serve_stop_all() {
     super::serve_opencode::stop_all();
+    super::serve_acp::stop_all();
     let all: Vec<LocalServe> = hosts_locked().drain().map(|(_, ls)| ls).collect();
     for ls in all {
         stop_host_tasks(ls);

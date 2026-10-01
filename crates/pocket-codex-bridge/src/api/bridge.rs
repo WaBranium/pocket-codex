@@ -9,8 +9,8 @@ use pocket_codex_core::config::Mode;
 
 use crate::{
     engine::{
-        account, app_session, config, discovery, logging, meta, opencode, runtime, serve,
-        serve_opencode, sessions, transport,
+        account, acp_manage, app_session, config, discovery, logging, meta, opencode, runtime,
+        serve, serve_acp, serve_opencode, sessions, transport,
     },
     frb_generated::StreamSink,
 };
@@ -68,7 +68,11 @@ pub fn init_bridge(support_dir: String) -> Result<()> {
     // Mirror the captured log to disk (last 6 hours), so a hang can be read
     // after the fact instead of only in a viewer that was open at the time.
     logging::init_file(&support_dir);
-    runtime::init(support_dir)
+    runtime::init(support_dir)?;
+    // Desktop: back the `/acp/v1` routes of every meta service; a no-op on
+    // mobile.
+    acp_manage::register();
+    Ok(())
 }
 
 /// Current config view (relay/key presence, locale, and account state).
@@ -395,6 +399,10 @@ pub struct AppServeStatusDto {
     pub provider_version: Option<String>,
     /// Whether that version is the one this build was verified against.
     pub provider_verified: bool,
+    /// ACP hosts: agent id (`None` for Codex and OpenCode).
+    pub agent_id: Option<String>,
+    /// ACP hosts: agent display name.
+    pub agent_name: Option<String>,
 }
 
 /// Result of attaching and publishing a local OpenCode service.
@@ -445,6 +453,528 @@ pub fn app_serve_start_opencode(
 /// `~/.opencode/bin/opencode`), or `None`.
 pub fn opencode_locate(binary_override: Option<String>) -> Option<String> {
     serve_opencode::locate(binary_override.as_deref()).map(|p| p.display().to_string())
+}
+
+// ---------------------------------------------------------------------------
+// ACP hosting and agent management (TRD §4.4.5). Hosting and local management
+// are desktop only; `meta_acp_*` manage a remote host through its meta service.
+// ---------------------------------------------------------------------------
+
+/// Result of starting (or reusing) an ACP host.
+pub struct AcpServeDto {
+    /// Device id.
+    pub device: String,
+    /// Instance name.
+    pub name: String,
+    /// `pcx:<device>:acp:<name>`.
+    pub service_key: String,
+    /// Loopback hub address.
+    pub listen_addr: String,
+    /// `pcx:<device>:meta:<name>`.
+    pub meta_service_key: String,
+    /// Agent id.
+    pub agent_id: String,
+    /// Agent display name.
+    pub agent_name: String,
+    /// Installed agent version.
+    pub agent_version: String,
+    /// Authentication state.
+    pub auth: AcpAuthDto,
+    /// An existing host was reused.
+    pub reused: bool,
+}
+
+/// Authentication state of an ACP agent.
+pub struct AcpAuthDto {
+    /// `unknown` | `ok` | `required` | `inProgress`.
+    pub status: String,
+    /// Offered methods.
+    pub methods: Vec<AcpAuthMethodDto>,
+    /// Detail for the user.
+    pub message: Option<String>,
+}
+
+/// One authentication method.
+pub struct AcpAuthMethodDto {
+    /// Method id.
+    pub id: String,
+    /// Display name.
+    pub name: String,
+    /// Description.
+    pub description: String,
+    /// `agent` | `terminal` | `gateway`.
+    pub kind: String,
+    /// A remote controller may start it.
+    pub remote: bool,
+    /// False when a legacy terminal method cannot be reproduced safely.
+    pub available: bool,
+    /// Gateway protocol (`anthropic`, `openai`, …), for gateway methods.
+    pub gateway_protocol: Option<String>,
+    /// A gateway is configured on the host for this method.
+    pub gateway_configured: bool,
+}
+
+/// Install / hosting state of one agent.
+pub struct AcpAgentDto {
+    /// Agent id.
+    pub id: String,
+    /// Display name.
+    pub name: String,
+    /// Description.
+    pub description: String,
+    /// `catalog` | `custom`.
+    pub source: String,
+    /// Catalog version.
+    pub pinned_version: Option<String>,
+    /// Installed version.
+    pub installed_version: Option<String>,
+    /// not_installed | installing | installed | failed | unsupported_platform |
+    /// engine_missing | engine_incompatible.
+    pub state: String,
+    /// Detail.
+    pub detail: Option<String>,
+    /// Running install job.
+    pub job_id: Option<String>,
+    /// Newer, unverified registry version.
+    pub registry_version: Option<String>,
+    /// Instances hosting it.
+    pub hosted_names: Vec<String>,
+    /// Approximate size.
+    pub approx_size_mb: u32,
+    /// Installs the private Node runtime.
+    pub needs_node: bool,
+    /// Remote controllers may install it.
+    pub remote_install_allowed: bool,
+}
+
+/// A remote host's agents.
+pub struct AcpAgentsDto {
+    /// Remote management is on.
+    pub remote_management: bool,
+    /// Agents.
+    pub agents: Vec<AcpAgentDto>,
+}
+
+/// Progress of an install or host job.
+pub struct AcpJobDto {
+    /// Job id.
+    pub id: String,
+    /// `install` | `host`.
+    pub kind: String,
+    /// Agent id.
+    pub agent_id: String,
+    /// Version.
+    pub version: String,
+    /// State (see TRD §4.3.9).
+    pub state: String,
+    /// Bytes downloaded.
+    pub bytes: u64,
+    /// Total bytes, when known.
+    pub total: Option<u64>,
+    /// Detail.
+    pub message: Option<String>,
+    /// `acp.<code>` on failure.
+    pub error_code: Option<String>,
+    /// Set when a host job is done.
+    pub service_key: Option<String>,
+}
+
+/// One environment variable or header.
+pub struct AcpEnvVarDto {
+    /// Name.
+    pub name: String,
+    /// Value.
+    pub value: String,
+}
+
+/// A user-defined agent.
+pub struct AcpCustomAgentDto {
+    /// Id.
+    pub id: String,
+    /// Display name.
+    pub name: String,
+    /// Absolute executable path.
+    pub command: String,
+    /// Arguments.
+    pub args: Vec<String>,
+    /// Environment (stored in plain text on the host).
+    pub env: Vec<AcpEnvVarDto>,
+}
+
+/// Host ACP settings.
+pub struct AcpSettingsDto {
+    /// Remote management (D14).
+    pub remote_management: bool,
+    /// npm mirror (https).
+    pub npm_registry: Option<String>,
+    /// Claude Code executable override (D7).
+    pub claude_engine_path: Option<String>,
+    /// Codex path for codex-acp (D6).
+    pub codex_binary: Option<String>,
+    /// Archive agent executable overrides.
+    pub binary_overrides: Vec<AcpBinaryOverrideDto>,
+    /// OpenCode data families (D19).
+    pub opencode_data: Vec<AcpDataModeDto>,
+    /// Model gateways (D20).
+    pub gateways: Vec<AcpGatewayDto>,
+    /// Catalog switches (D21).
+    pub flags: Vec<AcpAgentFlagDto>,
+}
+
+/// One `conditional_args` switch from the catalog (D21), e.g. claude-acp /
+/// allow_subscription_login.
+pub struct AcpAgentFlagDto {
+    /// Agent id.
+    pub agent_id: String,
+    /// Setting key.
+    pub setting: String,
+    /// l10n key of the label.
+    pub label_key: String,
+    /// l10n key of the confirm dialog.
+    pub confirm_key: Option<String>,
+    /// Current value.
+    pub value: bool,
+}
+
+/// D20. Reading returns `token: None` plus `has_token`; writing with
+/// `token: None` keeps the stored token, `Some("")` deletes it. `clear == true`
+/// removes the whole gateway entry.
+pub struct AcpGatewayDto {
+    /// Agent id.
+    pub agent_id: String,
+    /// Gateway method; `None` = the first one.
+    pub method_id: Option<String>,
+    /// Base URL.
+    pub base_url: String,
+    /// Write-only token.
+    pub token: Option<String>,
+    /// A token is stored.
+    pub has_token: bool,
+    /// Provider name (codex-acp).
+    pub provider_name: Option<String>,
+    /// Extra headers.
+    pub extra_headers: Vec<AcpEnvVarDto>,
+    /// Remove the gateway.
+    pub clear: bool,
+}
+
+/// Executable override of an archive agent.
+pub struct AcpBinaryOverrideDto {
+    /// Agent id.
+    pub agent_id: String,
+    /// Absolute path.
+    pub path: String,
+}
+
+/// Result of saving settings.
+pub struct AcpSaveDto {
+    /// The settings were saved.
+    pub saved: bool,
+    /// D16 warnings to confirm.
+    pub warnings: Vec<String>,
+}
+
+/// D19 data mode of an OpenCode data family.
+pub struct AcpDataModeDto {
+    /// `opencode-v1` | `opencode-v2`.
+    pub family: String,
+    /// `auto` | `shared` | `isolated`.
+    pub mode: String,
+}
+
+fn acp_auth_dto(auth: pocket_codex_core::acp::pcx::AuthState) -> AcpAuthDto {
+    AcpAuthDto {
+        status: auth.status,
+        methods: auth
+            .methods
+            .into_iter()
+            .map(|m| AcpAuthMethodDto {
+                id: m.id,
+                name: m.name,
+                description: m.description,
+                kind: m.kind,
+                remote: m.remote,
+                available: m.available,
+                gateway_protocol: m.gateway_protocol,
+                gateway_configured: m.gateway_configured,
+            })
+            .collect(),
+        message: auth.message,
+    }
+}
+
+fn acp_agent_dto(a: pocket_codex_core::acp::pcx::AgentStatus) -> AcpAgentDto {
+    AcpAgentDto {
+        id: a.id,
+        name: a.name,
+        description: a.description,
+        source: a.source,
+        pinned_version: a.pinned_version,
+        installed_version: a.installed_version,
+        state: a.state,
+        detail: a.detail,
+        job_id: a.job_id,
+        registry_version: a.registry_version,
+        hosted_names: a.hosted_names,
+        approx_size_mb: a.approx_size_mb,
+        needs_node: a.needs_node,
+        remote_install_allowed: a.remote_install_allowed,
+    }
+}
+
+fn acp_job_dto(j: pocket_codex_core::acp::pcx::JobProgress) -> AcpJobDto {
+    AcpJobDto {
+        id: j.id,
+        kind: j.kind,
+        agent_id: j.agent_id,
+        version: j.version,
+        state: j.state,
+        bytes: j.bytes,
+        total: j.total,
+        message: j.message,
+        error_code: j.error_code,
+        service_key: j.service_key,
+    }
+}
+
+fn pairs(list: Vec<(String, String)>) -> Vec<AcpEnvVarDto> {
+    list.into_iter()
+        .map(|(name, value)| AcpEnvVarDto {
+            name,
+            value,
+        })
+        .collect()
+}
+
+fn unpairs(list: Vec<AcpEnvVarDto>) -> Vec<(String, String)> {
+    list.into_iter().map(|e| (e.name, e.value)).collect()
+}
+
+fn acp_settings_dto(v: pocket_codex_core::acp::pcx::AcpSettingsView) -> AcpSettingsDto {
+    AcpSettingsDto {
+        remote_management: v.remote_management,
+        npm_registry: v.npm_registry,
+        claude_engine_path: v.claude_engine_path,
+        codex_binary: v.codex_binary,
+        binary_overrides: v
+            .binary_overrides
+            .into_iter()
+            .map(|(agent_id, path)| AcpBinaryOverrideDto {
+                agent_id,
+                path,
+            })
+            .collect(),
+        opencode_data: v
+            .opencode_data
+            .into_iter()
+            .map(|(family, mode)| AcpDataModeDto {
+                family,
+                mode,
+            })
+            .collect(),
+        gateways: v
+            .gateways
+            .into_iter()
+            .map(|g| AcpGatewayDto {
+                agent_id: g.agent_id,
+                method_id: g.method_id,
+                base_url: g.base_url,
+                token: None,
+                has_token: g.has_token,
+                provider_name: g.provider_name,
+                extra_headers: pairs(g.extra_headers),
+                clear: false,
+            })
+            .collect(),
+        flags: v
+            .flags
+            .into_iter()
+            .map(|f| AcpAgentFlagDto {
+                agent_id: f.agent_id,
+                setting: f.setting,
+                label_key: f.label_key,
+                confirm_key: f.confirm_key,
+                value: f.value,
+            })
+            .collect(),
+    }
+}
+
+fn acp_settings_view(d: AcpSettingsDto) -> pocket_codex_core::acp::pcx::AcpSettingsView {
+    use pocket_codex_core::acp::pcx::{AcpSettingsView, AgentFlagView, GatewayView};
+    AcpSettingsView {
+        remote_management: d.remote_management,
+        npm_registry: d.npm_registry,
+        claude_engine_path: d.claude_engine_path,
+        codex_binary: d.codex_binary,
+        binary_overrides: d
+            .binary_overrides
+            .into_iter()
+            .map(|b| (b.agent_id, b.path))
+            .collect(),
+        opencode_data: d
+            .opencode_data
+            .into_iter()
+            .map(|m| (m.family, m.mode))
+            .collect(),
+        gateways: d
+            .gateways
+            .into_iter()
+            .map(|g| GatewayView {
+                agent_id: g.agent_id,
+                method_id: g.method_id,
+                base_url: g.base_url,
+                token: g.token,
+                has_token: g.has_token,
+                provider_name: g.provider_name,
+                extra_headers: unpairs(g.extra_headers),
+                clear: g.clear,
+            })
+            .collect(),
+        flags: d
+            .flags
+            .into_iter()
+            .map(|f| AgentFlagView {
+                agent_id: f.agent_id,
+                setting: f.setting,
+                label_key: f.label_key,
+                confirm_key: f.confirm_key,
+                value: f.value,
+            })
+            .collect(),
+    }
+}
+
+/// Host `agent_id` (an installed catalog agent or a custom agent) as
+/// `acp:<name>` plus `meta:<name>`. Desktop only.
+pub fn app_serve_start_acp(name: Option<String>, agent_id: String) -> Result<AcpServeDto> {
+    let r = serve_acp::start(name, agent_id)?;
+    Ok(AcpServeDto {
+        device: r.device,
+        name: r.name,
+        service_key: r.service_key,
+        listen_addr: r.listen_addr,
+        meta_service_key: r.meta_service_key,
+        agent_id: r.agent_id,
+        agent_name: r.agent_name,
+        agent_version: r.agent_version,
+        auth: acp_auth_dto(r.auth),
+        reused: r.reused,
+    })
+}
+
+/// Catalog and custom agents of this device. Desktop only.
+pub fn acp_agents() -> Result<Vec<AcpAgentDto>> {
+    Ok(acp_manage::agents()?
+        .into_iter()
+        .map(acp_agent_dto)
+        .collect())
+}
+
+/// Install `agent_id` (`version` = the catalog pin when `None`); returns the
+/// job id. Desktop only.
+pub fn acp_install(agent_id: String, version: Option<String>) -> Result<String> {
+    acp_manage::install(&agent_id, version.as_deref())
+}
+
+/// Progress of a local install or host job.
+pub fn acp_job(job_id: String) -> Result<Option<AcpJobDto>> {
+    Ok(acp_manage::job(&job_id).map(acp_job_dto))
+}
+
+/// Uninstall `agent_id` (refused while hosted). Desktop only.
+pub fn acp_uninstall(agent_id: String) -> Result<()> {
+    acp_manage::uninstall(&agent_id)
+}
+
+/// Host ACP settings (gateway tokens are never returned). Desktop only.
+pub fn acp_settings() -> Result<AcpSettingsDto> {
+    Ok(acp_settings_dto(acp_manage::settings()?))
+}
+
+/// Save host ACP settings. `force == false` returns the D16 warnings without
+/// saving when there are any. Desktop only.
+pub fn acp_settings_set(settings: AcpSettingsDto, force: bool) -> Result<AcpSaveDto> {
+    let (saved, warnings) = acp_manage::save_settings(acp_settings_view(settings), force)?;
+    Ok(AcpSaveDto {
+        saved,
+        warnings,
+    })
+}
+
+/// User-defined agents. Desktop only.
+pub fn acp_custom_agents() -> Result<Vec<AcpCustomAgentDto>> {
+    Ok(acp_manage::custom_agents()?
+        .into_iter()
+        .map(|c| AcpCustomAgentDto {
+            id: c.id,
+            name: c.name,
+            command: c.command,
+            args: c.args,
+            env: pairs(c.env),
+        })
+        .collect())
+}
+
+/// Add or replace a user-defined agent. Desktop only.
+pub fn acp_custom_agent_put(agent: AcpCustomAgentDto) -> Result<()> {
+    acp_manage::put_custom_agent(pocket_codex_core::acp::pcx::CustomAgentDef {
+        id: agent.id,
+        name: agent.name,
+        command: agent.command,
+        args: agent.args,
+        env: unpairs(agent.env),
+    })
+}
+
+/// Delete a user-defined agent (refused while hosted). Desktop only.
+pub fn acp_custom_agent_delete(id: String) -> Result<()> {
+    acp_manage::delete_custom_agent(&id)
+}
+
+/// Run a terminal login of host `name` in a terminal on this desktop.
+pub fn acp_auth_terminal(name: String, method_id: String) -> Result<()> {
+    acp_manage::auth_terminal(&name, &method_id)
+}
+
+/// Start an agent-type login of host `name`; returns `inProgress`.
+pub fn acp_auth_agent(name: String, method_id: String) -> Result<AcpAuthDto> {
+    Ok(acp_auth_dto(acp_manage::auth_agent(&name, &method_id)?))
+}
+
+/// Restart the agent of host `name` and re-detect authentication.
+pub fn acp_auth_recheck(name: String) -> Result<AcpAuthDto> {
+    Ok(acp_auth_dto(acp_manage::auth_recheck(&name)?))
+}
+
+/// Agents of the host behind `service_key` (any of its services).
+pub fn meta_acp_agents(service_key: String) -> Result<AcpAgentsDto> {
+    let r = meta::acp_agents(&service_key)?;
+    Ok(AcpAgentsDto {
+        remote_management: r.remote_management,
+        agents: r.agents.into_iter().map(acp_agent_dto).collect(),
+    })
+}
+
+/// Install the pinned version of `agent_id` on the remote host; returns the
+/// job id to poll with [`meta_acp_job`].
+pub fn meta_acp_install(service_key: String, agent_id: String) -> Result<String> {
+    meta::acp_install(&service_key, &agent_id)
+}
+
+/// Progress of a job on the remote host.
+pub fn meta_acp_job(service_key: String, job_id: String) -> Result<Option<AcpJobDto>> {
+    Ok(meta::acp_job(&service_key, &job_id)?.map(acp_job_dto))
+}
+
+/// Start hosting `agent_id` on the remote host; returns a host job id (poll
+/// [`meta_acp_job`]; its `service_key` is set when done).
+pub fn meta_acp_host(
+    service_key: String,
+    agent_id: String,
+    name: Option<String>,
+) -> Result<String> {
+    meta::acp_host(&service_key, &agent_id, name)
 }
 
 /// Legacy version endpoint; returns `unavailable` because no engine is bundled.
@@ -504,6 +1034,8 @@ pub fn app_serve_status() -> Vec<AppServeStatusDto> {
             provider: s.provider,
             provider_version: s.provider_version,
             provider_verified: s.provider_verified,
+            agent_id: s.agent_id,
+            agent_name: s.agent_name,
         })
         .collect()
 }

@@ -56,3 +56,5 @@ futures = { workspace = true }
 [dev-dependencies]
 tempfile = "3"
 tokio-tungstenite = { workspace = true }
+# FakeAgent / DuplexConnector for the ACP hosting and engine tests.
+pocket-codex-host-svc = { workspace = true, features = ["acp-testing"] }

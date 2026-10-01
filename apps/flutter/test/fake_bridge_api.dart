@@ -518,6 +518,230 @@ class FakeBridgeApi implements BridgeApi {
   Future<String?> opencodeLocate({String? binaryOverride}) async =>
       binaryOverride ?? opencodePath;
 
+  // --- ACP hosting and agent management ---
+
+  /// Agents returned by [acpAgents] (and [metaAcpAgents]).
+  List<AcpAgent> acpAgentList = const [
+    AcpAgent(
+      id: 'claude-acp',
+      name: 'Claude Code',
+      pinnedVersion: '0.84.0',
+      state: 'not_installed',
+      approxSizeMb: 320,
+      needsNode: true,
+      remoteInstallAllowed: true,
+    ),
+  ];
+
+  /// Jobs returned by [acpJob] / [metaAcpJob], keyed by id.
+  final Map<String, AcpJob> acpJobs = {};
+
+  /// Auth state reported by hosting and login calls.
+  AcpAuth acpAuth = const AcpAuth(status: 'ok');
+
+  /// Records every [appServeStartAcp] call as `(name, agentId)`.
+  final List<(String?, String)> acpServeCalls = [];
+
+  /// Thrown by the next [appServeStartAcp] (then cleared).
+  Object? acpServeError;
+
+  /// Records [acpInstall] / [metaAcpInstall] calls as `(serviceKey?, agentId)`.
+  final List<(String?, String)> acpInstallCalls = [];
+
+  /// Records [metaAcpHost] calls as `(serviceKey, agentId, name)`.
+  final List<(String, String, String?)> acpHostCalls = [];
+
+  /// Records login calls as `(kind, name, methodId)`.
+  final List<(String, String, String?)> acpAuthCalls = [];
+
+  /// Settings returned by [acpSettings]; replaced by [acpSettingsSet].
+  AcpSettings acpSettingsValue = const AcpSettings();
+
+  /// Warnings [acpSettingsSet] reports when not forced.
+  List<String> acpSettingsWarnings = const [];
+
+  /// Custom agents.
+  final List<AcpCustomAgent> acpCustom = [];
+
+  /// Remote management flag reported by [metaAcpAgents].
+  bool acpRemoteManagement = true;
+
+  int _acpJobSeq = 0;
+
+  @override
+  Future<AcpServeResult> appServeStartAcp({
+    String? name,
+    required String agentId,
+  }) async {
+    acpServeCalls.add((name, agentId));
+    final err = acpServeError;
+    if (err != null) {
+      acpServeError = null;
+      throw err;
+    }
+    final n = name ?? agentId;
+    if (serveHosts.any((h) => h.name == n && !h.isAcp)) {
+      throw StateError(
+        '`$n` is already hosting another provider on this device',
+      );
+    }
+    final agentName = acpAgentList
+        .firstWhere(
+          (a) => a.id == agentId,
+          orElse: () =>
+              AcpAgent(id: agentId, name: agentId, state: 'installed'),
+        )
+        .name;
+    const device = 'local';
+    final key = 'pcx:$device:acp:$n';
+    final metaKey = 'pcx:$device:meta:$n';
+    final reused = serveHosts.any((h) => h.name == n && h.isAcp);
+    serveHosts
+      ..removeWhere((h) => h.name == n)
+      ..add(
+        AppServeStatus(
+          name: n,
+          device: device,
+          alive: true,
+          appListenAddr: '127.0.0.1:18200',
+          appServiceKey: key,
+          appRegistered: true,
+          metaListenAddr: '127.0.0.1:18201',
+          metaServiceKey: metaKey,
+          metaRegistered: true,
+          provider: 'acp',
+          providerVersion: '1.0.0',
+          providerVerified: true,
+          agentId: agentId,
+          agentName: agentName,
+        ),
+      );
+    if (!_services.any((s) => s.key == key)) {
+      _services.add(
+        ServiceEntry(device: device, kind: 'acp', name: n, key: key),
+      );
+    }
+    return AcpServeResult(
+      device: device,
+      name: n,
+      serviceKey: key,
+      listenAddr: '127.0.0.1:18200',
+      metaServiceKey: metaKey,
+      agentId: agentId,
+      agentName: agentName,
+      agentVersion: '1.0.0',
+      auth: acpAuth,
+      reused: reused,
+    );
+  }
+
+  @override
+  Future<List<AcpAgent>> acpAgents() async => acpAgentList;
+
+  String _newAcpJob(String kind, String agentId) {
+    final id = 'job-${++_acpJobSeq}';
+    acpJobs[id] = AcpJob(id: id, kind: kind, agentId: agentId, state: 'queued');
+    return id;
+  }
+
+  @override
+  Future<String> acpInstall(String agentId, {String? version}) async {
+    acpInstallCalls.add((null, agentId));
+    return _newAcpJob('install', agentId);
+  }
+
+  @override
+  Future<AcpJob?> acpJob(String jobId) async => acpJobs[jobId];
+
+  @override
+  Future<void> acpUninstall(String agentId) async {
+    acpAgentList = [
+      for (final a in acpAgentList)
+        a.id == agentId
+            ? AcpAgent(
+                id: a.id,
+                name: a.name,
+                pinnedVersion: a.pinnedVersion,
+                state: 'not_installed',
+              )
+            : a,
+    ];
+  }
+
+  @override
+  Future<AcpSettings> acpSettings() async => acpSettingsValue;
+
+  @override
+  Future<AcpSaveResult> acpSettingsSet(
+    AcpSettings settings, {
+    bool force = false,
+  }) async {
+    if (acpSettingsWarnings.isNotEmpty && !force) {
+      return AcpSaveResult(saved: false, warnings: acpSettingsWarnings);
+    }
+    acpSettingsValue = settings;
+    return AcpSaveResult(saved: true, warnings: acpSettingsWarnings);
+  }
+
+  @override
+  Future<List<AcpCustomAgent>> acpCustomAgents() async => List.of(acpCustom);
+
+  @override
+  Future<void> acpCustomAgentPut(AcpCustomAgent agent) async {
+    acpCustom
+      ..removeWhere((c) => c.id == agent.id)
+      ..add(agent);
+  }
+
+  @override
+  Future<void> acpCustomAgentDelete(String id) async =>
+      acpCustom.removeWhere((c) => c.id == id);
+
+  @override
+  Future<void> acpAuthTerminal(String name, String methodId) async =>
+      acpAuthCalls.add(('terminal', name, methodId));
+
+  @override
+  Future<AcpAuth> acpAuthAgent(String name, String methodId) async {
+    acpAuthCalls.add(('agent', name, methodId));
+    return AcpAuth(status: 'inProgress', methods: acpAuth.methods);
+  }
+
+  @override
+  Future<AcpAuth> acpAuthRecheck(String name) async {
+    acpAuthCalls.add(('recheck', name, null));
+    return acpAuth;
+  }
+
+  @override
+  Future<AcpAgents> metaAcpAgents(String serviceKey) async =>
+      AcpAgents(remoteManagement: acpRemoteManagement, agents: acpAgentList);
+
+  @override
+  Future<String> metaAcpInstall(String serviceKey, String agentId) async {
+    if (!acpRemoteManagement) {
+      throw StateError(
+        '[acp.remote_management_disabled] remote management is turned off on this host',
+      );
+    }
+    acpInstallCalls.add((serviceKey, agentId));
+    return _newAcpJob('install', agentId);
+  }
+
+  @override
+  Future<AcpJob?> metaAcpJob(String serviceKey, String jobId) async =>
+      acpJobs[jobId];
+
+  @override
+  Future<String> metaAcpHost(
+    String serviceKey,
+    String agentId, {
+    String? name,
+  }) async {
+    acpHostCalls.add((serviceKey, agentId, name));
+    return _newAcpJob('host', agentId);
+  }
+
   @override
   AppCapabilities appCapabilities(String serviceKey) =>
       isOpenCodeKey(serviceKey)

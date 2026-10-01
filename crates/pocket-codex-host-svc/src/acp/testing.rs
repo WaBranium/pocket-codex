@@ -301,6 +301,11 @@ impl FakeHandle {
         lock(&self.state).answers.clone()
     }
 
+    /// An agent instance is connected (its stdin is still open).
+    pub fn running(&self) -> bool {
+        lock(&self.state).instance.is_some()
+    }
+
     /// Number of agent instances started.
     pub fn connects(&self) -> u32 {
         lock(&self.state).connects

@@ -42,7 +42,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.12.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 305814307;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1738934128;
 
 
 // Section: executor
@@ -337,6 +337,430 @@ fn wire__crate__api__bridge__account_web_login_start_impl(
                             api_redirect_uri,
                             api_backend,
                         )?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__bridge__acp_agents_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "acp_agents",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::bridge::acp_agents()?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__bridge__acp_auth_agent_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "acp_auth_agent",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_name = <String>::sse_decode(&mut deserializer);
+            let api_method_id = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok =
+                            crate::api::bridge::acp_auth_agent(api_name, api_method_id)?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__bridge__acp_auth_recheck_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "acp_auth_recheck",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_name = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::bridge::acp_auth_recheck(api_name)?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__bridge__acp_auth_terminal_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "acp_auth_terminal",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_name = <String>::sse_decode(&mut deserializer);
+            let api_method_id = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok =
+                            crate::api::bridge::acp_auth_terminal(api_name, api_method_id)?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__bridge__acp_custom_agent_delete_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "acp_custom_agent_delete",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_id = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::bridge::acp_custom_agent_delete(api_id)?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__bridge__acp_custom_agent_put_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "acp_custom_agent_put",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_agent = <crate::api::bridge::AcpCustomAgentDto>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::bridge::acp_custom_agent_put(api_agent)?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__bridge__acp_custom_agents_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "acp_custom_agents",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::bridge::acp_custom_agents()?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__bridge__acp_install_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "acp_install",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_agent_id = <String>::sse_decode(&mut deserializer);
+            let api_version = <Option<String>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::bridge::acp_install(api_agent_id, api_version)?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__bridge__acp_job_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "acp_job",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_job_id = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::bridge::acp_job(api_job_id)?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__bridge__acp_settings_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "acp_settings",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::bridge::acp_settings()?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__bridge__acp_settings_set_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "acp_settings_set",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_settings = <crate::api::bridge::AcpSettingsDto>::sse_decode(&mut deserializer);
+            let api_force = <bool>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok =
+                            crate::api::bridge::acp_settings_set(api_settings, api_force)?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__bridge__acp_uninstall_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "acp_uninstall",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_agent_id = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::bridge::acp_uninstall(api_agent_id)?;
                         Ok(output_ok)
                     })(),
                 )
@@ -1390,6 +1814,43 @@ fn wire__crate__api__bridge__app_serve_start_impl(
                             api_proxy,
                             api_embedded,
                         )?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__bridge__app_serve_start_acp_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "app_serve_start_acp",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_name = <Option<String>>::sse_decode(&mut deserializer);
+            let api_agent_id = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok =
+                            crate::api::bridge::app_serve_start_acp(api_name, api_agent_id)?;
                         Ok(output_ok)
                     })(),
                 )
@@ -2839,6 +3300,156 @@ fn wire__crate__api__bridge__log_events_impl(
         },
     )
 }
+fn wire__crate__api__bridge__meta_acp_agents_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "meta_acp_agents",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_service_key = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::bridge::meta_acp_agents(api_service_key)?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__bridge__meta_acp_host_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "meta_acp_host",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_service_key = <String>::sse_decode(&mut deserializer);
+            let api_agent_id = <String>::sse_decode(&mut deserializer);
+            let api_name = <Option<String>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::bridge::meta_acp_host(
+                            api_service_key,
+                            api_agent_id,
+                            api_name,
+                        )?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__bridge__meta_acp_install_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "meta_acp_install",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_service_key = <String>::sse_decode(&mut deserializer);
+            let api_agent_id = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok =
+                            crate::api::bridge::meta_acp_install(api_service_key, api_agent_id)?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__bridge__meta_acp_job_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "meta_acp_job",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_service_key = <String>::sse_decode(&mut deserializer);
+            let api_job_id = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok =
+                            crate::api::bridge::meta_acp_job(api_service_key, api_job_id)?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__bridge__meta_file_download_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -3862,6 +4473,283 @@ impl SseDecode for crate::api::bridge::AccountUserDto {
     }
 }
 
+impl SseDecode for crate::api::bridge::AcpAgentDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_id = <String>::sse_decode(deserializer);
+        let mut var_name = <String>::sse_decode(deserializer);
+        let mut var_description = <String>::sse_decode(deserializer);
+        let mut var_source = <String>::sse_decode(deserializer);
+        let mut var_pinnedVersion = <Option<String>>::sse_decode(deserializer);
+        let mut var_installedVersion = <Option<String>>::sse_decode(deserializer);
+        let mut var_state = <String>::sse_decode(deserializer);
+        let mut var_detail = <Option<String>>::sse_decode(deserializer);
+        let mut var_jobId = <Option<String>>::sse_decode(deserializer);
+        let mut var_registryVersion = <Option<String>>::sse_decode(deserializer);
+        let mut var_hostedNames = <Vec<String>>::sse_decode(deserializer);
+        let mut var_approxSizeMb = <u32>::sse_decode(deserializer);
+        let mut var_needsNode = <bool>::sse_decode(deserializer);
+        let mut var_remoteInstallAllowed = <bool>::sse_decode(deserializer);
+        return crate::api::bridge::AcpAgentDto {
+            id: var_id,
+            name: var_name,
+            description: var_description,
+            source: var_source,
+            pinned_version: var_pinnedVersion,
+            installed_version: var_installedVersion,
+            state: var_state,
+            detail: var_detail,
+            job_id: var_jobId,
+            registry_version: var_registryVersion,
+            hosted_names: var_hostedNames,
+            approx_size_mb: var_approxSizeMb,
+            needs_node: var_needsNode,
+            remote_install_allowed: var_remoteInstallAllowed,
+        };
+    }
+}
+
+impl SseDecode for crate::api::bridge::AcpAgentFlagDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_agentId = <String>::sse_decode(deserializer);
+        let mut var_setting = <String>::sse_decode(deserializer);
+        let mut var_labelKey = <String>::sse_decode(deserializer);
+        let mut var_confirmKey = <Option<String>>::sse_decode(deserializer);
+        let mut var_value = <bool>::sse_decode(deserializer);
+        return crate::api::bridge::AcpAgentFlagDto {
+            agent_id: var_agentId,
+            setting: var_setting,
+            label_key: var_labelKey,
+            confirm_key: var_confirmKey,
+            value: var_value,
+        };
+    }
+}
+
+impl SseDecode for crate::api::bridge::AcpAgentsDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_remoteManagement = <bool>::sse_decode(deserializer);
+        let mut var_agents = <Vec<crate::api::bridge::AcpAgentDto>>::sse_decode(deserializer);
+        return crate::api::bridge::AcpAgentsDto {
+            remote_management: var_remoteManagement,
+            agents: var_agents,
+        };
+    }
+}
+
+impl SseDecode for crate::api::bridge::AcpAuthDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_status = <String>::sse_decode(deserializer);
+        let mut var_methods = <Vec<crate::api::bridge::AcpAuthMethodDto>>::sse_decode(deserializer);
+        let mut var_message = <Option<String>>::sse_decode(deserializer);
+        return crate::api::bridge::AcpAuthDto {
+            status: var_status,
+            methods: var_methods,
+            message: var_message,
+        };
+    }
+}
+
+impl SseDecode for crate::api::bridge::AcpAuthMethodDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_id = <String>::sse_decode(deserializer);
+        let mut var_name = <String>::sse_decode(deserializer);
+        let mut var_description = <String>::sse_decode(deserializer);
+        let mut var_kind = <String>::sse_decode(deserializer);
+        let mut var_remote = <bool>::sse_decode(deserializer);
+        let mut var_available = <bool>::sse_decode(deserializer);
+        let mut var_gatewayProtocol = <Option<String>>::sse_decode(deserializer);
+        let mut var_gatewayConfigured = <bool>::sse_decode(deserializer);
+        return crate::api::bridge::AcpAuthMethodDto {
+            id: var_id,
+            name: var_name,
+            description: var_description,
+            kind: var_kind,
+            remote: var_remote,
+            available: var_available,
+            gateway_protocol: var_gatewayProtocol,
+            gateway_configured: var_gatewayConfigured,
+        };
+    }
+}
+
+impl SseDecode for crate::api::bridge::AcpBinaryOverrideDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_agentId = <String>::sse_decode(deserializer);
+        let mut var_path = <String>::sse_decode(deserializer);
+        return crate::api::bridge::AcpBinaryOverrideDto {
+            agent_id: var_agentId,
+            path: var_path,
+        };
+    }
+}
+
+impl SseDecode for crate::api::bridge::AcpCustomAgentDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_id = <String>::sse_decode(deserializer);
+        let mut var_name = <String>::sse_decode(deserializer);
+        let mut var_command = <String>::sse_decode(deserializer);
+        let mut var_args = <Vec<String>>::sse_decode(deserializer);
+        let mut var_env = <Vec<crate::api::bridge::AcpEnvVarDto>>::sse_decode(deserializer);
+        return crate::api::bridge::AcpCustomAgentDto {
+            id: var_id,
+            name: var_name,
+            command: var_command,
+            args: var_args,
+            env: var_env,
+        };
+    }
+}
+
+impl SseDecode for crate::api::bridge::AcpDataModeDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_family = <String>::sse_decode(deserializer);
+        let mut var_mode = <String>::sse_decode(deserializer);
+        return crate::api::bridge::AcpDataModeDto {
+            family: var_family,
+            mode: var_mode,
+        };
+    }
+}
+
+impl SseDecode for crate::api::bridge::AcpEnvVarDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_name = <String>::sse_decode(deserializer);
+        let mut var_value = <String>::sse_decode(deserializer);
+        return crate::api::bridge::AcpEnvVarDto {
+            name: var_name,
+            value: var_value,
+        };
+    }
+}
+
+impl SseDecode for crate::api::bridge::AcpGatewayDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_agentId = <String>::sse_decode(deserializer);
+        let mut var_methodId = <Option<String>>::sse_decode(deserializer);
+        let mut var_baseUrl = <String>::sse_decode(deserializer);
+        let mut var_token = <Option<String>>::sse_decode(deserializer);
+        let mut var_hasToken = <bool>::sse_decode(deserializer);
+        let mut var_providerName = <Option<String>>::sse_decode(deserializer);
+        let mut var_extraHeaders =
+            <Vec<crate::api::bridge::AcpEnvVarDto>>::sse_decode(deserializer);
+        let mut var_clear = <bool>::sse_decode(deserializer);
+        return crate::api::bridge::AcpGatewayDto {
+            agent_id: var_agentId,
+            method_id: var_methodId,
+            base_url: var_baseUrl,
+            token: var_token,
+            has_token: var_hasToken,
+            provider_name: var_providerName,
+            extra_headers: var_extraHeaders,
+            clear: var_clear,
+        };
+    }
+}
+
+impl SseDecode for crate::api::bridge::AcpJobDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_id = <String>::sse_decode(deserializer);
+        let mut var_kind = <String>::sse_decode(deserializer);
+        let mut var_agentId = <String>::sse_decode(deserializer);
+        let mut var_version = <String>::sse_decode(deserializer);
+        let mut var_state = <String>::sse_decode(deserializer);
+        let mut var_bytes = <u64>::sse_decode(deserializer);
+        let mut var_total = <Option<u64>>::sse_decode(deserializer);
+        let mut var_message = <Option<String>>::sse_decode(deserializer);
+        let mut var_errorCode = <Option<String>>::sse_decode(deserializer);
+        let mut var_serviceKey = <Option<String>>::sse_decode(deserializer);
+        return crate::api::bridge::AcpJobDto {
+            id: var_id,
+            kind: var_kind,
+            agent_id: var_agentId,
+            version: var_version,
+            state: var_state,
+            bytes: var_bytes,
+            total: var_total,
+            message: var_message,
+            error_code: var_errorCode,
+            service_key: var_serviceKey,
+        };
+    }
+}
+
+impl SseDecode for crate::api::bridge::AcpSaveDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_saved = <bool>::sse_decode(deserializer);
+        let mut var_warnings = <Vec<String>>::sse_decode(deserializer);
+        return crate::api::bridge::AcpSaveDto {
+            saved: var_saved,
+            warnings: var_warnings,
+        };
+    }
+}
+
+impl SseDecode for crate::api::bridge::AcpServeDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_device = <String>::sse_decode(deserializer);
+        let mut var_name = <String>::sse_decode(deserializer);
+        let mut var_serviceKey = <String>::sse_decode(deserializer);
+        let mut var_listenAddr = <String>::sse_decode(deserializer);
+        let mut var_metaServiceKey = <String>::sse_decode(deserializer);
+        let mut var_agentId = <String>::sse_decode(deserializer);
+        let mut var_agentName = <String>::sse_decode(deserializer);
+        let mut var_agentVersion = <String>::sse_decode(deserializer);
+        let mut var_auth = <crate::api::bridge::AcpAuthDto>::sse_decode(deserializer);
+        let mut var_reused = <bool>::sse_decode(deserializer);
+        return crate::api::bridge::AcpServeDto {
+            device: var_device,
+            name: var_name,
+            service_key: var_serviceKey,
+            listen_addr: var_listenAddr,
+            meta_service_key: var_metaServiceKey,
+            agent_id: var_agentId,
+            agent_name: var_agentName,
+            agent_version: var_agentVersion,
+            auth: var_auth,
+            reused: var_reused,
+        };
+    }
+}
+
+impl SseDecode for crate::api::bridge::AcpSettingsDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_remoteManagement = <bool>::sse_decode(deserializer);
+        let mut var_npmRegistry = <Option<String>>::sse_decode(deserializer);
+        let mut var_claudeEnginePath = <Option<String>>::sse_decode(deserializer);
+        let mut var_codexBinary = <Option<String>>::sse_decode(deserializer);
+        let mut var_binaryOverrides =
+            <Vec<crate::api::bridge::AcpBinaryOverrideDto>>::sse_decode(deserializer);
+        let mut var_opencodeData =
+            <Vec<crate::api::bridge::AcpDataModeDto>>::sse_decode(deserializer);
+        let mut var_gateways = <Vec<crate::api::bridge::AcpGatewayDto>>::sse_decode(deserializer);
+        let mut var_flags = <Vec<crate::api::bridge::AcpAgentFlagDto>>::sse_decode(deserializer);
+        return crate::api::bridge::AcpSettingsDto {
+            remote_management: var_remoteManagement,
+            npm_registry: var_npmRegistry,
+            claude_engine_path: var_claudeEnginePath,
+            codex_binary: var_codexBinary,
+            binary_overrides: var_binaryOverrides,
+            opencode_data: var_opencodeData,
+            gateways: var_gateways,
+            flags: var_flags,
+        };
+    }
+}
+
 impl SseDecode for crate::api::bridge::AppCapabilitiesDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -3972,6 +4860,8 @@ impl SseDecode for crate::api::bridge::AppServeStatusDto {
         let mut var_provider = <String>::sse_decode(deserializer);
         let mut var_providerVersion = <Option<String>>::sse_decode(deserializer);
         let mut var_providerVerified = <bool>::sse_decode(deserializer);
+        let mut var_agentId = <Option<String>>::sse_decode(deserializer);
+        let mut var_agentName = <Option<String>>::sse_decode(deserializer);
         return crate::api::bridge::AppServeStatusDto {
             name: var_name,
             device: var_device,
@@ -3992,6 +4882,8 @@ impl SseDecode for crate::api::bridge::AppServeStatusDto {
             provider: var_provider,
             provider_version: var_providerVersion,
             provider_verified: var_providerVerified,
+            agent_id: var_agentId,
+            agent_name: var_agentName,
         };
     }
 }
@@ -4207,6 +5099,102 @@ impl SseDecode for Vec<crate::api::bridge::AccountServiceDto> {
         let mut ans_ = Vec::with_capacity(len_ as usize);
         for idx_ in 0..len_ {
             ans_.push(<crate::api::bridge::AccountServiceDto>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::bridge::AcpAgentDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::bridge::AcpAgentDto>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::bridge::AcpAgentFlagDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::bridge::AcpAgentFlagDto>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::bridge::AcpAuthMethodDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::bridge::AcpAuthMethodDto>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::bridge::AcpBinaryOverrideDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::bridge::AcpBinaryOverrideDto>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::bridge::AcpCustomAgentDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::bridge::AcpCustomAgentDto>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::bridge::AcpDataModeDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::bridge::AcpDataModeDto>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::bridge::AcpEnvVarDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::bridge::AcpEnvVarDto>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::bridge::AcpGatewayDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::bridge::AcpGatewayDto>::sse_decode(deserializer));
         }
         return ans_;
     }
@@ -4496,6 +5484,17 @@ impl SseDecode for Option<crate::api::bridge::AccountUserDto> {
     }
 }
 
+impl SseDecode for Option<crate::api::bridge::AcpJobDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::bridge::AcpJobDto>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for Option<bool> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -4545,6 +5544,17 @@ impl SseDecode for Option<u32> {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         if (<bool>::sse_decode(deserializer)) {
             return Some(<u32>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<u64> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<u64>::sse_decode(deserializer));
         } else {
             return None;
         }
@@ -4909,167 +5919,195 @@ fn pde_ffi_dispatcher_primary_impl(
             rust_vec_len,
             data_len,
         ),
-        9 => wire__crate__api__bridge__api_probe_impl(port, ptr, rust_vec_len, data_len),
-        10 => wire__crate__api__bridge__api_probe_local_impl(port, ptr, rust_vec_len, data_len),
-        11 => wire__crate__api__bridge__api_subscribe_impl(port, ptr, rust_vec_len, data_len),
-        12 => wire__crate__api__bridge__api_unsubscribe_impl(port, ptr, rust_vec_len, data_len),
-        14 => wire__crate__api__bridge__app_compact_impl(port, ptr, rust_vec_len, data_len),
-        15 => wire__crate__api__bridge__app_connect_impl(port, ptr, rust_vec_len, data_len),
-        16 => wire__crate__api__bridge__app_disconnect_impl(port, ptr, rust_vec_len, data_len),
-        17 => wire__crate__api__bridge__app_events_impl(port, ptr, rust_vec_len, data_len),
-        18 => wire__crate__api__bridge__app_force_resume_impl(port, ptr, rust_vec_len, data_len),
-        19 => wire__crate__api__bridge__app_git_diff_impl(port, ptr, rust_vec_len, data_len),
-        20 => wire__crate__api__bridge__app_history_cached_impl(port, ptr, rust_vec_len, data_len),
-        21 => wire__crate__api__bridge__app_history_focus_impl(port, ptr, rust_vec_len, data_len),
-        22 => {
+        9 => wire__crate__api__bridge__acp_agents_impl(port, ptr, rust_vec_len, data_len),
+        10 => wire__crate__api__bridge__acp_auth_agent_impl(port, ptr, rust_vec_len, data_len),
+        11 => wire__crate__api__bridge__acp_auth_recheck_impl(port, ptr, rust_vec_len, data_len),
+        12 => wire__crate__api__bridge__acp_auth_terminal_impl(port, ptr, rust_vec_len, data_len),
+        13 => wire__crate__api__bridge__acp_custom_agent_delete_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        14 => {
+            wire__crate__api__bridge__acp_custom_agent_put_impl(port, ptr, rust_vec_len, data_len)
+        },
+        15 => wire__crate__api__bridge__acp_custom_agents_impl(port, ptr, rust_vec_len, data_len),
+        16 => wire__crate__api__bridge__acp_install_impl(port, ptr, rust_vec_len, data_len),
+        17 => wire__crate__api__bridge__acp_job_impl(port, ptr, rust_vec_len, data_len),
+        18 => wire__crate__api__bridge__acp_settings_impl(port, ptr, rust_vec_len, data_len),
+        19 => wire__crate__api__bridge__acp_settings_set_impl(port, ptr, rust_vec_len, data_len),
+        20 => wire__crate__api__bridge__acp_uninstall_impl(port, ptr, rust_vec_len, data_len),
+        21 => wire__crate__api__bridge__api_probe_impl(port, ptr, rust_vec_len, data_len),
+        22 => wire__crate__api__bridge__api_probe_local_impl(port, ptr, rust_vec_len, data_len),
+        23 => wire__crate__api__bridge__api_subscribe_impl(port, ptr, rust_vec_len, data_len),
+        24 => wire__crate__api__bridge__api_unsubscribe_impl(port, ptr, rust_vec_len, data_len),
+        26 => wire__crate__api__bridge__app_compact_impl(port, ptr, rust_vec_len, data_len),
+        27 => wire__crate__api__bridge__app_connect_impl(port, ptr, rust_vec_len, data_len),
+        28 => wire__crate__api__bridge__app_disconnect_impl(port, ptr, rust_vec_len, data_len),
+        29 => wire__crate__api__bridge__app_events_impl(port, ptr, rust_vec_len, data_len),
+        30 => wire__crate__api__bridge__app_force_resume_impl(port, ptr, rust_vec_len, data_len),
+        31 => wire__crate__api__bridge__app_git_diff_impl(port, ptr, rust_vec_len, data_len),
+        32 => wire__crate__api__bridge__app_history_cached_impl(port, ptr, rust_vec_len, data_len),
+        33 => wire__crate__api__bridge__app_history_focus_impl(port, ptr, rust_vec_len, data_len),
+        34 => {
             wire__crate__api__bridge__app_history_prefetch_impl(port, ptr, rust_vec_len, data_len)
         },
-        23 => wire__crate__api__bridge__app_history_sync_prepare_impl(
+        35 => wire__crate__api__bridge__app_history_sync_prepare_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        25 => wire__crate__api__bridge__app_local_session_transcript_impl(
+        37 => wire__crate__api__bridge__app_local_session_transcript_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        26 => wire__crate__api__bridge__app_local_sessions_impl(port, ptr, rust_vec_len, data_len),
-        27 => wire__crate__api__bridge__app_model_list_impl(port, ptr, rust_vec_len, data_len),
-        28 => wire__crate__api__bridge__app_probe_impl(port, ptr, rust_vec_len, data_len),
-        29 => wire__crate__api__bridge__app_probe_local_impl(port, ptr, rust_vec_len, data_len),
-        30 => wire__crate__api__bridge__app_probe_reason_impl(port, ptr, rust_vec_len, data_len),
-        31 => wire__crate__api__bridge__app_rate_limits_impl(port, ptr, rust_vec_len, data_len),
-        32 => {
+        38 => wire__crate__api__bridge__app_local_sessions_impl(port, ptr, rust_vec_len, data_len),
+        39 => wire__crate__api__bridge__app_model_list_impl(port, ptr, rust_vec_len, data_len),
+        40 => wire__crate__api__bridge__app_probe_impl(port, ptr, rust_vec_len, data_len),
+        41 => wire__crate__api__bridge__app_probe_local_impl(port, ptr, rust_vec_len, data_len),
+        42 => wire__crate__api__bridge__app_probe_reason_impl(port, ptr, rust_vec_len, data_len),
+        43 => wire__crate__api__bridge__app_rate_limits_impl(port, ptr, rust_vec_len, data_len),
+        44 => {
             wire__crate__api__bridge__app_respond_approval_impl(port, ptr, rust_vec_len, data_len)
         },
-        33 => {
+        45 => {
             wire__crate__api__bridge__app_respond_user_input_impl(port, ptr, rust_vec_len, data_len)
         },
-        34 => wire__crate__api__bridge__app_running_threads_impl(port, ptr, rust_vec_len, data_len),
-        35 => {
+        46 => wire__crate__api__bridge__app_running_threads_impl(port, ptr, rust_vec_len, data_len),
+        47 => {
             wire__crate__api__bridge__app_serve_deregister_impl(port, ptr, rust_vec_len, data_len)
         },
-        36 => {
+        48 => {
             wire__crate__api__bridge__app_serve_reregister_impl(port, ptr, rust_vec_len, data_len)
         },
-        37 => wire__crate__api__bridge__app_serve_start_impl(port, ptr, rust_vec_len, data_len),
-        38 => wire__crate__api__bridge__app_serve_start_opencode_impl(
+        49 => wire__crate__api__bridge__app_serve_start_impl(port, ptr, rust_vec_len, data_len),
+        50 => wire__crate__api__bridge__app_serve_start_acp_impl(port, ptr, rust_vec_len, data_len),
+        51 => wire__crate__api__bridge__app_serve_start_opencode_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        39 => wire__crate__api__bridge__app_serve_status_impl(port, ptr, rust_vec_len, data_len),
-        40 => wire__crate__api__bridge__app_serve_stop_impl(port, ptr, rust_vec_len, data_len),
-        41 => wire__crate__api__bridge__app_serve_stop_all_impl(port, ptr, rust_vec_len, data_len),
-        42 => {
+        52 => wire__crate__api__bridge__app_serve_status_impl(port, ptr, rust_vec_len, data_len),
+        53 => wire__crate__api__bridge__app_serve_stop_impl(port, ptr, rust_vec_len, data_len),
+        54 => wire__crate__api__bridge__app_serve_stop_all_impl(port, ptr, rust_vec_len, data_len),
+        55 => {
             wire__crate__api__bridge__app_session_liveness_impl(port, ptr, rust_vec_len, data_len)
         },
-        43 => wire__crate__api__bridge__app_set_thread_name_impl(port, ptr, rust_vec_len, data_len),
-        44 => wire__crate__api__bridge__app_thread_list_impl(port, ptr, rust_vec_len, data_len),
-        45 => {
+        56 => wire__crate__api__bridge__app_set_thread_name_impl(port, ptr, rust_vec_len, data_len),
+        57 => wire__crate__api__bridge__app_thread_list_impl(port, ptr, rust_vec_len, data_len),
+        58 => {
             wire__crate__api__bridge__app_thread_older_page_impl(port, ptr, rust_vec_len, data_len)
         },
-        46 => wire__crate__api__bridge__app_thread_read_impl(port, ptr, rust_vec_len, data_len),
-        47 => wire__crate__api__bridge__app_thread_resume_impl(port, ptr, rust_vec_len, data_len),
-        49 => wire__crate__api__bridge__app_thread_start_impl(port, ptr, rust_vec_len, data_len),
-        50 => wire__crate__api__bridge__app_thread_summary_impl(port, ptr, rust_vec_len, data_len),
-        51 => {
+        59 => wire__crate__api__bridge__app_thread_read_impl(port, ptr, rust_vec_len, data_len),
+        60 => wire__crate__api__bridge__app_thread_resume_impl(port, ptr, rust_vec_len, data_len),
+        62 => wire__crate__api__bridge__app_thread_start_impl(port, ptr, rust_vec_len, data_len),
+        63 => wire__crate__api__bridge__app_thread_summary_impl(port, ptr, rust_vec_len, data_len),
+        64 => {
             wire__crate__api__bridge__app_thread_turn_items_impl(port, ptr, rust_vec_len, data_len)
         },
-        52 => {
+        65 => {
             wire__crate__api__bridge__app_thread_turn_page_impl(port, ptr, rust_vec_len, data_len)
         },
-        53 => wire__crate__api__bridge__app_turn_interrupt_impl(port, ptr, rust_vec_len, data_len),
-        54 => wire__crate__api__bridge__app_turn_start_impl(port, ptr, rust_vec_len, data_len),
-        55 => wire__crate__api__bridge__app_turn_steer_impl(port, ptr, rust_vec_len, data_len),
-        57 => wire__crate__api__bridge__codex_auth_status_impl(port, ptr, rust_vec_len, data_len),
-        58 => wire__crate__api__bridge__codex_locate_impl(port, ptr, rust_vec_len, data_len),
-        59 => wire__crate__api__bridge__codex_login_cancel_impl(port, ptr, rust_vec_len, data_len),
-        60 => wire__crate__api__bridge__codex_login_chatgpt_start_impl(
+        66 => wire__crate__api__bridge__app_turn_interrupt_impl(port, ptr, rust_vec_len, data_len),
+        67 => wire__crate__api__bridge__app_turn_start_impl(port, ptr, rust_vec_len, data_len),
+        68 => wire__crate__api__bridge__app_turn_steer_impl(port, ptr, rust_vec_len, data_len),
+        70 => wire__crate__api__bridge__codex_auth_status_impl(port, ptr, rust_vec_len, data_len),
+        71 => wire__crate__api__bridge__codex_locate_impl(port, ptr, rust_vec_len, data_len),
+        72 => wire__crate__api__bridge__codex_login_cancel_impl(port, ptr, rust_vec_len, data_len),
+        73 => wire__crate__api__bridge__codex_login_chatgpt_start_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        61 => wire__crate__api__bridge__codex_logout_impl(port, ptr, rust_vec_len, data_len),
-        62 => {
+        74 => wire__crate__api__bridge__codex_logout_impl(port, ptr, rust_vec_len, data_len),
+        75 => {
             wire__crate__api__bridge__codex_prompt_variant_impl(port, ptr, rust_vec_len, data_len)
         },
-        63 => wire__crate__api__bridge__codex_set_prompt_variant_impl(
+        76 => wire__crate__api__bridge__codex_set_prompt_variant_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        64 => {
+        77 => {
             wire__crate__api__bridge__codex_setup_provider_impl(port, ptr, rust_vec_len, data_len)
         },
-        65 => wire__crate__api__bridge__codex_setup_status_impl(port, ptr, rust_vec_len, data_len),
-        66 => wire__crate__api__bridge__discover_services_impl(port, ptr, rust_vec_len, data_len),
-        67 => {
+        78 => wire__crate__api__bridge__codex_setup_status_impl(port, ptr, rust_vec_len, data_len),
+        79 => wire__crate__api__bridge__discover_services_impl(port, ptr, rust_vec_len, data_len),
+        80 => {
             wire__crate__api__bridge__embedded_codex_version_impl(port, ptr, rust_vec_len, data_len)
         },
-        68 => wire__crate__api__bridge__export_config_impl(port, ptr, rust_vec_len, data_len),
-        69 => wire__crate__api__bridge__get_config_impl(port, ptr, rust_vec_len, data_len),
-        71 => wire__crate__api__bridge__history_cache_set_limit_impl(
+        81 => wire__crate__api__bridge__export_config_impl(port, ptr, rust_vec_len, data_len),
+        82 => wire__crate__api__bridge__get_config_impl(port, ptr, rust_vec_len, data_len),
+        84 => wire__crate__api__bridge__history_cache_set_limit_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        72 => {
+        85 => {
             wire__crate__api__bridge__history_cache_status_impl(port, ptr, rust_vec_len, data_len)
         },
-        73 => wire__crate__api__bridge__import_config_impl(port, ptr, rust_vec_len, data_len),
-        74 => wire__crate__api__simple__init_app_impl(port, ptr, rust_vec_len, data_len),
-        75 => wire__crate__api__bridge__init_bridge_impl(port, ptr, rust_vec_len, data_len),
-        76 => wire__crate__api__bridge__log_events_impl(port, ptr, rust_vec_len, data_len),
-        77 => wire__crate__api__bridge__meta_file_download_impl(port, ptr, rust_vec_len, data_len),
-        78 => wire__crate__api__bridge__meta_file_preview_impl(port, ptr, rust_vec_len, data_len),
-        79 => wire__crate__api__bridge__meta_force_resume_impl(port, ptr, rust_vec_len, data_len),
-        80 => wire__crate__api__bridge__meta_host_is_local_impl(port, ptr, rust_vec_len, data_len),
-        81 => wire__crate__api__bridge__meta_list_dir_impl(port, ptr, rust_vec_len, data_len),
-        82 => wire__crate__api__bridge__meta_list_files_impl(port, ptr, rust_vec_len, data_len),
-        83 => wire__crate__api__bridge__meta_project_config_impl(port, ptr, rust_vec_len, data_len),
-        84 => wire__crate__api__bridge__meta_read_file_impl(port, ptr, rust_vec_len, data_len),
-        85 => {
+        86 => wire__crate__api__bridge__import_config_impl(port, ptr, rust_vec_len, data_len),
+        87 => wire__crate__api__simple__init_app_impl(port, ptr, rust_vec_len, data_len),
+        88 => wire__crate__api__bridge__init_bridge_impl(port, ptr, rust_vec_len, data_len),
+        89 => wire__crate__api__bridge__log_events_impl(port, ptr, rust_vec_len, data_len),
+        90 => wire__crate__api__bridge__meta_acp_agents_impl(port, ptr, rust_vec_len, data_len),
+        91 => wire__crate__api__bridge__meta_acp_host_impl(port, ptr, rust_vec_len, data_len),
+        92 => wire__crate__api__bridge__meta_acp_install_impl(port, ptr, rust_vec_len, data_len),
+        93 => wire__crate__api__bridge__meta_acp_job_impl(port, ptr, rust_vec_len, data_len),
+        94 => wire__crate__api__bridge__meta_file_download_impl(port, ptr, rust_vec_len, data_len),
+        95 => wire__crate__api__bridge__meta_file_preview_impl(port, ptr, rust_vec_len, data_len),
+        96 => wire__crate__api__bridge__meta_force_resume_impl(port, ptr, rust_vec_len, data_len),
+        97 => wire__crate__api__bridge__meta_host_is_local_impl(port, ptr, rust_vec_len, data_len),
+        98 => wire__crate__api__bridge__meta_list_dir_impl(port, ptr, rust_vec_len, data_len),
+        99 => wire__crate__api__bridge__meta_list_files_impl(port, ptr, rust_vec_len, data_len),
+        100 => {
+            wire__crate__api__bridge__meta_project_config_impl(port, ptr, rust_vec_len, data_len)
+        },
+        101 => wire__crate__api__bridge__meta_read_file_impl(port, ptr, rust_vec_len, data_len),
+        102 => {
             wire__crate__api__bridge__meta_read_thread_image_impl(port, ptr, rust_vec_len, data_len)
         },
-        86 => wire__crate__api__bridge__meta_retry_events_impl(port, ptr, rust_vec_len, data_len),
-        87 => wire__crate__api__bridge__meta_session_events_impl(port, ptr, rust_vec_len, data_len),
-        88 => {
+        103 => wire__crate__api__bridge__meta_retry_events_impl(port, ptr, rust_vec_len, data_len),
+        104 => {
+            wire__crate__api__bridge__meta_session_events_impl(port, ptr, rust_vec_len, data_len)
+        },
+        105 => {
             wire__crate__api__bridge__meta_session_liveness_impl(port, ptr, rust_vec_len, data_len)
         },
-        89 => wire__crate__api__bridge__meta_session_transcript_impl(
+        106 => wire__crate__api__bridge__meta_session_transcript_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        90 => wire__crate__api__bridge__meta_sessions_impl(port, ptr, rust_vec_len, data_len),
-        91 => wire__crate__api__bridge__meta_set_project_config_impl(
+        107 => wire__crate__api__bridge__meta_sessions_impl(port, ptr, rust_vec_len, data_len),
+        108 => wire__crate__api__bridge__meta_set_project_config_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        92 => {
+        109 => {
             wire__crate__api__bridge__meta_thread_config_get_impl(port, ptr, rust_vec_len, data_len)
         },
-        93 => {
+        110 => {
             wire__crate__api__bridge__meta_thread_config_set_impl(port, ptr, rust_vec_len, data_len)
         },
-        94 => wire__crate__api__bridge__meta_upload_file_impl(port, ptr, rust_vec_len, data_len),
-        95 => wire__crate__api__bridge__meta_write_file_impl(port, ptr, rust_vec_len, data_len),
-        96 => wire__crate__api__bridge__opencode_locate_impl(port, ptr, rust_vec_len, data_len),
-        97 => wire__crate__api__bridge__set_key_impl(port, ptr, rust_vec_len, data_len),
-        98 => wire__crate__api__bridge__set_locale_impl(port, ptr, rust_vec_len, data_len),
-        99 => wire__crate__api__bridge__set_relay_impl(port, ptr, rust_vec_len, data_len),
-        100 => wire__crate__api__bridge__subscriptions_impl(port, ptr, rust_vec_len, data_len),
+        111 => wire__crate__api__bridge__meta_upload_file_impl(port, ptr, rust_vec_len, data_len),
+        112 => wire__crate__api__bridge__meta_write_file_impl(port, ptr, rust_vec_len, data_len),
+        113 => wire__crate__api__bridge__opencode_locate_impl(port, ptr, rust_vec_len, data_len),
+        114 => wire__crate__api__bridge__set_key_impl(port, ptr, rust_vec_len, data_len),
+        115 => wire__crate__api__bridge__set_locale_impl(port, ptr, rust_vec_len, data_len),
+        116 => wire__crate__api__bridge__set_relay_impl(port, ptr, rust_vec_len, data_len),
+        117 => wire__crate__api__bridge__subscriptions_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -5082,11 +6120,11 @@ fn pde_ffi_dispatcher_sync_impl(
 ) -> flutter_rust_bridge::for_generated::WireSyncRust2DartSse {
     // Codec=Pde (Serialization + dispatch), see doc to use other codecs
     match func_id {
-        13 => wire__crate__api__bridge__app_capabilities_impl(ptr, rust_vec_len, data_len),
-        24 => wire__crate__api__bridge__app_is_connected_impl(ptr, rust_vec_len, data_len),
-        48 => wire__crate__api__bridge__app_thread_runtime_config_impl(ptr, rust_vec_len, data_len),
-        56 => wire__crate__api__simple__bridge_version_impl(ptr, rust_vec_len, data_len),
-        70 => wire__crate__api__simple__greet_impl(ptr, rust_vec_len, data_len),
+        25 => wire__crate__api__bridge__app_capabilities_impl(ptr, rust_vec_len, data_len),
+        36 => wire__crate__api__bridge__app_is_connected_impl(ptr, rust_vec_len, data_len),
+        61 => wire__crate__api__bridge__app_thread_runtime_config_impl(ptr, rust_vec_len, data_len),
+        69 => wire__crate__api__simple__bridge_version_impl(ptr, rust_vec_len, data_len),
+        83 => wire__crate__api__simple__greet_impl(ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -5153,6 +6191,338 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::bridge::AccountUserDto>
     for crate::api::bridge::AccountUserDto
 {
     fn into_into_dart(self) -> crate::api::bridge::AccountUserDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::bridge::AcpAgentDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.id.into_into_dart().into_dart(),
+            self.name.into_into_dart().into_dart(),
+            self.description.into_into_dart().into_dart(),
+            self.source.into_into_dart().into_dart(),
+            self.pinned_version.into_into_dart().into_dart(),
+            self.installed_version.into_into_dart().into_dart(),
+            self.state.into_into_dart().into_dart(),
+            self.detail.into_into_dart().into_dart(),
+            self.job_id.into_into_dart().into_dart(),
+            self.registry_version.into_into_dart().into_dart(),
+            self.hosted_names.into_into_dart().into_dart(),
+            self.approx_size_mb.into_into_dart().into_dart(),
+            self.needs_node.into_into_dart().into_dart(),
+            self.remote_install_allowed.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::bridge::AcpAgentDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::bridge::AcpAgentDto>
+    for crate::api::bridge::AcpAgentDto
+{
+    fn into_into_dart(self) -> crate::api::bridge::AcpAgentDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::bridge::AcpAgentFlagDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.agent_id.into_into_dart().into_dart(),
+            self.setting.into_into_dart().into_dart(),
+            self.label_key.into_into_dart().into_dart(),
+            self.confirm_key.into_into_dart().into_dart(),
+            self.value.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::bridge::AcpAgentFlagDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::bridge::AcpAgentFlagDto>
+    for crate::api::bridge::AcpAgentFlagDto
+{
+    fn into_into_dart(self) -> crate::api::bridge::AcpAgentFlagDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::bridge::AcpAgentsDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.remote_management.into_into_dart().into_dart(),
+            self.agents.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::bridge::AcpAgentsDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::bridge::AcpAgentsDto>
+    for crate::api::bridge::AcpAgentsDto
+{
+    fn into_into_dart(self) -> crate::api::bridge::AcpAgentsDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::bridge::AcpAuthDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.status.into_into_dart().into_dart(),
+            self.methods.into_into_dart().into_dart(),
+            self.message.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::bridge::AcpAuthDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::bridge::AcpAuthDto>
+    for crate::api::bridge::AcpAuthDto
+{
+    fn into_into_dart(self) -> crate::api::bridge::AcpAuthDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::bridge::AcpAuthMethodDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.id.into_into_dart().into_dart(),
+            self.name.into_into_dart().into_dart(),
+            self.description.into_into_dart().into_dart(),
+            self.kind.into_into_dart().into_dart(),
+            self.remote.into_into_dart().into_dart(),
+            self.available.into_into_dart().into_dart(),
+            self.gateway_protocol.into_into_dart().into_dart(),
+            self.gateway_configured.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::bridge::AcpAuthMethodDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::bridge::AcpAuthMethodDto>
+    for crate::api::bridge::AcpAuthMethodDto
+{
+    fn into_into_dart(self) -> crate::api::bridge::AcpAuthMethodDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::bridge::AcpBinaryOverrideDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [self.agent_id.into_into_dart().into_dart(), self.path.into_into_dart().into_dart()]
+            .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::bridge::AcpBinaryOverrideDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::bridge::AcpBinaryOverrideDto>
+    for crate::api::bridge::AcpBinaryOverrideDto
+{
+    fn into_into_dart(self) -> crate::api::bridge::AcpBinaryOverrideDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::bridge::AcpCustomAgentDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.id.into_into_dart().into_dart(),
+            self.name.into_into_dart().into_dart(),
+            self.command.into_into_dart().into_dart(),
+            self.args.into_into_dart().into_dart(),
+            self.env.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::bridge::AcpCustomAgentDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::bridge::AcpCustomAgentDto>
+    for crate::api::bridge::AcpCustomAgentDto
+{
+    fn into_into_dart(self) -> crate::api::bridge::AcpCustomAgentDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::bridge::AcpDataModeDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [self.family.into_into_dart().into_dart(), self.mode.into_into_dart().into_dart()]
+            .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::bridge::AcpDataModeDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::bridge::AcpDataModeDto>
+    for crate::api::bridge::AcpDataModeDto
+{
+    fn into_into_dart(self) -> crate::api::bridge::AcpDataModeDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::bridge::AcpEnvVarDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [self.name.into_into_dart().into_dart(), self.value.into_into_dart().into_dart()]
+            .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::bridge::AcpEnvVarDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::bridge::AcpEnvVarDto>
+    for crate::api::bridge::AcpEnvVarDto
+{
+    fn into_into_dart(self) -> crate::api::bridge::AcpEnvVarDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::bridge::AcpGatewayDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.agent_id.into_into_dart().into_dart(),
+            self.method_id.into_into_dart().into_dart(),
+            self.base_url.into_into_dart().into_dart(),
+            self.token.into_into_dart().into_dart(),
+            self.has_token.into_into_dart().into_dart(),
+            self.provider_name.into_into_dart().into_dart(),
+            self.extra_headers.into_into_dart().into_dart(),
+            self.clear.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::bridge::AcpGatewayDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::bridge::AcpGatewayDto>
+    for crate::api::bridge::AcpGatewayDto
+{
+    fn into_into_dart(self) -> crate::api::bridge::AcpGatewayDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::bridge::AcpJobDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.id.into_into_dart().into_dart(),
+            self.kind.into_into_dart().into_dart(),
+            self.agent_id.into_into_dart().into_dart(),
+            self.version.into_into_dart().into_dart(),
+            self.state.into_into_dart().into_dart(),
+            self.bytes.into_into_dart().into_dart(),
+            self.total.into_into_dart().into_dart(),
+            self.message.into_into_dart().into_dart(),
+            self.error_code.into_into_dart().into_dart(),
+            self.service_key.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::bridge::AcpJobDto {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::bridge::AcpJobDto>
+    for crate::api::bridge::AcpJobDto
+{
+    fn into_into_dart(self) -> crate::api::bridge::AcpJobDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::bridge::AcpSaveDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [self.saved.into_into_dart().into_dart(), self.warnings.into_into_dart().into_dart()]
+            .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::bridge::AcpSaveDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::bridge::AcpSaveDto>
+    for crate::api::bridge::AcpSaveDto
+{
+    fn into_into_dart(self) -> crate::api::bridge::AcpSaveDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::bridge::AcpServeDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.device.into_into_dart().into_dart(),
+            self.name.into_into_dart().into_dart(),
+            self.service_key.into_into_dart().into_dart(),
+            self.listen_addr.into_into_dart().into_dart(),
+            self.meta_service_key.into_into_dart().into_dart(),
+            self.agent_id.into_into_dart().into_dart(),
+            self.agent_name.into_into_dart().into_dart(),
+            self.agent_version.into_into_dart().into_dart(),
+            self.auth.into_into_dart().into_dart(),
+            self.reused.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::bridge::AcpServeDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::bridge::AcpServeDto>
+    for crate::api::bridge::AcpServeDto
+{
+    fn into_into_dart(self) -> crate::api::bridge::AcpServeDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::bridge::AcpSettingsDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.remote_management.into_into_dart().into_dart(),
+            self.npm_registry.into_into_dart().into_dart(),
+            self.claude_engine_path.into_into_dart().into_dart(),
+            self.codex_binary.into_into_dart().into_dart(),
+            self.binary_overrides.into_into_dart().into_dart(),
+            self.opencode_data.into_into_dart().into_dart(),
+            self.gateways.into_into_dart().into_dart(),
+            self.flags.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::bridge::AcpSettingsDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::bridge::AcpSettingsDto>
+    for crate::api::bridge::AcpSettingsDto
+{
+    fn into_into_dart(self) -> crate::api::bridge::AcpSettingsDto {
         self
     }
 }
@@ -5270,6 +6640,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::bridge::AppServeStatusDto {
             self.provider.into_into_dart().into_dart(),
             self.provider_version.into_into_dart().into_dart(),
             self.provider_verified.into_into_dart().into_dart(),
+            self.agent_id.into_into_dart().into_dart(),
+            self.agent_name.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -6077,6 +7449,174 @@ impl SseEncode for crate::api::bridge::AccountUserDto {
     }
 }
 
+impl SseEncode for crate::api::bridge::AcpAgentDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.id, serializer);
+        <String>::sse_encode(self.name, serializer);
+        <String>::sse_encode(self.description, serializer);
+        <String>::sse_encode(self.source, serializer);
+        <Option<String>>::sse_encode(self.pinned_version, serializer);
+        <Option<String>>::sse_encode(self.installed_version, serializer);
+        <String>::sse_encode(self.state, serializer);
+        <Option<String>>::sse_encode(self.detail, serializer);
+        <Option<String>>::sse_encode(self.job_id, serializer);
+        <Option<String>>::sse_encode(self.registry_version, serializer);
+        <Vec<String>>::sse_encode(self.hosted_names, serializer);
+        <u32>::sse_encode(self.approx_size_mb, serializer);
+        <bool>::sse_encode(self.needs_node, serializer);
+        <bool>::sse_encode(self.remote_install_allowed, serializer);
+    }
+}
+
+impl SseEncode for crate::api::bridge::AcpAgentFlagDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.agent_id, serializer);
+        <String>::sse_encode(self.setting, serializer);
+        <String>::sse_encode(self.label_key, serializer);
+        <Option<String>>::sse_encode(self.confirm_key, serializer);
+        <bool>::sse_encode(self.value, serializer);
+    }
+}
+
+impl SseEncode for crate::api::bridge::AcpAgentsDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.remote_management, serializer);
+        <Vec<crate::api::bridge::AcpAgentDto>>::sse_encode(self.agents, serializer);
+    }
+}
+
+impl SseEncode for crate::api::bridge::AcpAuthDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.status, serializer);
+        <Vec<crate::api::bridge::AcpAuthMethodDto>>::sse_encode(self.methods, serializer);
+        <Option<String>>::sse_encode(self.message, serializer);
+    }
+}
+
+impl SseEncode for crate::api::bridge::AcpAuthMethodDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.id, serializer);
+        <String>::sse_encode(self.name, serializer);
+        <String>::sse_encode(self.description, serializer);
+        <String>::sse_encode(self.kind, serializer);
+        <bool>::sse_encode(self.remote, serializer);
+        <bool>::sse_encode(self.available, serializer);
+        <Option<String>>::sse_encode(self.gateway_protocol, serializer);
+        <bool>::sse_encode(self.gateway_configured, serializer);
+    }
+}
+
+impl SseEncode for crate::api::bridge::AcpBinaryOverrideDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.agent_id, serializer);
+        <String>::sse_encode(self.path, serializer);
+    }
+}
+
+impl SseEncode for crate::api::bridge::AcpCustomAgentDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.id, serializer);
+        <String>::sse_encode(self.name, serializer);
+        <String>::sse_encode(self.command, serializer);
+        <Vec<String>>::sse_encode(self.args, serializer);
+        <Vec<crate::api::bridge::AcpEnvVarDto>>::sse_encode(self.env, serializer);
+    }
+}
+
+impl SseEncode for crate::api::bridge::AcpDataModeDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.family, serializer);
+        <String>::sse_encode(self.mode, serializer);
+    }
+}
+
+impl SseEncode for crate::api::bridge::AcpEnvVarDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.name, serializer);
+        <String>::sse_encode(self.value, serializer);
+    }
+}
+
+impl SseEncode for crate::api::bridge::AcpGatewayDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.agent_id, serializer);
+        <Option<String>>::sse_encode(self.method_id, serializer);
+        <String>::sse_encode(self.base_url, serializer);
+        <Option<String>>::sse_encode(self.token, serializer);
+        <bool>::sse_encode(self.has_token, serializer);
+        <Option<String>>::sse_encode(self.provider_name, serializer);
+        <Vec<crate::api::bridge::AcpEnvVarDto>>::sse_encode(self.extra_headers, serializer);
+        <bool>::sse_encode(self.clear, serializer);
+    }
+}
+
+impl SseEncode for crate::api::bridge::AcpJobDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.id, serializer);
+        <String>::sse_encode(self.kind, serializer);
+        <String>::sse_encode(self.agent_id, serializer);
+        <String>::sse_encode(self.version, serializer);
+        <String>::sse_encode(self.state, serializer);
+        <u64>::sse_encode(self.bytes, serializer);
+        <Option<u64>>::sse_encode(self.total, serializer);
+        <Option<String>>::sse_encode(self.message, serializer);
+        <Option<String>>::sse_encode(self.error_code, serializer);
+        <Option<String>>::sse_encode(self.service_key, serializer);
+    }
+}
+
+impl SseEncode for crate::api::bridge::AcpSaveDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.saved, serializer);
+        <Vec<String>>::sse_encode(self.warnings, serializer);
+    }
+}
+
+impl SseEncode for crate::api::bridge::AcpServeDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.device, serializer);
+        <String>::sse_encode(self.name, serializer);
+        <String>::sse_encode(self.service_key, serializer);
+        <String>::sse_encode(self.listen_addr, serializer);
+        <String>::sse_encode(self.meta_service_key, serializer);
+        <String>::sse_encode(self.agent_id, serializer);
+        <String>::sse_encode(self.agent_name, serializer);
+        <String>::sse_encode(self.agent_version, serializer);
+        <crate::api::bridge::AcpAuthDto>::sse_encode(self.auth, serializer);
+        <bool>::sse_encode(self.reused, serializer);
+    }
+}
+
+impl SseEncode for crate::api::bridge::AcpSettingsDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.remote_management, serializer);
+        <Option<String>>::sse_encode(self.npm_registry, serializer);
+        <Option<String>>::sse_encode(self.claude_engine_path, serializer);
+        <Option<String>>::sse_encode(self.codex_binary, serializer);
+        <Vec<crate::api::bridge::AcpBinaryOverrideDto>>::sse_encode(
+            self.binary_overrides,
+            serializer,
+        );
+        <Vec<crate::api::bridge::AcpDataModeDto>>::sse_encode(self.opencode_data, serializer);
+        <Vec<crate::api::bridge::AcpGatewayDto>>::sse_encode(self.gateways, serializer);
+        <Vec<crate::api::bridge::AcpAgentFlagDto>>::sse_encode(self.flags, serializer);
+    }
+}
+
 impl SseEncode for crate::api::bridge::AppCapabilitiesDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -6149,6 +7689,8 @@ impl SseEncode for crate::api::bridge::AppServeStatusDto {
         <String>::sse_encode(self.provider, serializer);
         <Option<String>>::sse_encode(self.provider_version, serializer);
         <bool>::sse_encode(self.provider_verified, serializer);
+        <Option<String>>::sse_encode(self.agent_id, serializer);
+        <Option<String>>::sse_encode(self.agent_name, serializer);
     }
 }
 
@@ -6293,6 +7835,86 @@ impl SseEncode for Vec<crate::api::bridge::AccountServiceDto> {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <crate::api::bridge::AccountServiceDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::bridge::AcpAgentDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::bridge::AcpAgentDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::bridge::AcpAgentFlagDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::bridge::AcpAgentFlagDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::bridge::AcpAuthMethodDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::bridge::AcpAuthMethodDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::bridge::AcpBinaryOverrideDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::bridge::AcpBinaryOverrideDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::bridge::AcpCustomAgentDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::bridge::AcpCustomAgentDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::bridge::AcpDataModeDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::bridge::AcpDataModeDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::bridge::AcpEnvVarDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::bridge::AcpEnvVarDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::bridge::AcpGatewayDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::bridge::AcpGatewayDto>::sse_encode(item, serializer);
         }
     }
 }
@@ -6510,6 +8132,16 @@ impl SseEncode for Option<crate::api::bridge::AccountUserDto> {
     }
 }
 
+impl SseEncode for Option<crate::api::bridge::AcpJobDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::bridge::AcpJobDto>::sse_encode(value, serializer);
+        }
+    }
+}
+
 impl SseEncode for Option<bool> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -6556,6 +8188,16 @@ impl SseEncode for Option<u32> {
         <bool>::sse_encode(self.is_some(), serializer);
         if let Some(value) = self {
             <u32>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<u64> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <u64>::sse_encode(value, serializer);
         }
     }
 }

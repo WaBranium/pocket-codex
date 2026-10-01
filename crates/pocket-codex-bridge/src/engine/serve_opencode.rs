@@ -135,6 +135,9 @@ pub fn start(name: Option<String>, binary_override: Option<String>) -> Result<Op
     if serve::is_hosting_codex(&name) {
         bail!("`{name}` is already hosting Codex on this device; choose another name");
     }
+    if super::serve_acp::is_hosting(&name) {
+        bail!("`{name}` is already hosting an ACP agent on this device; choose another name");
+    }
     if let Some(report) = reuse(&name) {
         return Ok(report);
     }
@@ -147,8 +150,8 @@ pub fn start(name: Option<String>, binary_override: Option<String>) -> Result<Op
 
     let gateway = gateway::Gateway::new(attached.upstream.clone())
         .map_err(|e| anyhow!("preparing the OpenCode gateway: {e}"))?;
-    let (gateway_std, gateway_local) = bind_loopback("OpenCode gateway")?;
-    let (meta_std, meta_local) = bind_loopback("meta service")?;
+    let (gateway_std, gateway_local) = serve::bind_loopback("OpenCode gateway")?;
+    let (meta_std, meta_local) = serve::bind_loopback("meta service")?;
     let store = serve::config_store()?;
     let host_store = serve::host_store()?;
     let uploads = pocket_codex_core::paths::state_dir()
@@ -343,14 +346,6 @@ fn describe(error: OcError) -> anyhow::Error {
     }
 }
 
-fn bind_loopback(label: &str) -> Result<(std::net::TcpListener, SocketAddr)> {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0")
-        .with_context(|| format!("binding the {label}"))?;
-    listener.set_nonblocking(true)?;
-    let addr = listener.local_addr()?;
-    Ok((listener, addr))
-}
-
 /// Probe the attached server; when it stops answering or restarted (new pid,
 /// port or password), re-read its registration and repoint the gateway and the
 /// meta service's session-directory lookups.
@@ -416,6 +411,8 @@ pub(super) fn status() -> Vec<ServeStatus> {
             provider: "opencode".to_string(),
             provider_version: host.version.lock().ok().map(|v| v.clone()),
             provider_verified: host.verified.load(Ordering::Relaxed),
+            agent_id: None,
+            agent_name: None,
         })
         .collect()
 }
