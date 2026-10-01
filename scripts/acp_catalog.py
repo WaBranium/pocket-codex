@@ -3,6 +3,7 @@
 
     python3 scripts/acp_catalog.py update   # maintainer, needs network
     python3 scripts/acp_catalog.py check    # offline, CI
+    python3 scripts/acp_catalog.py verify-node  # re-check Node hashes and signature
 
 `update` reads catalog/pins.toml and writes catalog/catalog.toml,
 catalog/locks/<id>-<version>.json and ../locks.rs. Standard library only.
@@ -37,6 +38,8 @@ LOCKS_DIR = CATALOG_DIR / "locks"
 LOCKS_RS = INSTALL / "locks.rs"
 NPM_REGISTRY = "https://registry.npmjs.org/"
 ACP_REGISTRY = "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json"
+# Node.js release signing keys (https://github.com/nodejs/release-keys).
+NODE_KEYRING = "https://raw.githubusercontent.com/nodejs/release-keys/main/gpg/pubring.kbx"
 PLATFORMS = ["darwin-aarch64", "darwin-x86_64", "linux-aarch64", "linux-x86_64",
              "windows-aarch64", "windows-x86_64"]
 USER_AGENT = "pocket-codex-acp-catalog"
@@ -91,10 +94,7 @@ def node_targets(pin):
     version = pin["version"]
     base = f"https://nodejs.org/dist/v{version}/"
     sums_text = fetch(base + "SHASUMS256.txt").decode()
-    if shutil.which("gpgv"):
-        print("note: verify SHASUMS256.txt.sig with gpgv and the Node.js release keyring manually")
-    else:
-        print("warning: gpgv not found; SHASUMS256.txt signature not verified")
+    verify_signature(base, sums_text)
     sums = {}
     for line in sums_text.splitlines():
         parts = line.split()
@@ -108,6 +108,43 @@ def node_targets(pin):
         root = re.sub(r"\.(tar\.gz|zip)$", "", name)
         targets[key] = {"url": base + name, "integrity": sri_from_hex(sums[name]), "root": root}
     return targets, sums
+
+
+def verify_signature(base, sums_text):
+    """Check SHASUMS256.txt.sig with gpgv and the Node.js release keyring."""
+    gpgv = shutil.which("gpgv")
+    if not gpgv:
+        print("warning: gpgv not found; SHASUMS256.txt signature not verified")
+        return
+    with tempfile.TemporaryDirectory(dir=os.environ.get("ACP_CATALOG_TMP")) as tmp:
+        tmp = Path(tmp)
+        (tmp / "SHASUMS256.txt").write_text(sums_text)
+        (tmp / "SHASUMS256.txt.sig").write_bytes(fetch(base + "SHASUMS256.txt.sig"))
+        (tmp / "pubring.kbx").write_bytes(fetch(NODE_KEYRING))
+        result = subprocess.run([gpgv, "--keyring", str(tmp / "pubring.kbx"),
+                                 str(tmp / "SHASUMS256.txt.sig"), str(tmp / "SHASUMS256.txt")],
+                                capture_output=True, text=True)
+        if result.returncode != 0:
+            fail(f"SHASUMS256.txt signature check failed:\n{result.stderr}")
+        print("SHASUMS256.txt signature verified with gpgv")
+
+
+def verify_node():
+    """Re-check the catalog's Node hashes against the signed SHASUMS256.txt."""
+    catalog = tomllib.loads(CATALOG.read_text())
+    node = catalog.get("node")
+    if not node:
+        print("no [node] in catalog.toml")
+        return
+    base = f"https://nodejs.org/dist/v{node['version']}/"
+    sums_text = fetch(base + "SHASUMS256.txt").decode()
+    verify_signature(base, sums_text)
+    sums = {parts[1]: parts[0] for parts in (l.split() for l in sums_text.splitlines()) if len(parts) == 2}
+    for key, target in node["targets"].items():
+        name = target["url"].rsplit("/", 1)[-1]
+        if sums.get(name) is None or sri_from_hex(sums[name]) != target["integrity"]:
+            fail(f"node {key}: integrity does not match SHASUMS256.txt")
+    print(f"Node {node['version']} hashes match the signed SHASUMS256.txt")
 
 
 def local_node(pin, sums, workdir):
@@ -418,5 +455,7 @@ if __name__ == "__main__":
         update()
     elif command == "check":
         check()
+    elif command == "verify-node":
+        verify_node()
     else:
         raise SystemExit(__doc__)

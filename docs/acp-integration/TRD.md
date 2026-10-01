@@ -2709,6 +2709,7 @@ cd apps/flutter && fvm flutter pub get \
 | M3 | `tests/acp_hub.rs` 中除 M4 的 3 个用例以外的全部 32 个（含 `process_connector_spawns_and_terminates_tree`，用 `tests/fixtures/acp/fake_agent.py`）；单元测试 `display_code_and_rpc_agree`、`backoff_doubles_and_caps`、`fifth_failure_within_window_gives_up`、`permission_answers_are_validated`、`form_answers_stay_within_schema`、`line_and_limit_select_lines`、`quoting_and_redaction`、`sessions_sort_newest_first_with_missing_last` | §7 全量通过（2026-10-01）；`acp_hub` 连续跑 6 次都通过；CI 全部通过 | 见 §13.2 的 M3 条目 |
 | M4 | `history_source_windows_items_and_groups`（同时经 `serve_meta` 读 `/history/v1/capabilities` 和 `/healthz`）、`slow_consumer_is_disconnected_with_1013`（真实 WebSocket）、`ws_rejects_non_loopback_listener`；`acp_hub` 共 35 个用例，连续跑 3 次都通过 | §7 全量通过（2026-10-01）；CI 全部通过 | 见 §13.2 的 M4 条目 |
 | M5(a) | `tests/acp_install.rs` 的 §8.2 安装器用例全部 21 个，另加 `management_routes_answer_404_until_registered`；单元测试 `ids_follow_the_pattern`。占位清单 `catalog.toml` 和空的 `locks.rs` 通过 `acp_catalog.py check` | §7 全量通过（2026-10-01） | 见 §13.2 的 M5 条目 |
+| M5(b) | `embedded_catalog_parses` 现在覆盖真实清单：4 个 agent、5 个 release、3 个 lockfile（都是 `lockfileVersion: 3`，`resolved` 全部来自 `https://registry.npmjs.org/`）；`acp_catalog.py check` 通过；`acp_catalog.py verify-node` 用 gpgv 和 Node.js 发布密钥校验了 SHASUMS256.txt 的签名，并核对 6 个 Node 包的哈希 | `acp_catalog.py update` 于 2026-10-01 执行（临时目录在 `$TMPDIR/opencode` 下，用完已删除）；§7 全量通过 | 见 §13.2 的 M5(b) 条目 |
 
 ### 13.2 施工偏差
 
@@ -2736,3 +2737,6 @@ cd apps/flutter && fvm flutter pub get \
 - M5：解压时，条目路径经过已存在的符号链接（"穿过链接写入"）一律拒绝；全部写完后再逐个 `canonicalize` 新建的符号链接，解析到目标目录以外的也拒绝。
 - M5：审计记录多一个可选字段 `item`，只写设置项的名字（如 `gateway`、`allow_subscription_login`），不写值。
 - M5：注册表版本的 npm 安装用 `node_modules/<pkg>/dist/index.js` 作为入口；注册表 archive 安装把 `cmd`、`args` 记进 `installed.json`（`InstalledAgent` 新增 `entry`、`cmd`、`args`，只在 `source = "registry"` 时写入）。`agents_status` 只读注册表缓存，`registry_hint::refresh` 由 bridge 在后台调用（M6），测试不访问网络。
+- M5(b)：本机 PATH 上的 npm 是 10.9.3，低于 lockfile `libc` 字段要求的 11.11，脚本按设计改用从 nodejs.org 下载、并用 SHASUMS256.txt 校验过的 Node 24.21.0 自带的 npm 11.19 生成 lockfile（与安装器运行 `npm ci` 的 npm 同一版本），只在临时目录里执行。脚本新增 `verify-node` 子命令和 gpgv 签名校验（密钥环取自 nodejs/release-keys）；PATH 上没有 gpgv 时只打印警告。
+- M5(b)：OpenCode 1.18.33 的 9 个 GitHub 包都已下载并计算 sha256，与 GitHub API 的 `digest` 一致；压缩包里的可执行文件在根目录（`cmd = "opencode"`，Windows 为 `opencode.exe`）。OpenCode 2.0.20 的 9 个平台包只取 npm 元数据里的 `dist.integrity`（sha512），没有下载；`cmd` 按研究结论写作 `package/bin/opencode[.exe]`，M10 实测安装时确认。
+- M5(b)：`jobs.rs` 的磁盘空间换算在 Linux 上触发 `clippy::useless_conversion`（`fsblkcnt_t` 在 macOS 是 u32、在 Linux 是 u64），只在 Linux 上对这个函数加了带 reason 的 allow。

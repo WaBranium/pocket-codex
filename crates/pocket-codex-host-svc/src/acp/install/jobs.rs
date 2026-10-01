@@ -143,6 +143,10 @@ impl Plan {
     }
 }
 
+#[cfg_attr(
+    target_os = "linux",
+    allow(clippy::useless_conversion, reason = "fsblkcnt_t is u32 on macOS but u64 on Linux")
+)]
 fn free_mb(path: &Path) -> Option<u64> {
     #[cfg(unix)]
     {

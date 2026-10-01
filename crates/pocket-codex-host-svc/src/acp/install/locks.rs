@@ -3,4 +3,8 @@
 //! Lock name → `package-lock.json` of every npm release in the catalog.
 
 /// Lockfiles embedded in the binary.
-pub static LOCKS: &[(&str, &str)] = &[];
+pub static LOCKS: &[(&str, &str)] = &[
+    ("claude-acp-0.84.0", include_str!("catalog/locks/claude-acp-0.84.0.json")),
+    ("codex-acp-1.12.0", include_str!("catalog/locks/codex-acp-1.12.0.json")),
+    ("codex-acp-2.0.1", include_str!("catalog/locks/codex-acp-2.0.1.json")),
+];
