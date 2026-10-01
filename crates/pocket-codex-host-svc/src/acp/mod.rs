@@ -9,6 +9,7 @@ mod fs;
 mod history;
 mod hub;
 mod inbound;
+pub mod install;
 mod launch;
 mod meta;
 mod ops;
@@ -20,7 +21,7 @@ mod session;
 #[cfg(any(test, feature = "acp-testing"))]
 pub mod testing;
 
-pub use auth::{GatewayAuth, TerminalLaunch, TerminalLauncher};
+pub use auth::{terminal_launch, GatewayAuth, TerminalLaunch, TerminalLauncher};
 pub use error::AcpError;
 pub use history::{AcpHistorySource, AcpSessionDirs, PROVIDER as HISTORY_PROVIDER};
 pub use hub::{AcpHub, ConnId, HubConnection, HubInfo, HubOptions, LaunchProvider};

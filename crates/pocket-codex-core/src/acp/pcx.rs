@@ -387,6 +387,84 @@ pub struct JobProgress {
     pub service_key: Option<String>,
 }
 
+/// Host ACP settings as the bridge facade sees them (`agents.toml`, §5.1).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpSettingsView {
+    /// Remote controllers may install and host agents (D14).
+    pub remote_management: bool,
+    /// npm registry mirror (https).
+    pub npm_registry: Option<String>,
+    /// Engine override of the catalog agent with `engine_override` (D7).
+    pub claude_engine_path: Option<String>,
+    /// Engine path of the catalog agent with `external_engine` (D6).
+    pub codex_binary: Option<String>,
+    /// (agent id, executable) overrides of archive agents.
+    pub binary_overrides: Vec<(String, String)>,
+    /// (data family, `auto` | `shared` | `isolated`) (D19).
+    pub opencode_data: Vec<(String, String)>,
+    /// D20 gateways.
+    pub gateways: Vec<GatewayView>,
+    /// D21 catalog switches.
+    pub flags: Vec<AgentFlagView>,
+}
+
+/// One catalog `conditional_args` switch.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentFlagView {
+    /// Agent id.
+    pub agent_id: String,
+    /// Setting key under `[agents.<id>]`.
+    pub setting: String,
+    /// l10n key of the switch label.
+    pub label_key: String,
+    /// l10n key of the confirm dialog when turning it on.
+    pub confirm_key: Option<String>,
+    /// Current value.
+    pub value: bool,
+}
+
+/// D20 gateway of one agent. Reading returns `token: None` plus `has_token`;
+/// writing with `token: None` keeps the stored token, `Some("")` deletes it;
+/// `clear` removes the whole entry.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GatewayView {
+    /// Agent id.
+    pub agent_id: String,
+    /// Gateway method; `None` = the first gateway method.
+    pub method_id: Option<String>,
+    /// Gateway base URL.
+    pub base_url: String,
+    /// Write-only token.
+    pub token: Option<String>,
+    /// A token is stored.
+    pub has_token: bool,
+    /// Provider name (codex-acp).
+    pub provider_name: Option<String>,
+    /// Extra headers.
+    pub extra_headers: Vec<(String, String)>,
+    /// Remove this gateway.
+    pub clear: bool,
+}
+
+/// A user-defined ACP agent (D15).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomAgentDef {
+    /// `^[a-z][a-z0-9-]{0,63}$`, not a catalog id.
+    pub id: String,
+    /// Display name.
+    pub name: String,
+    /// Absolute path of the executable.
+    pub command: String,
+    /// Arguments.
+    pub args: Vec<String>,
+    /// Environment (stored in plain text).
+    pub env: Vec<(String, String)>,
+}
+
 /// `_pcx/session/attach` params.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -118,6 +118,7 @@ pub async fn serve(
         .merge(history_sync::router(Arc::new(
             history_sync::CodexHistorySource::new(app_ws_addr),
         )));
+    let app = with_acp_management(app);
     axum::serve(listener, app)
         .await
         .context("running meta service")
@@ -183,10 +184,23 @@ pub(crate) fn generic_app(
         uploads_dir: Some(uploads_dir),
         session_dirs: Some(session_dirs),
     });
-    generic_routes()
+    let app = generic_routes()
         .route("/fs/thread-file", get(file_links::read))
         .layer(tower_http::compression::CompressionLayer::new())
-        .with_state(state)
+        .with_state(state);
+    with_acp_management(app)
+}
+
+/// Merge the stateless `/acp/v1` remote management routes (desktop only;
+/// they answer 404 until the desktop bridge registers an implementation).
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn with_acp_management(app: Router) -> Router {
+    app.merge(acp::install::manage::router())
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn with_acp_management(app: Router) -> Router {
+    app
 }
 
 /// An error rendered as `500` with the full anyhow chain in the body. The meta
