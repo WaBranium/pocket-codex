@@ -1366,7 +1366,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String acpSavedAgentsFull(int count) {
-    return '此智能体未保存到我的智能体：已保存 $count 个智能体。';
+    return '此配置未保存：已保存 $count 个配置。';
   }
 
   @override
@@ -1376,7 +1376,31 @@ class AppLocalizationsZh extends AppLocalizations {
   String get agentChoiceNative => '原生 app-server';
 
   @override
-  String get agentChoiceSaved => '我的智能体 · ACP';
+  String get agentChoiceSaved => '已保存 · ACP';
+
+  @override
+  String get agentChoicePreset => '预设 · ACP';
+
+  @override
+  String get agentChoiceNew => '新建配置';
+
+  @override
+  String get agentChoiceBuiltinTitle => '内置预设';
+
+  @override
+  String get agentChoiceBuiltinNote => '使用默认启动设置，智能体从本机已安装的程序运行。';
+
+  @override
+  String get agentChoiceSavedTitle => '已保存配置';
+
+  @override
+  String get agentChoiceSavedNote => '复用你保存的启动设置，或新建一个配置。';
+
+  @override
+  String get agentChoiceCustomTitle => '自定义配置';
+
+  @override
+  String get agentChoiceCustomNote => '自行设置程序和参数，可保存供下次复用。';
 
   @override
   String get hostNameHelper => '本机内唯一，用作该主机在中转上的名称。';
@@ -2172,7 +2196,7 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String get acpSaveAgent => '保存到我的智能体';
+  String get acpSaveAgent => '保存为配置';
 
   @override
   String get acpHostingUnsupported => '此平台暂不支持托管 ACP 智能体。你仍可使用其他设备托管的智能体。';

@@ -2597,7 +2597,7 @@ abstract class AppLocalizations {
   /// No description provided for @acpSavedAgentsFull.
   ///
   /// In en, this message translates to:
-  /// **'This agent was not saved to my agents: {count} agents are already saved.'**
+  /// **'This configuration was not saved: {count} configurations are already saved.'**
   String acpSavedAgentsFull(int count);
 
   /// No description provided for @hostSwitchManage.
@@ -2615,8 +2615,56 @@ abstract class AppLocalizations {
   /// No description provided for @agentChoiceSaved.
   ///
   /// In en, this message translates to:
-  /// **'My agent · ACP'**
+  /// **'Saved · ACP'**
   String get agentChoiceSaved;
+
+  /// No description provided for @agentChoicePreset.
+  ///
+  /// In en, this message translates to:
+  /// **'Preset · ACP'**
+  String get agentChoicePreset;
+
+  /// No description provided for @agentChoiceNew.
+  ///
+  /// In en, this message translates to:
+  /// **'New configuration'**
+  String get agentChoiceNew;
+
+  /// No description provided for @agentChoiceBuiltinTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Built-in presets'**
+  String get agentChoiceBuiltinTitle;
+
+  /// No description provided for @agentChoiceBuiltinNote.
+  ///
+  /// In en, this message translates to:
+  /// **'Default launch settings. The agent runs from its installation on this device.'**
+  String get agentChoiceBuiltinNote;
+
+  /// No description provided for @agentChoiceSavedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved configurations'**
+  String get agentChoiceSavedTitle;
+
+  /// No description provided for @agentChoiceSavedNote.
+  ///
+  /// In en, this message translates to:
+  /// **'Reuse launch settings you saved, or create a new configuration.'**
+  String get agentChoiceSavedNote;
+
+  /// No description provided for @agentChoiceCustomTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom configuration'**
+  String get agentChoiceCustomTitle;
+
+  /// No description provided for @agentChoiceCustomNote.
+  ///
+  /// In en, this message translates to:
+  /// **'Set the program and arguments yourself, and save them for next time.'**
+  String get agentChoiceCustomNote;
 
   /// No description provided for @hostNameHelper.
   ///
@@ -4103,7 +4151,7 @@ abstract class AppLocalizations {
   /// No description provided for @acpSaveAgent.
   ///
   /// In en, this message translates to:
-  /// **'Save to my agents'**
+  /// **'Save as a configuration'**
   String get acpSaveAgent;
 
   /// No description provided for @acpHostingUnsupported.

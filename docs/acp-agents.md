@@ -329,8 +329,14 @@ stores (`sessions.json`) are not read.
    connect. Codex hosting runs on Windows, macOS and Linux; ACP agent hosting
    is Unix-only (on Windows, choosing an ACP tile explains that it is
    unavailable).
-2. Click the agent's tile: **Codex**, a preset (**OpenCode**, **Claude**),
-   one of your saved agents, or **Custom**. Each tile shows the agent's mark.
+2. Click the agent's tile. **Built-in presets** hold **Codex** and the ACP
+   presets (**OpenCode**, **Claude**): launch templates with default
+   settings, run from the agent's own installation. **Saved
+   configurations** hold the launch settings you saved, then **Custom**,
+   which creates a new one (with nothing saved yet, that section is
+   **Custom configuration**). Each tile shows the agent's mark; a saved
+   configuration that shares a preset's name is told apart by its section
+   and its "Saved" subtitle.
 3. The form suggests an instance name no running host uses (`default`,
    `default-2`, …; presets start from their id). Program and arguments of a
    preset or saved agent sit under **Advanced**; a custom agent shows them

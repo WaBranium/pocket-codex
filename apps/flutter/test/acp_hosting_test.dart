@@ -1280,10 +1280,157 @@ void main() {
       expect(api.lastServeName, isNull, reason: 'no Codex start');
       expect(api.acpServeCalls.single.$2.profileId, 'custom-saved-1');
     });
+
+    _sameNameTests();
   });
 
   _lifetimeTests();
   _restartLifetimeTests();
+}
+
+/// A saved configuration with the OpenCode preset's own profile id and name,
+/// launched differently.
+const _savedOpenCode = AcpAgentSpec(
+  profileId: 'opencode',
+  displayName: 'OpenCode',
+  program: '/opt/oc/bin/opencode',
+  args: ['acp', '--port', '4100'],
+);
+
+/// The open ACP form's program and arguments (unfolding Advanced first).
+Future<(String, List<String>)> _launchFields(WidgetTester t) async {
+  await _openAdvanced(t, 'acp-advanced-toggle');
+  String text(String key) =>
+      t.widget<TextField>(find.byKey(Key(key))).controller!.text;
+  final args = <String>[
+    for (
+      var i = 0;
+      find.byKey(Key('acp-arg-field-$i')).evaluate().isNotEmpty;
+      i++
+    )
+      text('acp-arg-field-$i'),
+  ];
+  return (text('acp-program-field'), args);
+}
+
+/// The choice whose tile holds the primary focus, if any.
+String? _focusedChoice() {
+  final context = FocusManager.instance.primaryFocus?.context;
+  String? found;
+  context?.visitAncestorElements((element) {
+    final key = element.widget.key;
+    if (key is ValueKey<String> && key.value.startsWith('agent-choice-')) {
+      found = key.value.substring('agent-choice-'.length);
+      return false;
+    }
+    return true;
+  });
+  return found;
+}
+
+void _sameNameTests() {
+  testWidgets('a saved configuration named like a preset is told apart, '
+      'and each fills its own launch settings', (t) async {
+    final handle = t.ensureSemantics();
+    final l10n = lookupAppLocalizations(const Locale('en'));
+    final api = FakeBridgeApi();
+    final prefs = _HeldPrefs(const UiPrefs(acpAgents: [_savedOpenCode]));
+    final c = await _pumpDialog(t, api, prefs: prefs);
+    final preset = find.byKey(const Key('agent-choice-preset:opencode'));
+    final saved = find.byKey(const Key('agent-choice-saved:opencode'));
+    final builtIn = find.byKey(const Key('agent-choice-builtin'));
+    final mine = find.byKey(const Key('agent-choice-mine'));
+
+    // Same name and mark, in different sections with their own headings.
+    expect(find.byKey(const Key('agent-icon-opencode')), findsNWidgets(2));
+    expect(find.descendant(of: builtIn, matching: preset), findsOneWidget);
+    expect(find.descendant(of: mine, matching: saved), findsOneWidget);
+    expect(find.descendant(of: builtIn, matching: saved), findsNothing);
+    expect(find.descendant(of: mine, matching: preset), findsNothing);
+    // ...and a distinct name for each, announced once.
+    final name = _savedOpenCode.displayName;
+    final presetLabel = '$name, ${l10n.agentChoicePreset}';
+    final savedLabel = '$name, ${l10n.agentChoiceSaved}';
+    expect(presetLabel, isNot(savedLabel));
+    for (final (tile, label) in [(preset, presetLabel), (saved, savedLabel)]) {
+      expect(
+        t.getSemantics(tile),
+        isSemantics(label: label, isButton: true, hasTapAction: true),
+      );
+      expect(find.bySemanticsLabel(label), findsOneWidget);
+    }
+    expect(find.bySemanticsLabel(name), findsNothing, reason: 'no bare title');
+    for (final heading in [
+      l10n.agentChoiceBuiltinTitle,
+      l10n.agentChoiceSavedTitle,
+    ]) {
+      expect(
+        t.getSemantics(find.text(heading)),
+        isSemantics(label: heading, isHeader: true),
+      );
+    }
+
+    // Both are reached by Tab, the preset first; Enter picks the saved one,
+    // which brings its own program and arguments.
+    final reached = <String>[];
+    for (var i = 0; i < 12 && !reached.contains('saved:opencode'); i++) {
+      await t.sendKeyEvent(LogicalKeyboardKey.tab);
+      await t.pump();
+      final choice = _focusedChoice();
+      if (choice != null && !reached.contains(choice)) reached.add(choice);
+    }
+    expect(reached, containsAllInOrder(['preset:opencode', 'saved:opencode']));
+    await t.sendKeyEvent(LogicalKeyboardKey.enter);
+    await t.pump(const Duration(milliseconds: 400));
+    await t.pumpAndSettle();
+    expect(t.getSemantics(saved), isSemantics(isSelected: true));
+    expect(t.getSemantics(preset), isSemantics(isSelected: false));
+    var (program, args) = await _launchFields(t);
+    expect(program, _savedOpenCode.program);
+    expect(args, _savedOpenCode.args);
+
+    // The preset, picked through its semantics action, brings its defaults.
+    // Unfolding Advanced scrolled the form; bring the tile back first.
+    await t.ensureVisible(preset);
+    await t.pumpAndSettle();
+    t.semantics.tap(find.semantics.byLabel(presetLabel));
+    await t.pump(const Duration(milliseconds: 400));
+    await t.pumpAndSettle();
+    expect(t.getSemantics(preset), isSemantics(isSelected: true));
+    (program, args) = await _launchFields(t);
+    expect(program, 'opencode');
+    expect(args, ['acp']);
+    // Cancelling starts nothing and writes nothing.
+    final cancel = find.text(l10n.cancel);
+    await t.ensureVisible(cancel);
+    await t.tap(cancel);
+    await t.pumpAndSettle();
+    expect(find.byType(LocalHostDialog), findsNothing);
+    expect(api.acpServeCalls, isEmpty);
+    expect(api.lastServeName, isNull);
+    expect(prefs.written, isEmpty, reason: 'nothing saved or remembered');
+
+    // Starting the saved one launches its settings and keeps it as it was.
+    await t.tap(find.text('open'));
+    await t.pumpAndSettle();
+    await t.ensureVisible(saved);
+    await t.pumpAndSettle();
+    expect(saved.hitTestable(), findsOneWidget);
+    await t.tap(saved);
+    await t.pump(const Duration(milliseconds: 400));
+    await t.pumpAndSettle();
+    await _start(t);
+    final (_, spec) = api.acpServeCalls.single;
+    expect(spec.profileId, _savedOpenCode.profileId);
+    expect(spec.program, _savedOpenCode.program);
+    expect(spec.args, _savedOpenCode.args);
+    final kept = (await c.read(uiPrefsProvider.future)).acpAgents;
+    expect(kept, hasLength(1));
+    expect(kept.single.displayName, _savedOpenCode.displayName);
+    expect(kept.single.program, _savedOpenCode.program);
+    expect(kept.single.args, _savedOpenCode.args);
+    handle.dispose();
+  });
 }
 
 extension on AppServeStatus {

@@ -568,7 +568,7 @@
       }
     }
   },
-  "acpSavedAgentsFull": "This agent was not saved to my agents: {count} agents are already saved.",
+  "acpSavedAgentsFull": "This configuration was not saved: {count} configurations are already saved.",
   "@acpSavedAgentsFull": {
     "placeholders": {
       "count": {
@@ -578,7 +578,15 @@
   },
   "hostSwitchManage": "Manage hosts…",
   "agentChoiceNative": "Native app-server",
-  "agentChoiceSaved": "My agent · ACP",
+  "agentChoiceSaved": "Saved · ACP",
+  "agentChoicePreset": "Preset · ACP",
+  "agentChoiceNew": "New configuration",
+  "agentChoiceBuiltinTitle": "Built-in presets",
+  "agentChoiceBuiltinNote": "Default launch settings. The agent runs from its installation on this device.",
+  "agentChoiceSavedTitle": "Saved configurations",
+  "agentChoiceSavedNote": "Reuse launch settings you saved, or create a new configuration.",
+  "agentChoiceCustomTitle": "Custom configuration",
+  "agentChoiceCustomNote": "Set the program and arguments yourself, and save them for next time.",
   "hostNameHelper": "Unique on this device; it names the host on your relay.",
   "hostAdvanced": "Advanced",
   "localHostPortInvalid": "Enter a port from 0 to 65535 (0 picks a free port).",
@@ -924,7 +932,7 @@
   "@acpProgramFound": {
     "placeholders": { "path": { "type": "String" } }
   },
-  "acpSaveAgent": "Save to my agents",
+  "acpSaveAgent": "Save as a configuration",
   "acpHostingUnsupported": "Hosting ACP agents is not available on this platform yet. You can still use agents hosted on another device.",
   "acpPhaseStarting": "Starting",
   "acpPhaseReady": "Running",

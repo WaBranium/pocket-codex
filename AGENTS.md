@@ -610,7 +610,9 @@ this file's roadmap so the source of truth stays in sync.
     See `docs/acp-agents.md` and ADR-0003.
 
 24. **Hosting and agent controls (2026-10-11, PR #99).** New hosts are picked
-    from an agent icon grid (Codex, OpenCode, Claude adapter, saved, custom);
+    from an agent icon grid in two sections: built-in presets (Codex,
+    OpenCode, Claude adapter; launch templates, not bundled runtimes) and
+    saved configurations (saved, then custom, which creates one);
     marks are bundled glyphs chosen by the explicit profile id
     (`Capabilities.profile_id`), never by a host's instance name. Hosting is
     platform-gated only (desktop), in self-host and account mode; the

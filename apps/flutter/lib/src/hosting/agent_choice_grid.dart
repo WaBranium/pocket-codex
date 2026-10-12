@@ -7,7 +7,8 @@ import 'package:pocket_codex/src/widgets/agent_icon.dart';
 /// The agent a new host runs, as picked in [AgentChoiceGrid].
 ///
 /// `codex` (native app-server), `preset:<id>` (a built-in ACP preset),
-/// `saved:<profileId>` (one of "my agents") or `custom` (a new ACP agent).
+/// `saved:<profileId>` (a saved configuration) or `custom` (a new ACP
+/// agent).
 typedef AgentChoice = String;
 
 /// The native Codex choice.
@@ -19,13 +20,14 @@ const AgentChoice customAgentChoice = 'custom';
 /// Whether [choice] hosts an ACP agent.
 bool isAcpChoice(AgentChoice choice) => choice != codexChoice;
 
-/// Clickable tiles, one per agent this device can host: Codex, the ACP
-/// presets, saved custom agents and "custom". Each tile leads with the
-/// agent's own mark; presets and saved agents are identified by their
-/// profile id, never by a host name.
+/// One tile per agent this device can host, grouped by launch source:
+/// built-in presets (Codex and the ACP presets) and saved configurations
+/// (then "custom", which creates one). Each tile's subtitle names its source,
+/// so a saved agent sharing a preset's name and mark stays distinguishable.
+/// Tiles are identified by profile id, never by a host name.
 ///
-/// A [Wrap] of fixed-width tiles, so it flows to two columns on a 320 px
-/// phone and stays a compact row on desktop.
+/// Tile width follows the text scale and each section wraps its tiles to the
+/// available width.
 class AgentChoiceGrid extends StatelessWidget {
   /// Creates the grid with [value] selected.
   const AgentChoiceGrid({
@@ -51,7 +53,7 @@ class AgentChoiceGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final tiles = <Widget>[
+    final builtIn = <Widget>[
       _AgentTile(
         choice: codexChoice,
         selected: value == codexChoice,
@@ -65,7 +67,7 @@ class AgentChoiceGrid extends StatelessWidget {
           choice: 'preset:${preset.id}',
           selected: value == 'preset:${preset.id}',
           title: preset.displayName,
-          subtitle: l10n.protocolAcpTag,
+          subtitle: l10n.agentChoicePreset,
           icon: AgentIcon.of(
             provider: 'acp',
             profileId: preset.id,
@@ -74,6 +76,8 @@ class AgentChoiceGrid extends StatelessWidget {
           ),
           onTap: onChanged,
         ),
+    ];
+    final mine = <Widget>[
       for (final agent in saved)
         _AgentTile(
           choice: 'saved:${agent.profileId}',
@@ -92,7 +96,7 @@ class AgentChoiceGrid extends StatelessWidget {
         choice: customAgentChoice,
         selected: value == customAgentChoice,
         title: l10n.acpAgentCustom,
-        subtitle: l10n.protocolAcpTag,
+        subtitle: l10n.agentChoiceNew,
         icon: Icon(
           Icons.add_rounded,
           size: 22,
@@ -104,12 +108,74 @@ class AgentChoiceGrid extends StatelessWidget {
     return Semantics(
       container: true,
       label: l10n.providerLabel,
-      child: Wrap(
+      child: Column(
         key: const Key('agent-choice-grid'),
-        spacing: 8,
-        runSpacing: 8,
-        children: tiles,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _Section(
+            key: const Key('agent-choice-builtin'),
+            title: l10n.agentChoiceBuiltinTitle,
+            note: l10n.agentChoiceBuiltinNote,
+            tiles: builtIn,
+          ),
+          const SizedBox(height: 16),
+          // Custom creates a configuration, so it sits with the saved ones.
+          _Section(
+            key: const Key('agent-choice-mine'),
+            title: saved.isEmpty
+                ? l10n.agentChoiceCustomTitle
+                : l10n.agentChoiceSavedTitle,
+            note: saved.isEmpty
+                ? l10n.agentChoiceCustomNote
+                : l10n.agentChoiceSavedNote,
+            tiles: mine,
+          ),
+        ],
       ),
+    );
+  }
+}
+
+/// A heading, a one-line note and the tiles in a [Wrap].
+class _Section extends StatelessWidget {
+  const _Section({
+    super.key,
+    required this.title,
+    required this.note,
+    required this.tiles,
+  });
+
+  final String title;
+  final String note;
+  final List<Widget> tiles;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Semantics(
+          header: true,
+          child: Text(
+            title,
+            style: theme.textTheme.labelLarge?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          note,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(spacing: 8, runSpacing: 8, children: tiles),
+      ],
     );
   }
 }
@@ -164,7 +230,8 @@ class _AgentTile extends StatelessWidget {
               borderRadius: BorderRadius.circular(kControlRadius),
               onTap: enabled ? () => onTap!(choice) : null,
               child: Container(
-                width: 112,
+                // Grows with the text size; the section's width caps it.
+                width: MediaQuery.textScalerOf(context).scale(112),
                 constraints: const BoxConstraints(minHeight: 72),
                 padding: const EdgeInsets.fromLTRB(10, 10, 10, 8),
                 decoration: BoxDecoration(
@@ -197,9 +264,10 @@ class _AgentTile extends StatelessWidget {
                         fontWeight: FontWeight.w600,
                       ),
                     ),
+                    // Wraps, not clips: it names the tile's source.
                     Text(
                       subtitle,
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 11,

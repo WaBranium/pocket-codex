@@ -2,7 +2,9 @@
 // tablet and a 1440 desktop, light and dark, English and Chinese, with the
 // app's real themes: the new-host dialog (Codex beside a running host; the
 // chooser scrolled to the saved and custom agents and their forms; the
-// OpenCode preset unfolded down to its program, arguments and Start), the
+// OpenCode preset beside a saved OpenCode configuration, also under 3×
+// text; the OpenCode preset unfolded down to its program, arguments and
+// Start), the
 // manage page with Codex and an ACP agent hosted, the ACP composer chips
 // (each brought on screen), and the model list searched with a phone
 // keyboard up. Each captured control is checked on screen and operable.
@@ -67,6 +69,89 @@ const _savedAgent = AcpAgentSpec(
   program: '/opt/agents/audit-runner',
   args: ['--audit'],
 );
+
+/// A saved configuration with the OpenCode preset's own id and name.
+const _savedOpenCode = AcpAgentSpec(
+  profileId: 'opencode',
+  displayName: 'OpenCode',
+  program: '/opt/oc/bin/opencode',
+  args: ['acp', '--port', '4100'],
+);
+
+/// The chooser with a saved configuration named like the OpenCode preset:
+/// each section revealed in turn, its heading and both tiles' source
+/// subtitles whole on screen; frames are `$name-presets` and `$name-saved`.
+Future<void> _captureSameName(
+  WidgetTester t,
+  Size size,
+  Locale locale,
+  String name, {
+  bool large = false,
+}) async {
+  final l10n = lookupAppLocalizations(locale);
+  final sections = [
+    (
+      'presets',
+      'agent-choice-builtin',
+      l10n.agentChoiceBuiltinTitle,
+      'agent-choice-preset:opencode',
+      l10n.agentChoicePreset,
+    ),
+    (
+      'saved',
+      'agent-choice-mine',
+      l10n.agentChoiceSavedTitle,
+      'agent-choice-saved:opencode',
+      l10n.agentChoiceSaved,
+    ),
+  ];
+  for (final (frame, section, heading, tile, source) in sections) {
+    // Scroll the section's top edge to the top of the dialog's scroll view
+    // (as far as it can scroll); the OpenCode tile is then checked within it.
+    final group = find.byKey(Key(section));
+    await _reveal(t, group);
+    final shownTile = find.byKey(Key(tile));
+    final view = t.getRect(
+      find.ancestor(of: group, matching: find.byType(Scrollable)).first,
+    );
+    // Under large text the heading and the tile may not fit together: the
+    // tile, whose subtitle names its source too, then ends the view.
+    final together = t.getRect(shownTile).bottom <= view.bottom + 0.5;
+    if (!large) {
+      expect(together, isTrue, reason: 'heading and tile together ($frame)');
+    }
+    if (!together) {
+      await Scrollable.ensureVisible(t.element(shownTile), alignment: 1);
+      await t.pumpAndSettle();
+    }
+    expect(t.takeException(), isNull, reason: 'no overflow ($frame)');
+    _usable(t, shownTile, size);
+    for (final text in [
+      if (together) find.descendant(of: group, matching: find.text(heading)),
+      find.descendant(of: shownTile, matching: find.text('OpenCode')),
+      find.descendant(of: shownTile, matching: find.text(source)),
+    ]) {
+      expect(text, findsOneWidget, reason: '$text');
+      final rect = t.getRect(text);
+      expect(
+        rect.top >= view.top - 0.5 && rect.bottom <= view.bottom + 0.5,
+        isTrue,
+        reason: '$text $rect inside the scroll view $view ($frame)',
+      );
+      expect(
+        t.renderObject<RenderParagraph>(text).didExceedMaxLines,
+        isFalse,
+        reason: '$text is whole',
+      );
+    }
+    expect(
+      find.bySemanticsLabel('OpenCode, $source'),
+      findsOneWidget,
+      reason: 'one node names the tile and its source',
+    );
+    await capturePreview(t, '$name-$frame');
+  }
+}
 
 class _PreviewPrefs extends UiPrefsStore {
   _PreviewPrefs(this._prefs);
@@ -443,8 +528,9 @@ Future<void> _openDialog(
   WidgetTester t,
   FakeBridgeApi api,
   Locale locale,
-  Brightness brightness,
-) async {
+  Brightness brightness, {
+  List<AcpAgentSpec> saved = const [_savedAgent],
+}) async {
   await t.pumpWidget(
     _app(
       Builder(
@@ -461,7 +547,7 @@ Future<void> _openDialog(
       api,
       locale,
       brightness,
-      prefs: const UiPrefs(acpAgents: [_savedAgent]),
+      prefs: UiPrefs(acpAgents: saved),
     ),
   );
   await t.tap(find.text('open'));
@@ -492,7 +578,9 @@ Future<void> _openSession(
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  setUpAll(loadPreviewFonts);
+  // The same-name scenes measure real titles and wrapping, so this file
+  // always renders with the app's fonts (Ahem would misreport them).
+  setUpAll(() => loadPreviewFonts(always: true));
   setUp(AppSessionScreen.debugResetThreadMemory);
 
   test('the preview catalog offers every current value exactly once', () {
@@ -633,6 +721,20 @@ void main() {
             isEmpty,
           );
           await capturePreview(t, 'hosting-custom-save-$variant');
+        });
+
+        testWidgets('OpenCode preset beside a saved OpenCode configuration '
+            '($variant)', (t) async {
+          _size(t, size);
+          final api = await _hostedApi();
+          await _openDialog(
+            t,
+            api,
+            locale,
+            brightness,
+            saved: const [_savedOpenCode, _savedAgent],
+          );
+          await _captureSameName(t, size, locale, 'hosting-same-name-$variant');
         });
 
         testWidgets('OpenCode preset unfolded ($variant)', (t) async {
@@ -817,6 +919,38 @@ void main() {
           expect(api.sessionConfigCalls, isEmpty);
         });
       }
+    }
+  }
+
+  // The agent chooser under 3× text on a phone: section headings and tile
+  // subtitles wrap instead of clipping, and both same-name OpenCode tiles
+  // still say where they come from.
+  for (final brightness in Brightness.values) {
+    for (final language in ['en', 'zh']) {
+      final locale = Locale(language);
+      final variant = 'phone390x3-${brightness.name}-$language';
+      testWidgets('agent chooser with large text ($variant)', (t) async {
+        const size = Size(390, 844);
+        _size(t, size);
+        t.platformDispatcher.textScaleFactorTestValue = 3;
+        addTearDown(t.platformDispatcher.clearTextScaleFactorTestValue);
+        final api = await _hostedApi();
+        await _openDialog(
+          t,
+          api,
+          locale,
+          brightness,
+          saved: const [_savedOpenCode, _savedAgent],
+        );
+        _withinWidth(t, find.byKey(const Key('agent-choice-grid')), size);
+        await _captureSameName(
+          t,
+          size,
+          locale,
+          'hosting-same-name-$variant',
+          large: true,
+        );
+      });
     }
   }
 

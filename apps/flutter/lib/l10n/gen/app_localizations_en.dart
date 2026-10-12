@@ -1398,7 +1398,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String acpSavedAgentsFull(int count) {
-    return 'This agent was not saved to my agents: $count agents are already saved.';
+    return 'This configuration was not saved: $count configurations are already saved.';
   }
 
   @override
@@ -1408,7 +1408,34 @@ class AppLocalizationsEn extends AppLocalizations {
   String get agentChoiceNative => 'Native app-server';
 
   @override
-  String get agentChoiceSaved => 'My agent · ACP';
+  String get agentChoiceSaved => 'Saved · ACP';
+
+  @override
+  String get agentChoicePreset => 'Preset · ACP';
+
+  @override
+  String get agentChoiceNew => 'New configuration';
+
+  @override
+  String get agentChoiceBuiltinTitle => 'Built-in presets';
+
+  @override
+  String get agentChoiceBuiltinNote =>
+      'Default launch settings. The agent runs from its installation on this device.';
+
+  @override
+  String get agentChoiceSavedTitle => 'Saved configurations';
+
+  @override
+  String get agentChoiceSavedNote =>
+      'Reuse launch settings you saved, or create a new configuration.';
+
+  @override
+  String get agentChoiceCustomTitle => 'Custom configuration';
+
+  @override
+  String get agentChoiceCustomNote =>
+      'Set the program and arguments yourself, and save them for next time.';
 
   @override
   String get hostNameHelper =>
@@ -2246,7 +2273,7 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get acpSaveAgent => 'Save to my agents';
+  String get acpSaveAgent => 'Save as a configuration';
 
   @override
   String get acpHostingUnsupported =>

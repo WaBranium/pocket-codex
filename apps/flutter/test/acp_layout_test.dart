@@ -172,7 +172,12 @@ void main() {
           final l10n = lookupAppLocalizations(locale);
           final api = FakeBridgeApi();
           await _openDialog(t, api, locale, brightness);
-          await t.tap(find.byKey(const Key('agent-choice-custom')));
+          // On a phone the grouped chooser puts Custom below the fold.
+          final custom = find.byKey(const Key('agent-choice-custom'));
+          await t.ensureVisible(custom);
+          await t.pumpAndSettle();
+          expect(custom.hitTestable(), findsOneWidget);
+          await t.tap(custom);
           await t.pumpAndSettle();
           expect(find.text(l10n.acpAgentCustom), findsWidgets);
           await t.enterText(

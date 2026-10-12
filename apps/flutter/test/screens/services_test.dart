@@ -301,6 +301,16 @@ void main() {
     }
   });
 
+  // The agent chooser sits above the Codex form, so its controls may start
+  // below the dialog's fold: scroll them in and require a real hit first.
+  Future<void> tapRevealed(WidgetTester t, Finder control) async {
+    await t.ensureVisible(control);
+    await t.pumpAndSettle();
+    expect(control.hitTestable(), findsOneWidget, reason: '$control');
+    await t.tap(control);
+    await t.pumpAndSettle();
+  }
+
   testWidgets('local-host: turning off the proxy passes no proxy', (t) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
     try {
@@ -312,8 +322,7 @@ void main() {
       await t.pumpAndSettle();
       // The proxy field shows by default (proxy is mandatory); toggle it off.
       expect(find.byKey(const Key('proxy-field')), findsOneWidget);
-      await t.tap(find.byKey(const Key('use-proxy-switch')));
-      await t.pumpAndSettle();
+      await tapRevealed(t, find.byKey(const Key('use-proxy-switch')));
       expect(find.byKey(const Key('proxy-field')), findsNothing);
       await t.tap(find.byKey(const Key('start-hosting-btn')));
       await t.pumpAndSettle();
@@ -338,8 +347,7 @@ void main() {
       // Found → no path field, but a "change path" override is offered.
       expect(find.byKey(const Key('codex-path-field')), findsNothing);
       expect(find.byKey(const Key('customize-codex-btn')), findsOneWidget);
-      await t.tap(find.byKey(const Key('customize-codex-btn')));
-      await t.pumpAndSettle();
+      await tapRevealed(t, find.byKey(const Key('customize-codex-btn')));
       expect(find.byKey(const Key('codex-path-field')), findsOneWidget);
     } finally {
       debugDefaultTargetPlatformOverride = null;
