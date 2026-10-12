@@ -4187,7 +4187,7 @@ abstract class AppLocalizations {
   /// No description provided for @acpCatalogReasonPluginsDisabled.
   ///
   /// In en, this message translates to:
-  /// **'the agent\'s environment disables plugins (OPENCODE_PURE)'**
+  /// **'the agent runs with plugins disabled (--pure or OPENCODE_PURE)'**
   String get acpCatalogReasonPluginsDisabled;
 
   /// No description provided for @acpCatalogReasonConfigTaken.

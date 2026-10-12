@@ -650,7 +650,8 @@ this file's roadmap so the source of truth stays in sync.
     no-key hint). The hook runs when a
     running agent first loads a project's configuration; a changed URL or
     key needs a host restart.
-    `OPENCODE_PURE`, or both config variables already set, is reported
+    `OPENCODE_PURE` or a `--pure` argument (read as OpenCode parses it,
+    never rewritten), or both config variables already set, is reported
     `unavailable` with the plugin's file URL for adding it by hand. Its
     boundary tests need Node 18+ (CI installs Node 20 for them).
 

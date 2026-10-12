@@ -2295,7 +2295,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get acpCatalogReasonPluginsDisabled =>
-      'the agent\'s environment disables plugins (OPENCODE_PURE)';
+      'the agent runs with plugins disabled (--pure or OPENCODE_PURE)';
 
   @override
   String get acpCatalogReasonConfigTaken =>

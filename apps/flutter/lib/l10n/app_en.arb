@@ -939,7 +939,7 @@
   "acpCatalogWaiting": "The agent's model catalog is listed when its first session opens.",
   "acpCatalogUnavailable": "The model catalog could not be added to the agent: {reason}",
   "@acpCatalogUnavailable": {"placeholders": {"reason": {"type": "String"}}},
-  "acpCatalogReasonPluginsDisabled": "the agent's environment disables plugins (OPENCODE_PURE)",
+  "acpCatalogReasonPluginsDisabled": "the agent runs with plugins disabled (--pure or OPENCODE_PURE)",
   "acpCatalogReasonConfigTaken": "the agent's environment sets both OPENCODE_CONFIG and OPENCODE_CONFIG_CONTENT; add the plugin below to your config",
   "acpCatalogReasonInstallFailed": "the catalog plugin could not be written",
   "acpCatalogPlugin": "Plugin",

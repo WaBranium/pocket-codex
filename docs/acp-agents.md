@@ -440,10 +440,16 @@ own config layers
   OpenCode combines the `plugin` lists of every layer
   (`config/config.ts` `mergePluginOrigins`), so a provider URL and key set in
   the user's `OPENCODE_CONFIG_CONTENT` still apply;
-- when both variables are already set, or `OPENCODE_PURE` disables plugins,
-  nothing is injected. The host reports the catalog `unavailable` with the
+- when both variables are already set, or plugins are disabled, nothing is
+  injected. The host reports the catalog `unavailable` with the
   reason (`config-env-taken`, `plugins-disabled`, `install-failed`) and the
   plugin's `file://` URL, so it can be added to the user's config by hand.
+  Plugins are disabled by a true `OPENCODE_PURE` or by OpenCode's global
+  `--pure` argument (`src/index.ts`; `plugin/index.ts` then loads no external
+  plugin). The arguments are read as OpenCode's yargs parser reads them,
+  without changing them: the last of `--pure`, `--pure true|false`,
+  `--pure=<value>` (on only for `true`) and `--no-pure` wins, nothing after
+  `--` counts, and `--no-pure` does not clear an inherited `OPENCODE_PURE`.
 
 OpenCode 1.18.35 runs a plugin's `config` hook after merging and substituting
 every config layer and before it builds providers (`provider.ts`: "load

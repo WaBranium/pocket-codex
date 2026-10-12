@@ -802,7 +802,7 @@
   "acpCatalog": "模型目录",
   "acpCatalogWaiting": "智能体打开第一个会话时才会读取模型目录。",
   "acpCatalogUnavailable": "无法为智能体加入模型目录：{reason}",
-  "acpCatalogReasonPluginsDisabled": "智能体的环境禁用了插件（OPENCODE_PURE）",
+  "acpCatalogReasonPluginsDisabled": "智能体在禁用插件的模式下运行（--pure 或 OPENCODE_PURE）",
   "acpCatalogReasonConfigTaken": "智能体的环境同时设置了 OPENCODE_CONFIG 和 OPENCODE_CONFIG_CONTENT；请把下面的插件加入你的配置",
   "acpCatalogReasonInstallFailed": "目录插件无法写入",
   "acpCatalogPlugin": "插件",

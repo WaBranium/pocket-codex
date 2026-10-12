@@ -16,9 +16,10 @@
 //! already sets that — into a generated file named by `OPENCODE_CONFIG`
 //! (merged after the global config). The user's own layer is passed on
 //! untouched, and plugin lists from all layers are combined by OpenCode.
-//! When both are set, or `OPENCODE_PURE` disables plugins, the catalog is
-//! reported unavailable with that reason and the plugin file's URL, so it
-//! can be added to the user's own config instead.
+//! When both are set, or `OPENCODE_PURE` or the `--pure` argument disables
+//! plugins, the catalog is reported unavailable with that reason and the
+//! plugin file's URL, so it can be added to the user's own config instead.
+//! The arguments are passed on verbatim either way.
 //!
 //! The provider URL and key never pass through Pocket-Codex: the plugin runs
 //! inside OpenCode and reads the configuration OpenCode resolved. Its report
@@ -54,7 +55,7 @@ const MAX_PROVIDER_ID: usize = 128;
 /// Why the catalog could not be attached to a launch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Unavailable {
-    /// `OPENCODE_PURE` disables every plugin.
+    /// `OPENCODE_PURE` or the `--pure` argument disables every plugin.
     PluginsDisabled,
     /// `OPENCODE_CONFIG` and `OPENCODE_CONFIG_CONTENT` are both the user's.
     ConfigTaken,
@@ -145,6 +146,34 @@ fn is_true(value: Option<OsString>) -> bool {
     })
 }
 
+/// Whether `args` turn on OpenCode's global boolean `--pure` option, which
+/// then sets `OPENCODE_PURE=1` for the process. This mirrors its yargs
+/// parser: the last of `--pure`, `--pure true|false`, `--pure=<value>`
+/// (true only for exactly `true`) and `--no-pure` wins, and nothing after a
+/// `--` terminator is an option. A dash-led token is never another option's
+/// value, so a bare `--pure` is always the flag; text that merely contains
+/// `--pure` (`--cwd=/x/--pure`, `/x/--pure`) is not.
+fn pure_flag(args: &[String]) -> bool {
+    let mut pure = false;
+    let mut args = args.iter().map(String::as_str).peekable();
+    while let Some(arg) = args.next() {
+        match arg {
+            "--" => break,
+            "--no-pure" => pure = false,
+            "--pure" => {
+                // A following literal `true` / `false` is the flag's value.
+                pure = args.next_if(|next| matches!(*next, "true" | "false")) != Some("false");
+            },
+            _ => {
+                if let Some(value) = arg.strip_prefix("--pure=") {
+                    pure = value == "true";
+                }
+            },
+        }
+    }
+    pure
+}
+
 fn attach(
     spec: &AgentSpec,
     state_dir: &Path,
@@ -170,7 +199,8 @@ fn attach(
         return Some(launch);
     };
     launch.plugin = Some(plugin.to_string());
-    if is_true(env(PURE_VAR)) {
+    // `--no-pure` only leaves the variable alone; it never clears it.
+    if is_true(env(PURE_VAR)) || pure_flag(&spec.args) {
         launch.unavailable = Some(Unavailable::PluginsDisabled);
         return Some(launch);
     }
@@ -350,12 +380,39 @@ mod tests {
         }
     }
 
-    fn with_env(dir: &Path, profile: &str, vars: &[(&str, &str)]) -> Option<Launch> {
+    fn attach_to(spec: &AgentSpec, dir: &Path, vars: &[(&str, &str)]) -> Option<Launch> {
         let vars: HashMap<String, OsString> = vars
             .iter()
             .map(|(k, v)| (k.to_string(), OsString::from(v)))
             .collect();
-        attach(&spec(profile), dir, |name| vars.get(name).cloned())
+        attach(spec, dir, |name| vars.get(name).cloned())
+    }
+
+    fn with_env(dir: &Path, profile: &str, vars: &[(&str, &str)]) -> Option<Launch> {
+        attach_to(&spec(profile), dir, vars)
+    }
+
+    /// An OpenCode launch with `args` after the program.
+    fn with_args(dir: &Path, args: &[&str], vars: &[(&str, &str)]) -> Launch {
+        let spec = AgentSpec {
+            args: args.iter().map(|a| a.to_string()).collect(),
+            ..spec("opencode")
+        };
+        attach_to(&spec, dir, vars).expect("opencode")
+    }
+
+    fn plugins_disabled(launch: &Launch) -> bool {
+        let status = launch.status();
+        let disabled = (status.state, status.reason) == ("unavailable", Some("plugins-disabled"));
+        if disabled {
+            assert!(launch.env.is_empty(), "nothing injected");
+            assert!(launch.report.is_none(), "no report awaited");
+            assert!(status.plugin.is_some_and(|url| url.starts_with("file://")));
+        } else {
+            assert_eq!(launch.env.len(), 1, "the layer is injected");
+            assert_eq!(status.state, "waiting");
+        }
+        disabled
     }
 
     fn var<'a>(launch: &'a Launch, name: &str) -> Option<&'a OsString> {
@@ -427,6 +484,61 @@ mod tests {
         }
         let not_pure = with_env(dir.path(), "opencode", &[(PURE_VAR, "false")]).expect("opencode");
         assert_eq!(not_pure.env.len(), 1);
+    }
+
+    #[test]
+    fn a_pure_argument_disables_the_catalog_as_opencode_parses_it() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let disabled: &[&[&str]] = &[
+            &["acp", "--pure"],
+            &["--pure", "acp"],
+            &["acp", "--pure", "--cwd", "/p"],
+            &["acp", "--cwd", "/p", "--pure"],
+            &["acp", "--pure", "true"],
+            &["acp", "--pure=true"],
+            &["acp", "--no-pure", "--pure"],
+            &["acp", "--pure=false", "--pure"],
+            // A dash-led token is never the previous option's value.
+            &["acp", "--cwd", "--pure"],
+            &["acp", "--cors", "a", "--pure"],
+        ];
+        for args in disabled {
+            assert!(plugins_disabled(&with_args(dir.path(), args, &[])), "{args:?}");
+        }
+        let attached: &[&[&str]] = &[
+            &["acp"],
+            &["acp", "--pure", "false"],
+            &["acp", "--pure=false"],
+            // yargs takes a boolean `=` value as true only when it is `true`.
+            &["acp", "--pure=1"],
+            &["acp", "--no-pure"],
+            &["acp", "--pure", "--no-pure"],
+            &["acp", "--pure", "false", "--cwd", "/p"],
+            // Operands after the terminator, and values that contain the text.
+            &["acp", "--", "--pure"],
+            &["acp", "--cwd=/x/--pure"],
+            &["acp", "--cwd", "/x/--pure"],
+        ];
+        for args in attached {
+            assert!(!plugins_disabled(&with_args(dir.path(), args, &[])), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn the_pure_argument_and_variable_each_disable_the_catalog() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let on = [(PURE_VAR, "1")];
+        let off = [(PURE_VAR, "false")];
+        assert!(plugins_disabled(&with_args(dir.path(), &["acp", "--pure"], &off)));
+        // `--no-pure` does not clear an inherited `OPENCODE_PURE`.
+        assert!(plugins_disabled(&with_args(dir.path(), &["acp", "--no-pure"], &on)));
+        assert!(plugins_disabled(&with_args(dir.path(), &["acp", "--pure=false"], &on)));
+        // Disabled plugins are reported before a taken config layer.
+        let taken = [(CONFIG_CONTENT_VAR, "{}"), (CONFIG_FILE_VAR, "/elsewhere/opencode.json")];
+        assert!(plugins_disabled(&with_args(dir.path(), &["acp", "--pure"], &taken)));
+        // A user's inline layer still gets the file layer without `--pure`.
+        let mine = with_args(dir.path(), &["acp", "--no-pure"], &[(CONFIG_CONTENT_VAR, "{}")]);
+        assert!(var(&mine, CONFIG_FILE_VAR).is_some());
     }
 
     #[test]

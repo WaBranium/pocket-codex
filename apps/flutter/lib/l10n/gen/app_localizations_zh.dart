@@ -2216,7 +2216,8 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String get acpCatalogReasonPluginsDisabled => '智能体的环境禁用了插件（OPENCODE_PURE）';
+  String get acpCatalogReasonPluginsDisabled =>
+      '智能体在禁用插件的模式下运行（--pure 或 OPENCODE_PURE）';
 
   @override
   String get acpCatalogReasonConfigTaken =>
