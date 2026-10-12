@@ -416,6 +416,28 @@ mod tests {
     }
 
     #[test]
+    fn a_long_model_catalog_keeps_every_value() {
+        // The 32 limit counts option definitions; a provider catalog can have
+        // hundreds of values (OpenCode lists every model of every provider).
+        let values: Vec<_> = (0..300)
+            .map(|i| json!({"value": format!("p/vendor/m{i}"), "name": format!("M{i}")}))
+            .collect();
+        let settings = SessionSettings::from_response(&json!({
+            "configOptions": [
+                {"id": "model", "name": "Model", "type": "select",
+                 "currentValue": "p/vendor/m0", "options": values},
+            ],
+        }));
+        assert_eq!(
+            settings.config_options[0]["options"]
+                .as_array()
+                .map(Vec::len),
+            Some(300)
+        );
+        assert!(settings.allows_config_value("model", "p/vendor/m299"));
+    }
+
+    #[test]
     fn outcomes_use_the_gateway_wire_shape() {
         let stopped = TurnOutcome::Stopped {
             stop_reason: "end_turn".into(),

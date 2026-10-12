@@ -17,7 +17,8 @@ class ServiceEntry {
   /// Device id segment.
   final String device;
 
-  /// `app` or `api`.
+  /// `app` (Codex app-server), `acp` (ACP agent gateway), `api` (Responses
+  /// proxy) or `meta` (host meta service).
   final String kind;
 
   /// Instance name segment.
@@ -95,7 +96,8 @@ class AppServeResult {
 }
 
 /// Status of one local host: a codex app-server + an in-app Responses API
-/// proxy, each published through its own (independently toggleable) tunnel.
+/// proxy, or an ACP agent's gateway (see [provider]), each service published
+/// through its own (independently toggleable) tunnel.
 class AppServeStatus {
   /// Creates a hosting-status snapshot.
   const AppServeStatus({
@@ -123,6 +125,7 @@ class AppServeStatus {
     this.agentPhase,
     this.agentError,
     this.authRequired = false,
+    this.catalog,
   });
 
   /// Service instance name.
@@ -131,16 +134,16 @@ class AppServeStatus {
   /// Device id.
   final String device;
 
-  /// codex process id.
+  /// codex process id; null for ACP hosts.
   final int? pid;
 
-  /// codex is accepting on its listen port.
+  /// codex is accepting on its listen port; for ACP, the agent is ready.
   final bool alive;
 
-  /// Loopback `host:port` codex listens on.
+  /// Loopback `host:port` codex (or the ACP gateway) listens on.
   final String appListenAddr;
 
-  /// `pcx:<device>:app:<name>` key.
+  /// `pcx:<device>:app:<name>` key, or `pcx:<device>:acp:<name>` for ACP.
   final String appServiceKey;
 
   /// The app tunnel is currently published.
@@ -201,6 +204,10 @@ class AppServeStatus {
   /// The ACP agent reported that authentication is required.
   final bool authRequired;
 
+  /// The OpenCode model catalog, for an ACP host of the `opencode` profile.
+  /// Null for every other host.
+  final AcpCatalogStatus? catalog;
+
   /// Whether this host runs a native Codex app-server.
   bool get isCodex => provider == 'codex';
 
@@ -212,6 +219,73 @@ class AppServeStatus {
     'acp' => 'acp',
     _ => 'app',
   };
+}
+
+/// What the OpenCode model catalog plugin found for one host. Holds provider
+/// ids, counts and fixed reason codes, plus the plugin's own local file URL;
+/// never a provider endpoint, key or header.
+class AcpCatalogStatus {
+  /// Creates a catalog report.
+  const AcpCatalogStatus({
+    required this.state,
+    this.reason,
+    this.plugin,
+    this.providers = const [],
+  });
+
+  /// `waiting` (no session opened yet), `reported` or `unavailable`.
+  final String state;
+
+  /// Why it is unavailable: `plugins-disabled`, `config-env-taken` or
+  /// `install-failed`.
+  final String? reason;
+
+  /// The plugin's local `file://` URL, shown when it is unavailable so it
+  /// can be added to an OpenCode config by hand.
+  final String? plugin;
+
+  /// One entry per listed provider.
+  final List<AcpCatalogProvider> providers;
+}
+
+/// One provider's model listing.
+class AcpCatalogProvider {
+  /// Creates a provider listing.
+  const AcpCatalogProvider({
+    required this.id,
+    required this.status,
+    this.reason,
+    required this.listed,
+    required this.added,
+    required this.excluded,
+    required this.unsafeIds,
+    required this.keySource,
+  });
+
+  /// Provider id from the OpenCode config.
+  final String id;
+
+  /// `complete`, `partial` (bounded), `failed` (nothing added) or `skipped`.
+  final String status;
+
+  /// Reason code (`http-401`, `timeout`, `model-limit`, …).
+  final String? reason;
+
+  /// Chat models listed.
+  final int listed;
+
+  /// Models added beyond the configured ones.
+  final int added;
+
+  /// Entries left out for an explicit non-chat type.
+  final int excluded;
+
+  /// Ids OpenCode cannot hold, left out.
+  final int unsafeIds;
+
+  /// Where the credential came from: `config`, `env`, `headers` (configured
+  /// request headers) or `none`.
+  final String keySource;
 }
 
 /// One ACP agent configuration: profile identity plus executable and the
@@ -483,6 +557,7 @@ class AppCapabilities {
     required this.planMode,
     this.protocol = '',
     this.providerName = '',
+    this.profileId = '',
     this.negotiated = false,
     this.generation = 0,
     this.voice = false,
@@ -553,6 +628,11 @@ class AppCapabilities {
 
   /// Human-readable agent name.
   final String providerName;
+
+  /// ACP agent profile id reported by the host (`opencode` for the preset);
+  /// empty for Codex and before the host answered. Identity only: it never
+  /// selects transport behaviour.
+  final String profileId;
 
   /// Whether the values come from a live ACP negotiation.
   final bool negotiated;
@@ -776,7 +856,8 @@ class AccountService {
   /// Device id segment.
   final String device;
 
-  /// `app` or `api`.
+  /// `app` (Codex app-server), `acp` (ACP agent gateway), `api` (Responses
+  /// proxy) or `meta` (host meta service).
   final String kind;
 
   /// Instance name segment.
@@ -1804,10 +1885,11 @@ abstract interface class BridgeApi {
 
   // --- App-server remote control ---
 
-  /// Connect to an app-server service: subscribe on `127.0.0.1:<localPort>`,
-  /// open the JSON-RPC websocket and run the `initialize` handshake. Pass
-  /// `localPort: 0` to let the bridge assign a free OS port per service (so
-  /// several services can coexist).
+  /// Connect to a session service, dispatched by its key's protocol: a Codex
+  /// app-server (subscribe on `127.0.0.1:<localPort>`, open the JSON-RPC
+  /// websocket, run `initialize`) or an ACP gateway (`/acp/v1` snapshot, then
+  /// its event stream). Pass `localPort: 0` to let the bridge assign a free
+  /// OS port per service (so several services can coexist).
   Future<void> appConnect(String serviceKey, int localPort);
 
   /// Whether a live app-server session exists for [serviceKey].
@@ -1816,10 +1898,12 @@ abstract interface class BridgeApi {
   /// Disconnect the app-server session and its pb-mapper subscription.
   Future<void> appDisconnect(String serviceKey);
 
-  /// Probe whether an app-server is actually REACHABLE (its backend answers a
-  /// handshake) rather than merely registered on the relay. The services list
-  /// uses this so a registered-but-dead app-server shows as unreachable instead
-  /// of a false "online". A live session short-circuits to true.
+  /// Probe whether a session service is actually REACHABLE (a Codex
+  /// app-server answers `initialize`; an ACP gateway reports a ready agent)
+  /// rather than merely registered on the relay, dispatched by the key's
+  /// protocol. The services list uses this so a registered-but-dead host
+  /// shows as unreachable instead of a false "online". A live session
+  /// short-circuits to true.
   Future<bool> appProbe(String serviceKey);
 
   /// Why [appProbe] found a service unreachable, or null when it is reachable.

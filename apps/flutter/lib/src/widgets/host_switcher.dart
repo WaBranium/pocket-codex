@@ -7,6 +7,7 @@ import 'package:pocket_codex/src/motion.dart';
 import 'package:pocket_codex/src/service_key.dart';
 import 'package:pocket_codex/src/theme.dart';
 import 'package:pocket_codex/src/widgets/adaptive_sheet.dart';
+import 'package:pocket_codex/src/widgets/agent_icon.dart';
 import 'package:pocket_codex/src/widgets/provider_badge.dart';
 import 'package:pocket_codex/src/widgets/status_dots.dart';
 
@@ -53,6 +54,10 @@ String hostLabel(ServiceEntry entry) => '${entry.device} · ${entry.name}';
 /// like the project menu; touch opens a sheet with full-height rows. While a
 /// switch runs, the row names the host being reached and shows its progress,
 /// so the user can see that something is happening.
+///
+/// Each host leads with its agent's mark ([identities]). With [onManage] set
+/// the list ends in a "manage hosts" entry, so adding or hosting another
+/// service is reachable from the conversation even with a single host.
 class HostSwitcher extends StatefulWidget {
   /// Creates the switcher for [services], with [current] in effect.
   const HostSwitcher({
@@ -61,6 +66,8 @@ class HostSwitcher extends StatefulWidget {
     required this.current,
     required this.onPick,
     this.pending,
+    this.identities = const {},
+    this.onManage,
   });
 
   /// Connectable app services, in display order.
@@ -74,6 +81,13 @@ class HostSwitcher extends StatefulWidget {
 
   /// A switch in flight or just failed, if any.
   final HostSwitch? pending;
+
+  /// Known agent identity per service key; unknown keys show the protocol's
+  /// generic mark.
+  final Map<String, AgentIdentity> identities;
+
+  /// Opens host management (add, host, stop); null hides the entry.
+  final VoidCallback? onManage;
 
   @override
   State<HostSwitcher> createState() => _HostSwitcherState();
@@ -104,17 +118,31 @@ class _HostSwitcherState extends State<HostSwitcher> {
     widget.onPick(key);
   }
 
+  void _manage() {
+    _menu.close();
+    final scaffold = Scaffold.maybeOf(context);
+    if (scaffold?.isDrawerOpen ?? false) scaffold!.closeDrawer();
+    widget.onManage?.call();
+  }
+
   Future<void> _openSheet() => showAdaptivePanel<void>(
     context: context,
     builder: (c) => _HostList(
       services: widget.services,
       current: widget.current,
       pending: widget.pending,
+      identities: widget.identities,
       touch: true,
       onPick: (key) {
         Navigator.of(c).pop();
         _pick(key);
       },
+      onManage: widget.onManage == null
+          ? null
+          : () {
+              Navigator.of(c).pop();
+              _manage();
+            },
     ),
   );
 
@@ -123,6 +151,8 @@ class _HostSwitcherState extends State<HostSwitcher> {
     final l10n = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
     final multiple = widget.services.length > 1;
+    // A single host still opens the list when it can lead to management.
+    final opens = multiple || widget.onManage != null;
     final pending = widget.pending;
     final busy = _busy;
     final label = busy
@@ -157,10 +187,10 @@ class _HostSwitcherState extends State<HostSwitcher> {
                               color: signalColor(scheme),
                             ),
                           )
-                        : Icon(
-                            Icons.dns_outlined,
-                            size: 16,
-                            color: scheme.onSurfaceVariant,
+                        : _identityIcon(
+                            widget.identities,
+                            widget.current,
+                            scheme.onSurfaceVariant,
                           ),
                   ),
                 ),
@@ -186,8 +216,11 @@ class _HostSwitcherState extends State<HostSwitcher> {
                   ),
                 ),
                 const SizedBox(width: 6),
-                ProviderBadge.forKey(busy ? pending!.target : widget.current),
-                if (multiple && !busy)
+                _badge(
+                  widget.identities,
+                  busy ? pending!.target : widget.current,
+                ),
+                if (opens && !busy)
                   Icon(
                     Icons.unfold_more_rounded,
                     size: 16,
@@ -201,7 +234,7 @@ class _HostSwitcherState extends State<HostSwitcher> {
     );
 
     final Widget trigger;
-    if (!multiple) {
+    if (!opens) {
       trigger = Semantics(
         label: l10n.hostCurrent(label),
         excludeSemantics: true,
@@ -230,8 +263,10 @@ class _HostSwitcherState extends State<HostSwitcher> {
               services: widget.services,
               current: widget.current,
               pending: pending,
+              identities: widget.identities,
               touch: false,
               onPick: _pick,
+              onManage: widget.onManage == null ? null : _manage,
             ),
           ),
         ],
@@ -256,6 +291,35 @@ class _HostSwitcherState extends State<HostSwitcher> {
   }
 }
 
+/// The agent mark of [key]: its known identity, else its protocol's.
+Widget _identityIcon(
+  Map<String, AgentIdentity> identities,
+  String key,
+  Color color,
+) {
+  final known = identities[key];
+  final acp = sessionProtocolOf(key) == SessionProtocol.acp;
+  return AgentIcon.of(
+    key: Key('host-agent-icon-$key'),
+    provider: known?.provider ?? (acp ? 'acp' : 'codex'),
+    profileId: known?.profileId,
+    name: known?.name ?? '',
+    color: color,
+  );
+}
+
+/// The provider pill of [key], named from its known identity. The mark is
+/// already beside the host, so the pill omits it.
+Widget _badge(Map<String, AgentIdentity> identities, String key) {
+  final known = identities[key];
+  return ProviderBadge.forKey(
+    key,
+    name: known?.name,
+    profileId: known?.profileId,
+    showIcon: false,
+  );
+}
+
 /// The hosts, the current one checked. Shared by the desktop menu and the
 /// touch sheet so they cannot drift apart.
 class _HostList extends StatelessWidget {
@@ -263,15 +327,19 @@ class _HostList extends StatelessWidget {
     required this.services,
     required this.current,
     required this.pending,
+    required this.identities,
     required this.touch,
     required this.onPick,
+    this.onManage,
   });
 
   final List<ServiceEntry> services;
   final String current;
   final HostSwitch? pending;
+  final Map<String, AgentIdentity> identities;
   final bool touch;
   final ValueChanged<String> onPick;
+  final VoidCallback? onManage;
 
   @override
   Widget build(BuildContext context) {
@@ -291,6 +359,34 @@ class _HostList extends StatelessWidget {
           ),
         ),
         for (final s in services) _item(context, s),
+        if (onManage != null) ...[
+          const Divider(height: 9),
+          InkWell(
+            key: const Key('host-switch-manage'),
+            mouseCursor: clickable,
+            onTap: onManage,
+            child: Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: touch ? 20 : 12,
+                vertical: touch ? 12 : 8,
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.add, size: 16, color: scheme.onSurfaceVariant),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      l10n.hostSwitchManage,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: touch ? 14 : 13),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
         if (touch) const SizedBox(height: 8),
       ],
     );
@@ -313,15 +409,8 @@ class _HostList extends StatelessWidget {
         ),
         child: Row(
           children: [
-            StatusDot(
-              color: failed
-                  ? scheme.error
-                  : isCurrent
-                  ? successColor(scheme)
-                  : scheme.outline,
-              size: 8,
-            ),
-            const SizedBox(width: 12),
+            _identityIcon(identities, s.key, scheme.onSurfaceVariant),
+            const SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -353,7 +442,16 @@ class _HostList extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            ProviderBadge.forKey(s.key),
+            _badge(identities, s.key),
+            const SizedBox(width: 6),
+            StatusDot(
+              color: failed
+                  ? scheme.error
+                  : isCurrent
+                  ? successColor(scheme)
+                  : scheme.outline,
+              size: 8,
+            ),
             if (isCurrent)
               Icon(Icons.check, size: 16, color: signalColor(scheme)),
           ],

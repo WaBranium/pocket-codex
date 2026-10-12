@@ -168,6 +168,24 @@ final apiReachableLocalProvider = FutureProvider.family<bool, String>((
   return ref.watch(bridgeApiProvider).apiProbeLocal(localAddr);
 });
 
+/// Whether the provider scope a host operation started in still exists.
+///
+/// A start, stop or restart can finish after its route closed (its own
+/// bookkeeping still runs then) or after the whole scope was torn down
+/// (nothing may be read, written or invalidated then). The flag lives as long
+/// as the providers the operation touches and flips in their own disposal.
+class ScopeLife {
+  /// False once this provider's scope has been disposed.
+  bool alive = true;
+}
+
+/// The [ScopeLife] of the current provider scope.
+final scopeLifeProvider = Provider<ScopeLife>((ref) {
+  final life = ScopeLife();
+  ref.onDispose(() => life.alive = false);
+  return life;
+});
+
 /// Every locally-hosted codex app-server (the app's own `serve` hosts), for the
 /// desktop local-hosting block. Invalidated by the services-screen re-probe
 /// timer + the refresh button, and after start/stop.

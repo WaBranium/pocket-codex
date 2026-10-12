@@ -9,7 +9,10 @@ import 'package:pocket_codex/src/widgets/theme_toggle.dart';
 
 class _MemoryPrefs extends UiPrefsStore {
   @override
-  Future<UiPrefs> build() async => const UiPrefs(themeMode: 'light');
+  Future<UiPrefs> load() async => const UiPrefs(themeMode: 'light');
+
+  @override
+  Future<void> save(UiPrefs prefs) async {}
 }
 
 /// Shared by widget tests and the native Profile regression. No bridge, saved

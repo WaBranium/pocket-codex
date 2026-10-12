@@ -43,7 +43,7 @@ class HomeScreen extends ConsumerStatefulWidget {
   /// stopped on purpose.
   @visibleForTesting
   static void debugResetAutoHost() {
-    _HomeScreenState._autoHostAttempted = false;
+    _HomeScreenState._autoHostAttempted.clear();
     _HomeScreenState._autoHostAcpAttempted.clear();
   }
 }
@@ -77,8 +77,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   /// Auto-restoring the last hosting is attempted once per app run — a user
   /// who stops hosting afterwards must not have it resurrected behind their
-  /// back by a later visit to the home route.
-  static bool _autoHostAttempted = false;
+  /// back by a later visit to the home route. Tracked per Codex instance
+  /// name, so several saved hosts each get their one attempt.
+  static final Set<String> _autoHostAttempted = {};
 
   /// The same guard for ACP hosting records, by instance name.
   static final Set<String> _autoHostAcpAttempted = {};
@@ -264,6 +265,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       // one-off switch still wins for this resolve through [forceKey], without
       // silently overwriting the user's durable default choice.
       final prefs = await _prefs();
+      if (!mounted || gen != _generation) return;
       final localKeys = <String>{};
       try {
         for (final h in await api.appServeStatus()) {
@@ -372,6 +374,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     required bool background,
   }) async {
     final prefs = await _prefs();
+    if (!mounted || gen != _generation) return false;
     final pending = planHostRestore(
       prefs,
       const [],
@@ -398,7 +401,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (plan.isEmpty) return false;
     // Burn the once-per-run flags only for a real attempt, so a slow prefs
     // load on the first pass doesn't forfeit the restore.
-    if (plan.codex != null) _autoHostAttempted = true;
+    _autoHostAttempted.addAll(plan.codex.map((saved) => saved.name));
     _autoHostAcpAttempted.addAll(plan.acp.map((saved) => saved.name));
     if (!background) setState(() => _rehosting = true);
     try {
@@ -431,18 +434,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     return threads.reduce((a, b) => a.updatedAt >= b.updatedAt ? a : b);
   }
 
-  /// The prefs snapshot. Prefers what's already in memory; briefly waits for
-  /// the initial file load otherwise (bounded — resolving the home must never
-  /// hang on disk I/O), degrading to defaults.
+  /// The prefs snapshot. Briefly waits for the initial file load (bounded —
+  /// resolving the home must never hang on disk I/O); an interim snapshot
+  /// made by an operation issued during the load does not count as loaded.
+  /// Degrades to what is in memory, else defaults.
+  /// Callers re-check `mounted` and their generation before using it.
   Future<UiPrefs> _prefs() async {
-    final snap = ref.read(uiPrefsProvider).valueOrNull;
-    if (snap != null) return snap;
+    final ready = ref.read(uiPrefsProvider.notifier).ready;
     try {
-      return await ref
-          .read(uiPrefsProvider.future)
-          .timeout(const Duration(seconds: 2));
+      return await ready.timeout(const Duration(seconds: 2));
     } catch (_) {
-      return const UiPrefs();
+      // The route may have gone during the wait; its ref is then unusable.
+      if (!mounted) return const UiPrefs();
+      return ref.read(uiPrefsProvider).valueOrNull ?? const UiPrefs();
     }
   }
 
@@ -513,7 +517,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         return;
       }
       step(HostSwitchPhase.loading);
-      final pick = await _pickThread(key, await _prefs());
+      final prefs = await _prefs();
+      if (!mounted || gen != _generation) return;
+      final pick = await _pickThread(key, prefs);
       if (!mounted || gen != _generation) return;
       ref.read(uiPrefsProvider.notifier).setLastService(key);
       setState(() {
@@ -696,19 +702,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   Widget _hero(AppLocalizations l10n) {
     final scheme = Theme.of(context).colorScheme;
     final discoverFailed = _phase == _Phase.discoverFailed;
-    final config = ref.watch(configProvider).valueOrNull;
-    final account = config?.mode == 'account';
-    // Hosting from the hero mirrors the manage page's gate (desktop + account).
-    final canHost = _isDesktop && account;
+    // Hosting from the hero mirrors the manage page's gate: desktop only.
+    // Self-host and account mode publish the same way.
+    final canHost = _isDesktop;
     final hint = discoverFailed
         ? (_error ?? '')
         : canHost
         ? l10n.homeNoServiceDesktopHint
-        : _isDesktop
-        // Self-host desktop: in-app hosting is account-only, so point at
-        // the CLI (and the account path) instead of a button that isn't
-        // there / a "use your computer" hint that IS this computer.
-        ? l10n.homeNoServiceSelfHostHint
         : l10n.homeNoServiceMobileHint;
     return Scaffold(
       appBar: _homeAppBar(l10n),

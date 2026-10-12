@@ -18,6 +18,7 @@
 //! with "method not found" without touching any file.
 
 pub mod api;
+pub mod catalog;
 pub mod client;
 pub mod fold;
 pub mod host;

@@ -14,6 +14,7 @@
 
 use std::collections::HashMap;
 
+use serde::Deserialize as _;
 use serde_json::Value;
 
 use super::fold::{Change, Transcript, Turn};
@@ -85,7 +86,7 @@ impl Replica {
             .as_array()
             .into_iter()
             .flatten()
-            .filter_map(|turn| serde_json::from_value(turn.clone()).ok())
+            .filter_map(|turn| Turn::deserialize(turn).ok())
             .collect();
         if turns.is_empty() {
             return false;

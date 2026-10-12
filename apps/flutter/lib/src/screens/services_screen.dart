@@ -12,6 +12,7 @@ import 'package:pocket_codex/src/dismissed_services.dart';
 import 'package:pocket_codex/src/error_format.dart';
 import 'package:pocket_codex/src/providers.dart';
 import 'package:pocket_codex/src/service_key.dart';
+import 'package:pocket_codex/src/text_measure.dart';
 import 'package:pocket_codex/src/theme.dart';
 import 'package:pocket_codex/src/ui_prefs.dart';
 import 'package:pocket_codex/src/widgets/api_service_panel.dart';
@@ -21,6 +22,7 @@ import 'package:pocket_codex/src/widgets/group_card.dart';
 import 'package:pocket_codex/src/widgets/icon_badge.dart';
 import 'package:pocket_codex/src/widgets/loading.dart';
 import 'package:pocket_codex/src/widgets/local_host_dialog.dart';
+import 'package:pocket_codex/src/widgets/agent_icon.dart';
 import 'package:pocket_codex/src/widgets/provider_badge.dart';
 import 'package:pocket_codex/src/widgets/status_dots.dart';
 import 'package:pocket_codex/src/widgets/utility_page.dart';
@@ -99,20 +101,6 @@ class _ServicesScreenState extends ConsumerState<ServicesScreen>
     }
   }
 
-  /// Whether the title bar must carry "host this device".
-  ///
-  /// The 本地托管 card is the real home for hosting, but it only renders under
-  /// THIS machine's device (or when no device exists at all, which is the empty
-  /// state the detail pane shows anyway). So the button is needed in exactly one
-  /// case: peers are listed and we host nothing, leaving no local device tile to
-  /// select and no card to reach.
-  bool get _hostingNeedsTitleBar {
-    final hosts = ref.watch(localServeListProvider).valueOrNull;
-    if (hosts == null || hosts.isNotEmpty) return false;
-    final services = ref.watch(servicesProvider).valueOrNull;
-    return services != null && services.isNotEmpty;
-  }
-
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
@@ -141,26 +129,23 @@ class _ServicesScreenState extends ConsumerState<ServicesScreen>
             ref.invalidate(localServeListProvider);
           },
         ),
-        // Only when this machine has no device tile to click — i.e. it hosts
-        // nothing yet while remote peers exist. That is the one arrangement
-        // where the 本地托管 card is unreachable (it renders under this
-        // machine, or when no device exists at all), so the title bar has to
-        // carry the action. Once we host, selecting our own device reaches the
-        // same card, and keeping the button would offer one action twice.
-        if (_hostingSupported && account && _hostingNeedsTitleBar)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: FilledButton.icon(
+      ],
+      // Always on desktop, whatever is selected, loading or failed: hosting
+      // must never hide behind selecting this machine's device tile (with a
+      // remote peer selected, or discovery down, the local hosting card is
+      // not on screen). Hosting publishes the same way in self-host and
+      // account mode, so only the platform gates it.
+      primaryAction: _hostingSupported
+          ? UtilityPrimaryAction(
               key: const Key('host-this-device-btn'),
+              icon: Icons.add,
+              label: l10n.servicesHostThisDevice,
               onPressed: () => showDialog<void>(
                 context: context,
                 builder: (_) => const LocalHostDialog(),
               ),
-              icon: const Icon(Icons.add, size: 18),
-              label: Text(l10n.servicesHostThisDevice),
-            ),
-          ),
-      ],
+            )
+          : null,
       body: AnimatedSwitcher(
         duration: const Duration(milliseconds: 250),
         child: servicesAsync.when(
@@ -243,6 +228,9 @@ class _DeviceFirstServices extends ConsumerWidget {
   /// the conversation's own document-layout breakpoint so the whole app changes
   /// idiom at one width rather than each screen picking its own.
   static const double _splitWidth = 720;
+
+  /// The device column's width beside the detail.
+  static const double _columnWidth = 260;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -348,7 +336,12 @@ class _DeviceFirstServices extends ConsumerWidget {
       final byRank = rank(a).compareTo(rank(b));
       return byRank == 0 ? a.compareTo(b) : byRank;
     });
-    final split = MediaQuery.sizeOf(context).width >= _splitWidth;
+    // Side by side only while the fixed-width column still holds its
+    // identity row at the current text scale; large text gets the one-level
+    // layout instead, with the column at full width.
+    final split =
+        MediaQuery.sizeOf(context).width >= _splitWidth &&
+        _identityRowWidth(context, l10n.statusOnline) <= _columnWidth;
     // Wide always has a device in the detail pane — an empty pane beside a
     // populated column reads as broken. Narrow shows the list first and only
     // resolves a device once one is picked, so nothing is chosen on the user's
@@ -585,6 +578,10 @@ class _DeviceFirstServices extends ConsumerWidget {
               .where((h) => h.appServiceKey == service.key)
               .firstOrNull
               ?.providerName,
+          profileId: localHosts
+              .where((h) => h.appServiceKey == service.key)
+              .firstOrNull
+              ?.profileId,
           protocol: protocolOf(switch (service.kind) {
             'acp' => 'ACP',
             _ => 'App-server',
@@ -744,7 +741,6 @@ class _DeviceFirstServices extends ConsumerWidget {
       // listed were that peer's. The no-devices case still needs it, since that
       // is the only route to starting a first host.
       if (_hostingSupported &&
-          account &&
           (devices.isEmpty || localDevices.contains(activeDevice))) ...[
         const SizedBox(height: 12),
         // No status on the header: each host card carries its own, and the same
@@ -795,7 +791,7 @@ class _DeviceFirstServices extends ConsumerWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              SizedBox(width: 260, child: deviceColumn),
+              SizedBox(width: _columnWidth, child: deviceColumn),
               const SizedBox(width: 14),
               Expanded(child: ListView(children: detail)),
             ],
@@ -942,34 +938,59 @@ class _DeviceColumn extends StatelessWidget {
               key: const Key('identity-open-settings'),
               mouseCursor: clickable,
               onTap: () => context.push('/settings'),
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Row(
-                  children: [
-                    GitHubAvatar(
-                      accountId: accountId,
-                      fallbackIcon: accountLogin == null
-                          ? Icons.dns_outlined
-                          : Icons.person_outline,
-                      size: 36,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final identity = Text(
+                    accountLogin == null ? relay : '@$accountLogin',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  );
+                  final status = StatusChip(
+                    color: online,
+                    label: l10n.statusOnline,
+                    filled: true,
+                  );
+                  // The status sits beside the identity while both stay
+                  // readable there, otherwise under it.
+                  final beside =
+                      constraints.maxWidth >=
+                      _identityRowWidth(context, l10n.statusOnline);
+                  return Padding(
+                    padding: const EdgeInsets.all(_identityPadding),
+                    child: Row(
+                      children: [
+                        GitHubAvatar(
+                          accountId: accountId,
+                          fallbackIcon: accountLogin == null
+                              ? Icons.dns_outlined
+                              : Icons.person_outline,
+                          size: _avatarSize,
+                        ),
+                        const SizedBox(width: _avatarGap),
+                        if (beside) ...[
+                          Expanded(child: identity),
+                          status,
+                        ] else
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                identity,
+                                const SizedBox(height: 4),
+                                status,
+                              ],
+                            ),
+                          ),
+                        Icon(
+                          Icons.chevron_right,
+                          size: _chevronSize,
+                          color: scheme.outline,
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        accountLogin == null ? relay : '@$accountLogin',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                    StatusChip(
-                      color: online,
-                      label: l10n.statusOnline,
-                      filled: true,
-                    ),
-                    Icon(Icons.chevron_right, size: 18, color: scheme.outline),
-                  ],
-                ),
+                  );
+                },
               ),
             ),
           ),
@@ -1000,6 +1021,36 @@ class _DeviceColumn extends StatelessWidget {
       ),
     );
   }
+}
+
+// The identity row's fixed parts.
+const double _identityPadding = 12;
+const double _avatarSize = 36;
+const double _avatarGap = 10;
+const double _chevronSize = 18;
+
+/// The width the identity row needs to show the whole [status] chip beside
+/// at least three glyphs of the identity, at the current text scale. The chip's
+/// own geometry (10 px padding a side, an 8 px dot and a 6 px gap) is that of
+/// a filled [StatusChip].
+double _identityRowWidth(BuildContext context, String status) {
+  final scaler = MediaQuery.textScalerOf(context);
+  final label = measureTextLine(
+    context,
+    status,
+    const TextStyle(
+      fontSize: 11.5,
+      fontWeight: FontWeight.w600,
+      letterSpacing: 0.1,
+    ),
+  );
+  final chip = 10 + 8 + 6 + label.width + 10;
+  return 2 * _identityPadding +
+      _avatarSize +
+      _avatarGap +
+      scaler.scale(14) * 3 +
+      chip +
+      _chevronSize;
 }
 
 class _DeviceTile extends StatelessWidget {
@@ -1102,8 +1153,9 @@ class _DeviceDetailHeader extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        children: [
+      child: _rowOrStacked(
+        context,
+        leading: [
           Container(
             width: 42,
             height: 42,
@@ -1114,14 +1166,14 @@ class _DeviceDetailHeader extends StatelessWidget {
             child: Icon(Icons.dns_outlined, color: scheme.onSurface),
           ),
           const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              device ?? l10n.servicesDevices,
-              style: Theme.of(
-                context,
-              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
-            ),
-          ),
+        ],
+        body: Text(
+          device ?? l10n.servicesDevices,
+          style: Theme.of(
+            context,
+          ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+        ),
+        trailing: [
           if (local) _CountPill(label: l10n.servicesLocalDevice),
           if (local && isDefault) const SizedBox(width: 8),
           if (isDefault) _CountPill(label: l10n.servicesDefault, accent: true),
@@ -1140,6 +1192,52 @@ class _DeviceDetailHeader extends StatelessWidget {
   }
 }
 
+/// Whether text is scaled past 1.5×, where a row's trailing pills, status
+/// and actions no longer fit beside its text.
+bool _largeText(BuildContext context) =>
+    MediaQuery.textScalerOf(context).scale(14) > 14 * 1.5;
+
+/// [leading], the expanded [body] and [trailing] on one row; with large text
+/// [trailing] goes under them instead, end-aligned and wrapping, so the body
+/// keeps its width and nothing overflows.
+Widget _rowOrStacked(
+  BuildContext context, {
+  required List<Widget> leading,
+  required Widget body,
+  required List<Widget> trailing,
+}) {
+  if (!_largeText(context)) {
+    return Row(
+      children: [
+        ...leading,
+        Expanded(child: body),
+        ...trailing,
+      ],
+    );
+  }
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Row(
+        children: [
+          ...leading,
+          Expanded(child: body),
+        ],
+      ),
+      if (trailing.isNotEmpty) ...[
+        const SizedBox(height: 4),
+        Wrap(
+          alignment: WrapAlignment.end,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          runSpacing: 4,
+          children: trailing,
+        ),
+      ],
+    ],
+  );
+}
+
 class _CapabilityRow extends StatelessWidget {
   const _CapabilityRow({
     super.key,
@@ -1150,6 +1248,7 @@ class _CapabilityRow extends StatelessWidget {
     required this.onAction,
     this.provider,
     this.providerName,
+    this.profileId,
     this.status,
     this.reason,
     this.localAddr,
@@ -1172,6 +1271,9 @@ class _CapabilityRow extends StatelessWidget {
 
   /// Agent name for ACP badges, when this device hosts the service.
   final String? providerName;
+
+  /// ACP profile id of a local host, for its mark.
+  final String? profileId;
   final Widget? status;
 
   /// Why this capability is unavailable, when it is. A bare "unreachable" leaves
@@ -1206,71 +1308,76 @@ class _CapabilityRow extends StatelessWidget {
       decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: scheme.outlineVariant)),
       ),
-      child: Row(
-        children: [
+      child: _rowOrStacked(
+        context,
+        leading: [
           IconBadge(icon: icon, size: 36, accent: true),
           const SizedBox(width: 11),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
+        ],
+        body: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Row(
               children: [
-                Row(
-                  children: [
-                    Flexible(
-                      child: Text(
-                        title,
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    if (provider != null) ...[
-                      const SizedBox(width: 6),
-                      ProviderBadge(provider: provider!, name: providerName),
-                    ],
-                  ],
-                ),
-                // One rich line rather than a Row, so a long address ellipsises
-                // with the protocol instead of overflowing the row.
-                Text.rich(
-                  TextSpan(
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
-                    children: [
-                      TextSpan(text: protocol),
-                      if (localAddr != null) ...[
-                        TextSpan(
-                          text: '  ·  ',
-                          style: TextStyle(color: onSurfaceMuted(scheme)),
-                        ),
-                        TextSpan(
-                          text: localAddr,
-                          style: const TextStyle(
-                            fontFamily: monoFontFamily,
-                            fontFamilyFallback: monoCjkFallback,
-                          ),
-                        ),
-                      ],
-                    ],
+                Flexible(
+                  child: Text(
+                    title,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                 ),
-                if (reason != null) ...[
-                  const SizedBox(height: 3),
-                  Text(
-                    reason!,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: scheme.error,
-                      height: 1.35,
-                    ),
+                if (provider != null) ...[
+                  const SizedBox(width: 6),
+                  ProviderBadge(
+                    provider: provider!,
+                    name: providerName,
+                    profileId: profileId,
                   ),
                 ],
               ],
             ),
-          ),
+            // One rich line rather than a Row, so a long address ellipsises
+            // with the protocol instead of overflowing the row.
+            Text.rich(
+              TextSpan(
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+                children: [
+                  TextSpan(text: protocol),
+                  if (localAddr != null) ...[
+                    TextSpan(
+                      text: '  ·  ',
+                      style: TextStyle(color: onSurfaceMuted(scheme)),
+                    ),
+                    TextSpan(
+                      text: localAddr,
+                      style: const TextStyle(
+                        fontFamily: monoFontFamily,
+                        fontFamilyFallback: monoCjkFallback,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            if (reason != null) ...[
+              const SizedBox(height: 3),
+              Text(
+                reason!,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: scheme.error,
+                  height: 1.35,
+                ),
+              ),
+            ],
+          ],
+        ),
+        trailing: [
           // Two trailing columns — status, then one action — so the rows line up
           // instead of each ending at a different place. Everything occasional
           // (set default, deregister, re-register) lives in the overflow.
@@ -1658,49 +1765,62 @@ class _LocalHostCard extends ConsumerWidget {
               children: [
                 Padding(
                   padding: const EdgeInsets.all(12),
-                  child: Row(
-                    children: [
-                      IconBadge(
-                        icon: Icons.dns,
-                        size: 40,
-                        background: scheme.tertiaryContainer,
-                        foreground: scheme.onTertiaryContainer,
+                  child: _rowOrStacked(
+                    context,
+                    leading: [
+                      // The agent's own mark, from the host's explicit
+                      // provider + profile (never from its instance name).
+                      Container(
+                        width: 40,
+                        height: 40,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: scheme.surfaceContainerHigh,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: AgentIcon.of(
+                          key: Key('local-host-icon-${host.name}'),
+                          provider: host.provider,
+                          profileId: host.profileId,
+                          name: host.providerName,
+                          size: 20,
+                        ),
                       ),
                       const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                    ],
+                    body: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
                           children: [
-                            Row(
-                              children: [
-                                Flexible(
-                                  child: Text(
-                                    host.name,
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.titleSmall,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                ProviderBadge(
-                                  provider: host.provider,
-                                  name: host.providerName,
-                                ),
-                              ],
+                            Flexible(
+                              child: Text(
+                                host.name,
+                                style: Theme.of(context).textTheme.titleSmall,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
-                            const SizedBox(height: 2),
-                            Text(
-                              host.device,
-                              style: Theme.of(context).textTheme.bodySmall
-                                  ?.copyWith(color: scheme.onSurfaceVariant),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                            const SizedBox(width: 6),
+                            ProviderBadge(
+                              provider: host.provider,
+                              name: host.providerName,
+                              profileId: host.profileId,
+                              showIcon: false,
                             ),
                           ],
                         ),
-                      ),
+                        const SizedBox(height: 2),
+                        Text(
+                          host.device,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: scheme.onSurfaceVariant),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                    trailing: [
                       const SizedBox(width: 8),
                       codexChip,
                       const SizedBox(width: 2),

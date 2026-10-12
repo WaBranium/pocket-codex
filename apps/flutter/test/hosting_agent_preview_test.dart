@@ -1,0 +1,924 @@
+// The hosting and agent-control scenes on a 320 and a 390 phone, an 800
+// tablet and a 1440 desktop, light and dark, English and Chinese, with the
+// app's real themes: the new-host dialog (Codex beside a running host; the
+// chooser scrolled to the saved and custom agents and their forms; the
+// OpenCode preset unfolded down to its program, arguments and Start), the
+// manage page with Codex and an ACP agent hosted, the ACP composer chips
+// (each brought on screen), and the model list searched with a phone
+// keyboard up. Each captured control is checked on screen and operable.
+//
+// Set PCX_UI_PREVIEW_DIR to also write each scene as a PNG for review
+// (fonts as in acp_layout_test; nothing is downloaded).
+
+import 'dart:math' as math;
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:pocket_codex/l10n/gen/app_localizations.dart';
+import 'package:pocket_codex/src/bridge_api.dart';
+import 'package:pocket_codex/src/providers.dart';
+import 'package:pocket_codex/src/screens/app_session_screen.dart';
+import 'package:pocket_codex/src/screens/services_screen.dart';
+import 'package:pocket_codex/src/theme.dart';
+import 'package:pocket_codex/src/ui_prefs.dart';
+import 'package:pocket_codex/src/widgets/local_host_dialog.dart';
+
+import 'fake_bridge_api.dart';
+import 'support/agent_catalog_fixture.dart';
+import 'support/ui_preview.dart';
+
+const _acp = 'pcx:dev:acp:agent';
+
+const _devices = [
+  ('phone320', Size(320, 640)),
+  ('phone390', Size(390, 844)),
+  ('tablet800', Size(800, 1100)),
+  ('desktop1440', Size(1440, 900)),
+];
+
+const _caps = AppCapabilities(
+  provider: 'acp',
+  fast: false,
+  permissionPresets: false,
+  guardian: false,
+  rateLimits: false,
+  takeover: false,
+  externalWriterMonitor: false,
+  localSessions: false,
+  planMode: false,
+  protocol: 'acp',
+  providerName: 'OpenCode',
+  profileId: 'opencode',
+  negotiated: true,
+  generation: 1,
+  sessionConfig: true,
+  permissionOptions: true,
+  sessionReopen: 'load',
+  sessionList: 'agent',
+  runningInventory: 'engine',
+);
+
+const _savedAgent = AcpAgentSpec(
+  profileId: 'custom-audit',
+  displayName: 'Internal Enterprise Security & Code Audit Agent',
+  program: '/opt/agents/audit-runner',
+  args: ['--audit'],
+);
+
+class _PreviewPrefs extends UiPrefsStore {
+  _PreviewPrefs(this._prefs);
+  final UiPrefs _prefs;
+  @override
+  Future<UiPrefs> load() async => _prefs;
+  @override
+  Future<void> save(UiPrefs prefs) async {}
+}
+
+Widget _app(
+  Widget home,
+  BridgeApi api,
+  Locale locale,
+  Brightness brightness, {
+  UiPrefs? prefs,
+}) => ProviderScope(
+  overrides: [
+    bridgeApiProvider.overrideWithValue(api),
+    if (prefs != null) uiPrefsProvider.overrideWith(() => _PreviewPrefs(prefs)),
+  ],
+  child: MaterialApp(
+    locale: locale,
+    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    supportedLocales: AppLocalizations.supportedLocales,
+    theme: brightness == Brightness.light ? lightTheme() : darkTheme(),
+    builder: (context, child) => RepaintBoundary(key: previewKey, child: child),
+    home: home,
+  ),
+);
+
+void _size(WidgetTester t, Size size) {
+  t.view.physicalSize = size;
+  t.view.devicePixelRatio = 1;
+  addTearDown(t.view.reset);
+  addTearDown(t.view.resetViewInsets);
+}
+
+/// Bounded frames: session screens animate while connected.
+Future<void> _frames(WidgetTester t) async {
+  for (var i = 0; i < 8; i++) {
+    await t.pump(const Duration(milliseconds: 50));
+  }
+}
+
+/// Nothing laid out past the left or right edge of the screen.
+void _withinWidth(WidgetTester t, Finder finder, Size size) {
+  expect(finder, findsWidgets);
+  for (final element in finder.evaluate()) {
+    final box = element.renderObject;
+    if (box is! RenderBox || !box.hasSize) continue;
+    final rect = box.localToGlobal(Offset.zero) & box.size;
+    expect(rect.left, greaterThanOrEqualTo(-0.5), reason: '$finder starts');
+    expect(rect.right, lessThanOrEqualTo(size.width + 0.5), reason: '$finder');
+  }
+}
+
+/// [finder] is entirely within `top..bottom` and receives a tap at its
+/// centre.
+void _operable(WidgetTester t, Finder finder, {double? bottom}) {
+  final rect = t.getRect(finder);
+  final limit = bottom ?? t.view.physicalSize.height;
+  expect(rect.top, greaterThanOrEqualTo(-0.5), reason: '$finder top');
+  expect(rect.bottom, lessThanOrEqualTo(limit + 0.5), reason: '$finder');
+  expect(finder.hitTestable(), findsOneWidget, reason: '$finder is hit');
+}
+
+/// Whether [finder] lies entirely on the [size] screen (and inside the
+/// clipping viewport [within], if given) and receives a tap at its centre.
+bool _shown(WidgetTester t, Finder finder, Size size, {Rect? within}) {
+  return _inside(t.getRect(finder), size, within) &&
+      finder.hitTestable().evaluate().isNotEmpty;
+}
+
+bool _inside(Rect rect, Size size, Rect? within) {
+  var area = Offset.zero & size;
+  if (within != null) area = area.intersect(within);
+  return rect.left >= area.left - 0.5 &&
+      rect.top >= area.top - 0.5 &&
+      rect.right <= area.right + 0.5 &&
+      rect.bottom <= area.bottom + 0.5;
+}
+
+/// Where [finder] is painted on screen, including a transform such as a
+/// floating label's scale.
+Rect _painted(WidgetTester t, Finder finder) {
+  final box = t.renderObject<RenderBox>(finder);
+  return MatrixUtils.transformRect(
+    box.getTransformTo(null),
+    Offset.zero & box.size,
+  );
+}
+
+/// The viewport of the scroll view that holds [finder], which clips it.
+Rect _viewportOf(WidgetTester t, Finder finder) {
+  final box =
+      Scrollable.of(t.element(finder)).context.findRenderObject()! as RenderBox;
+  return box.localToGlobal(Offset.zero) & box.size;
+}
+
+/// Scroll [field] into view together with its floating [label], which is
+/// painted above the field's top edge: revealing the field alone, flush
+/// with the viewport's top, would cut the label off.
+Future<void> _revealField(WidgetTester t, Finder field, Finder label) async {
+  await _reveal(t, field);
+  final viewport = _viewportOf(t, field);
+  final top = math.min(_painted(t, label).top, t.getRect(field).top);
+  if (top < viewport.top) {
+    final position = Scrollable.of(t.element(field)).position;
+    position.jumpTo(
+      math.max(
+        position.minScrollExtent,
+        position.pixels - (viewport.top - top),
+      ),
+    );
+    await t.pumpAndSettle();
+  }
+}
+
+/// [field] and its whole [label] are painted inside their scroll viewport.
+void _fieldShown(WidgetTester t, Finder field, Finder label, Size size) {
+  final viewport = _viewportOf(t, field);
+  for (final (what, rect) in [
+    ('$field', t.getRect(field)),
+    ('$label', _painted(t, label)),
+  ]) {
+    expect(
+      _inside(rect, size, viewport),
+      isTrue,
+      reason: '$what $rect inside the viewport $viewport',
+    );
+  }
+}
+
+/// [finder]'s text is on one line and not cut short.
+void _oneLine(WidgetTester t, Finder finder) {
+  final paragraph = t.renderObject<RenderParagraph>(finder);
+  expect(paragraph.didExceedMaxLines, isFalse, reason: '$finder is cut');
+  final single = TextPainter(
+    text: paragraph.text,
+    textDirection: paragraph.textDirection,
+    textScaler: paragraph.textScaler,
+    maxLines: 1,
+  )..layout();
+  expect(
+    paragraph.size.height,
+    lessThanOrEqualTo(single.height + 0.5),
+    reason: '$finder wraps',
+  );
+  expect(
+    paragraph.size.width,
+    greaterThanOrEqualTo(single.width - 0.5),
+    reason: '$finder is narrower than its text',
+  );
+  single.dispose();
+}
+
+/// [finder] fits the screen width and is operable.
+void _usable(WidgetTester t, Finder finder, Size size) {
+  _withinWidth(t, finder, size);
+  _operable(t, finder);
+}
+
+/// Scroll to [finder] and let the scroll settle.
+Future<void> _reveal(WidgetTester t, Finder finder) async {
+  await t.ensureVisible(finder);
+  await t.pumpAndSettle();
+}
+
+/// The program and argument fields of the open ACP form, with [program] and
+/// [firstArg], beside the Start action: one frame [name] when they fit
+/// together, otherwise [name] for the program and `$name-args` for the
+/// arguments.
+Future<void> _captureProgram(
+  WidgetTester t,
+  Size size,
+  String name, {
+  required String program,
+  required String firstArg,
+  required AppLocalizations l10n,
+  bool short = false,
+}) async {
+  final field = find.byKey(const Key('acp-program-field'));
+  final browse = find.byKey(const Key('acp-program-browse'));
+  final arg = find.byKey(const Key('acp-arg-field-0'));
+  final start = find.byKey(const Key('start-hosting-btn'));
+  expect(t.widget<TextField>(field).controller!.text, program);
+  expect(t.widget<TextField>(arg).controller!.text, firstArg);
+  final programLabel = find.descendant(
+    of: field,
+    matching: find.text(l10n.acpProgram),
+  );
+  final argLabel = find.descendant(
+    of: arg,
+    matching: find.text(l10n.acpArgumentLabel(1)),
+  );
+  await _revealField(t, arg, argLabel);
+  await _revealField(t, field, programLabel);
+  expect(t.takeException(), isNull, reason: 'no overflow');
+  // Field labels are whole; a short program is entirely visible (a long
+  // path scrolls inside its field as usual).
+  _oneLine(t, programLabel);
+  _oneLine(t, argLabel);
+  _fieldShown(t, field, programLabel, size);
+  expect(
+    _inside(t.getRect(browse), size, _viewportOf(t, browse)),
+    isTrue,
+    reason: 'Browse inside the form viewport',
+  );
+  _oneLine(
+    t,
+    find.descendant(of: browse, matching: find.text(l10n.acpProgramBrowse)),
+  );
+  if (short) {
+    final editable = t.widget<EditableText>(
+      find.descendant(of: field, matching: find.byType(EditableText)),
+    );
+    final value = TextPainter(
+      text: TextSpan(text: program, style: editable.style),
+      textDirection: TextDirection.ltr,
+      textScaler: MediaQuery.textScalerOf(t.element(field)),
+      maxLines: 1,
+    )..layout();
+    expect(
+      t
+          .getSize(
+            find.descendant(of: field, matching: find.byType(EditableText)),
+          )
+          .width,
+      greaterThanOrEqualTo(value.width),
+      reason: '"$program" fits its field',
+    );
+    value.dispose();
+  }
+  for (final control in [field, browse, start]) {
+    _usable(t, control, size);
+  }
+  final viewport = _viewportOf(t, arg);
+  if (_shown(t, arg, size, within: viewport) &&
+      _inside(_painted(t, argLabel), size, viewport)) {
+    _usable(t, arg, size);
+    await capturePreview(t, name);
+    return;
+  }
+  await capturePreview(t, name);
+  await _revealField(t, arg, argLabel);
+  _fieldShown(t, arg, argLabel, size);
+  _usable(t, arg, size);
+  _usable(t, start, size);
+  await capturePreview(t, '$name-args');
+}
+
+/// The chip of [option] fits, is operable and announces `title: full`, with
+/// the same text first in its tooltip.
+void _chipShown(
+  WidgetTester t,
+  String option,
+  String title,
+  String full,
+  Size size,
+) {
+  final chip = find.byKey(Key('agent-config-$option'));
+  _usable(t, chip, size);
+  // Entirely inside the options' own scroll viewport, which clips it.
+  final viewport = t.getRect(find.byKey(const Key('agent-session-options')));
+  final rect = t.getRect(chip);
+  expect(
+    rect.left >= viewport.left - 0.5 && rect.right <= viewport.right + 0.5,
+    isTrue,
+    reason: '$option chip $rect inside the options viewport $viewport',
+  );
+  expect(find.bySemanticsLabel('$title: $full'), findsOneWidget);
+  final tooltip = t.widget<Tooltip>(
+    find.descendant(of: chip, matching: find.byType(Tooltip)),
+  );
+  expect(tooltip.message, startsWith('$title: $full'));
+}
+
+/// The title bar's "Host this device" action is usable in one of its two
+/// valid forms and returns which: the labelled button, whose label's natural
+/// line (not just its constrained box) fits inside the button, or the icon
+/// button named by its tooltip. Either way it is an enabled button that can
+/// be tapped and focused, announced with the full [text].
+bool _primaryActionShown(WidgetTester t, Size size, String text) {
+  final action = find.byKey(const Key('host-this-device-btn'));
+  _usable(t, action, size);
+  final handle = t.ensureSemantics();
+  try {
+    final label = find.descendant(of: action, matching: find.text(text));
+    final labelled = label.evaluate().isNotEmpty;
+    expect(
+      t.getSemantics(action),
+      isSemantics(
+        label: labelled ? text : null,
+        tooltip: labelled ? null : text,
+        isButton: true,
+        hasEnabledState: true,
+        isEnabled: true,
+        isFocusable: true,
+        hasTapAction: true,
+        hasFocusAction: true,
+      ),
+    );
+    if (!labelled) {
+      expect(find.byTooltip(text), findsOneWidget);
+      return false;
+    }
+    // A paragraph squeezed into a shorter box still reports a whole line
+    // (didExceedMaxLines is false) while its glyphs are cut at the box's
+    // edge, so compare the line's natural height with what it was given.
+    final paragraph = t.renderObject<RenderParagraph>(label);
+    final natural = TextPainter(
+      text: paragraph.text,
+      textDirection: paragraph.textDirection,
+      textScaler: paragraph.textScaler,
+      maxLines: 1,
+    )..layout();
+    expect(
+      natural.height,
+      lessThanOrEqualTo(paragraph.size.height + 0.5),
+      reason: '"$text" needs ${natural.height}, has ${paragraph.size.height}',
+    );
+    expect(
+      natural.width,
+      lessThanOrEqualTo(paragraph.size.width + 0.5),
+      reason: '"$text" is whole across',
+    );
+    natural.dispose();
+    final button = t.getRect(action);
+    final box = t.getRect(label);
+    expect(
+      box.top >= button.top - 0.5 && box.bottom <= button.bottom + 0.5,
+      isTrue,
+      reason: 'label $box inside the button $button',
+    );
+    return true;
+  } finally {
+    handle.dispose();
+  }
+}
+
+Future<FakeBridgeApi> _hostedApi() async {
+  final api = FakeBridgeApi(
+    config: const ConfigInfo(relay: 'relay.example:7666', hasKey: true),
+  );
+  api.presets = const [
+    AcpPreset(
+      id: 'opencode',
+      displayName: 'OpenCode',
+      program: 'opencode',
+      args: ['acp'],
+    ),
+    AcpPreset(
+      id: 'claude',
+      displayName: 'Claude',
+      program: 'claude-agent-acp',
+      args: [],
+    ),
+  ];
+  await api.appServeStart(port: 18080, name: 'default', embedded: false);
+  await api.appServeStartAcp(
+    name: 'opencode',
+    spec: const AcpAgentSpec(
+      profileId: 'opencode',
+      displayName: 'OpenCode',
+      program: 'opencode',
+      args: ['acp'],
+    ),
+  );
+  return api;
+}
+
+Future<void> _openDialog(
+  WidgetTester t,
+  FakeBridgeApi api,
+  Locale locale,
+  Brightness brightness,
+) async {
+  await t.pumpWidget(
+    _app(
+      Builder(
+        builder: (context) => Scaffold(
+          body: TextButton(
+            onPressed: () => showDialog<void>(
+              context: context,
+              builder: (_) => const LocalHostDialog(),
+            ),
+            child: const Text('open'),
+          ),
+        ),
+      ),
+      api,
+      locale,
+      brightness,
+      prefs: const UiPrefs(acpAgents: [_savedAgent]),
+    ),
+  );
+  await t.tap(find.text('open'));
+  await t.pumpAndSettle();
+}
+
+Future<void> _openSession(
+  WidgetTester t,
+  FakeBridgeApi api,
+  Locale locale,
+  Brightness brightness, {
+  SessionSettings? settings,
+}) async {
+  api
+    ..acpCapabilities[_acp] = _caps
+    ..sessionSettings['$_acp|ses-1'] = settings ?? previewAgentSettings();
+  await api.appConnect(_acp, 28080);
+  await t.pumpWidget(
+    _app(
+      const AppSessionScreen(serviceKey: _acp, threadId: 'ses-1'),
+      api,
+      locale,
+      brightness,
+    ),
+  );
+  await _frames(t);
+}
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  setUpAll(loadPreviewFonts);
+  setUp(AppSessionScreen.debugResetThreadMemory);
+
+  test('the preview catalog offers every current value exactly once', () {
+    final settings = previewAgentSettings();
+    final model = settings.configOptions.first;
+    expect(model.currentValue, previewCurrentModel);
+    expect(
+      model.values.where((v) => v.value == previewCurrentModel),
+      hasLength(1),
+    );
+  });
+
+  for (final (device, size) in _devices) {
+    for (final brightness in Brightness.values) {
+      for (final language in ['en', 'zh']) {
+        final locale = Locale(language);
+        final variant = '$device-${brightness.name}-$language';
+
+        testWidgets('new-host dialog beside a running host ($variant)', (
+          t,
+        ) async {
+          _size(t, size);
+          final api = await _hostedApi();
+          await _openDialog(t, api, locale, brightness);
+          expect(t.takeException(), isNull, reason: 'no overflow');
+          _withinWidth(t, find.byKey(const Key('agent-choice-grid')), size);
+          expect(
+            find.byKey(const Key('agent-choice-preset:claude')),
+            findsOneWidget,
+          );
+          expect(find.byKey(const Key('agent-icon-claude')), findsOneWidget);
+          expect(
+            find.byKey(const Key('agent-choice-saved:custom-audit')),
+            findsOneWidget,
+          );
+          final name = t.widget<TextField>(
+            find.byKey(const Key('codex-name-field')),
+          );
+          expect(name.controller!.text, 'default-2');
+          // The external Codex choice reads as one line; the built-in one is
+          // shown and disabled.
+          final l10n = lookupAppLocalizations(locale);
+          _oneLine(t, find.text(l10n.codexSourceExternal));
+          _oneLine(t, find.text(l10n.codexSourceBuiltin));
+          final source = t.widget<SegmentedButton<bool>>(
+            find.byKey(const Key('codex-source')),
+          );
+          expect(source.selected, {false});
+          expect(
+            source.segments.singleWhere((s) => s.value).enabled,
+            isFalse,
+            reason: 'the built-in engine is not implemented',
+          );
+          await capturePreview(t, 'hosting-dialog-$variant');
+          final start = find.byKey(const Key('start-hosting-btn'));
+          await t.ensureVisible(start);
+          await t.pumpAndSettle();
+          _withinWidth(t, start, size);
+          _operable(t, start);
+        });
+
+        testWidgets('chooser scrolled to the saved and custom agents, and '
+            'their forms ($variant)', (t) async {
+          _size(t, size);
+          final api = await _hostedApi();
+          await _openDialog(t, api, locale, brightness);
+          // The full production chooser.
+          for (final choice in [
+            'codex',
+            'preset:opencode',
+            'preset:claude',
+            'saved:custom-audit',
+            'custom',
+          ]) {
+            expect(find.byKey(Key('agent-choice-$choice')), findsOneWidget);
+          }
+          final saved = find.byKey(
+            const Key('agent-choice-saved:custom-audit'),
+          );
+          final custom = find.byKey(const Key('agent-choice-custom'));
+          await _reveal(t, custom);
+          await _reveal(t, saved);
+          expect(t.takeException(), isNull, reason: 'no overflow');
+          _usable(t, saved, size);
+          expect(
+            find.bySemanticsLabel(
+              RegExp('^${RegExp.escape(_savedAgent.displayName)}, '),
+            ),
+            findsOneWidget,
+          );
+          await capturePreview(t, 'hosting-chooser-saved-$variant');
+
+          // The saved agent's form: its long name, editable.
+          await t.tap(saved);
+          await t.pumpAndSettle();
+          final display = find.byKey(const Key('acp-display-name-field'));
+          await _reveal(t, display);
+          expect(t.takeException(), isNull, reason: 'no overflow');
+          expect(
+            t.widget<TextField>(display).controller!.text,
+            _savedAgent.displayName,
+          );
+          _usable(t, display, size);
+          _usable(t, find.byKey(const Key('acp-instance-name-field')), size);
+          _usable(t, find.byKey(const Key('start-hosting-btn')), size);
+          await capturePreview(t, 'hosting-saved-form-$variant');
+
+          final advanced = find.descendant(
+            of: find.byKey(const Key('acp-advanced-toggle')),
+            matching: find.byType(TextButton),
+          );
+          await _reveal(t, advanced);
+          await t.tap(advanced);
+          await t.pumpAndSettle();
+          await _captureProgram(
+            t,
+            size,
+            'hosting-saved-program-$variant',
+            program: _savedAgent.program,
+            firstArg: _savedAgent.args.first,
+            l10n: lookupAppLocalizations(locale),
+          );
+
+          // A new custom agent: empty fields, the save choice and Start.
+          await _reveal(t, custom);
+          await t.tap(custom);
+          await t.pumpAndSettle();
+          final save = find.byKey(const Key('acp-save-agent'));
+          await _reveal(t, save);
+          expect(t.takeException(), isNull, reason: 'no overflow');
+          _usable(t, save, size);
+          _usable(t, find.byKey(const Key('start-hosting-btn')), size);
+          expect(
+            t
+                .widget<TextField>(find.byKey(const Key('acp-program-field')))
+                .controller!
+                .text,
+            isEmpty,
+          );
+          await capturePreview(t, 'hosting-custom-save-$variant');
+        });
+
+        testWidgets('OpenCode preset unfolded ($variant)', (t) async {
+          _size(t, size);
+          final api = await _hostedApi();
+          await _openDialog(t, api, locale, brightness);
+          final tile = find.byKey(const Key('agent-choice-preset:opencode'));
+          await t.ensureVisible(tile);
+          await t.tap(tile);
+          await t.pump(const Duration(milliseconds: 400));
+          await t.pumpAndSettle();
+          final advanced = find.descendant(
+            of: find.byKey(const Key('acp-advanced-toggle')),
+            matching: find.byType(TextButton),
+          );
+          await t.ensureVisible(advanced);
+          await t.pumpAndSettle();
+          await t.tap(advanced);
+          await t.pumpAndSettle();
+          expect(find.byKey(const Key('acp-arg-field-0')), findsOneWidget);
+          expect(t.takeException(), isNull, reason: 'no overflow');
+          _withinWidth(t, find.byKey(const Key('acp-host-form')), size);
+          await capturePreview(t, 'hosting-opencode-$variant');
+          await _captureProgram(
+            t,
+            size,
+            'hosting-opencode-program-$variant',
+            program: 'opencode',
+            firstArg: 'acp',
+            l10n: lookupAppLocalizations(locale),
+            short: true,
+          );
+        });
+
+        testWidgets('manage page with Codex and an ACP agent ($variant)', (
+          t,
+        ) async {
+          _size(t, size);
+          // Hosting is desktop-only; Linux keeps the bundled prose face.
+          debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+          try {
+            final api = await _hostedApi();
+            await t.pumpWidget(
+              _app(const ServicesScreen(), api, locale, brightness),
+            );
+            await t.pumpAndSettle();
+            expect(t.takeException(), isNull, reason: 'no overflow');
+            // Labelled where it fits, else named by its tooltip; the way
+            // back to the chat stays on the bar either way.
+            final labelled = _primaryActionShown(
+              t,
+              size,
+              lookupAppLocalizations(locale).servicesHostThisDevice,
+            );
+            if (size.width >= 1440) {
+              expect(labelled, isTrue, reason: 'a desktop bar has room');
+            }
+            _operable(t, find.byKey(const Key('utility-chat-origin')));
+            await capturePreview(t, 'hosting-manage-$variant');
+            await t.pumpWidget(const SizedBox());
+          } finally {
+            debugDefaultTargetPlatformOverride = null;
+          }
+        });
+
+        testWidgets('agent chips ($variant)', (t) async {
+          _size(t, size);
+          final api = FakeBridgeApi();
+          await _openSession(t, api, locale, brightness);
+          expect(t.takeException(), isNull, reason: 'no overflow');
+          await capturePreview(t, 'agent-chips-$variant');
+          Future<void> reveal(String option) async {
+            await t.ensureVisible(find.byKey(Key('agent-config-$option')));
+            await _frames(t);
+          }
+
+          // The model chip on screen, with its full value announced.
+          await reveal('model');
+          _chipShown(t, 'model', 'Model', 'Sample Router/lab/coder-9', size);
+          await capturePreview(t, 'agent-chips-model-$variant');
+
+          // Effort and mode: one frame where both fit, else one each.
+          await reveal('effort');
+          _chipShown(t, 'effort', 'Effort', 'High', size);
+          final mode = find.byKey(const Key('agent-config-mode'));
+          // Inside the options' clipping viewport, not just on screen.
+          final options = t.getRect(
+            find.byKey(const Key('agent-session-options')),
+          );
+          if (_shown(t, mode, size, within: options)) {
+            _chipShown(t, 'mode', 'Session Mode', 'build', size);
+            await capturePreview(t, 'agent-chips-effort-mode-$variant');
+          } else {
+            await capturePreview(t, 'agent-chips-effort-$variant');
+            await reveal('mode');
+            _chipShown(t, 'mode', 'Session Mode', 'build', size);
+            await capturePreview(t, 'agent-chips-mode-$variant');
+          }
+          expect(t.takeException(), isNull, reason: 'no overflow');
+        });
+
+        testWidgets('agent chips with the longest model name ($variant)', (
+          t,
+        ) async {
+          _size(t, size);
+          const long =
+              'router/lab/a-model-with-an-unusually-long-name-for-layout-checks';
+          final base = previewAgentSettings();
+          final settings = SessionSettings(
+            configOptions: [
+              for (final o in base.configOptions)
+                o.id == 'model'
+                    ? SessionConfigOption(
+                        id: o.id,
+                        name: o.name,
+                        category: o.category,
+                        description: o.description,
+                        currentValue: long,
+                        values: o.values,
+                      )
+                    : o,
+            ],
+          );
+          final full = settings.configOptions.first.values
+              .singleWhere((v) => v.value == long)
+              .name;
+          final api = FakeBridgeApi();
+          await _openSession(t, api, locale, brightness, settings: settings);
+          await t.ensureVisible(find.byKey(const Key('agent-config-model')));
+          await _frames(t);
+          expect(t.takeException(), isNull, reason: 'no overflow');
+          _chipShown(t, 'model', 'Model', full, size);
+          // The visible text is the label or its end after "…".
+          final shown = t
+              .widget<Text>(
+                find.descendant(
+                  of: find.byKey(const Key('agent-config-model')),
+                  matching: find.byType(Text),
+                ),
+              )
+              .data!;
+          expect(
+            shown == full ||
+                (shown.startsWith('…') && full.endsWith(shown.substring(1))),
+            isTrue,
+            reason: '"$shown" is "$full" or its end',
+          );
+          await capturePreview(t, 'agent-chips-long-model-$variant');
+        });
+
+        testWidgets('model search with the keyboard up ($variant)', (t) async {
+          _size(t, size);
+          final api = FakeBridgeApi();
+          await _openSession(t, api, locale, brightness);
+          final chip = find.byKey(const Key('agent-config-model'));
+          await t.ensureVisible(chip);
+          await _frames(t);
+          await t.tap(chip);
+          await _frames(t);
+          final search = find.byKey(const Key('agent-option-search'));
+          expect(search, findsOneWidget);
+          await t.enterText(search, 'lab/');
+          final sheet = size.width < 720;
+          final keyboard = sheet ? size.height * 0.4 : 0.0;
+          if (sheet) t.view.viewInsets = FakeViewPadding(bottom: keyboard);
+          await _frames(t);
+          expect(t.takeException(), isNull, reason: 'no overflow');
+          final top = size.height - keyboard;
+          expect(t.getRect(search).bottom, lessThanOrEqualTo(top + 0.5));
+          final row = find.byKey(
+            const Key('agent-option-value-router/lab/coder-9'),
+          );
+          await t.ensureVisible(row);
+          await _frames(t);
+          _withinWidth(t, row, size);
+          _operable(t, row, bottom: top);
+          await capturePreview(t, 'agent-search-$variant');
+          await t.tap(row);
+          await _frames(t);
+          expect(find.byKey(const Key('agent-option-list')), findsNothing);
+          // Already selected: nothing is sent.
+          expect(api.sessionConfigCalls, isEmpty);
+        });
+      }
+    }
+  }
+
+  // The manage page under 3× text on a tablet: too large for the device
+  // column beside the detail, so it shows one level at a time, with the
+  // identity, its status and the capability count whole on screen.
+  for (final brightness in Brightness.values) {
+    for (final language in ['en', 'zh']) {
+      final locale = Locale(language);
+      final variant = 'tablet800x3-${brightness.name}-$language';
+      testWidgets('manage page with large text ($variant)', (t) async {
+        const size = Size(800, 900);
+        _size(t, size);
+        t.platformDispatcher.textScaleFactorTestValue = 3;
+        addTearDown(t.platformDispatcher.clearTextScaleFactorTestValue);
+        debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+        try {
+          final l10n = lookupAppLocalizations(locale);
+          final api = await _hostedApi();
+          await t.pumpWidget(
+            _app(const ServicesScreen(), api, locale, brightness),
+          );
+          await t.pumpAndSettle();
+          expect(t.takeException(), isNull, reason: 'no overflow');
+          // A line of 3× text is taller than the bar's button, so the
+          // label is never chosen here, whatever its width.
+          expect(
+            _primaryActionShown(t, size, l10n.servicesHostThisDevice),
+            isFalse,
+            reason: 'the icon form under 3× text',
+          );
+
+          // The device list: the identity and its whole status on screen,
+          // inside the row that opens settings.
+          final identity = find.byKey(const Key('identity-open-settings'));
+          _usable(t, identity, size);
+          final row = t.getRect(identity);
+          for (final text in ['relay.example:7666', l10n.statusOnline]) {
+            final shown = find.descendant(
+              of: identity,
+              matching: find.text(text),
+            );
+            expect(shown, findsOneWidget, reason: text);
+            expect(
+              _inside(t.getRect(shown), size, row),
+              isTrue,
+              reason: '$text inside the identity row $row',
+            );
+          }
+          _oneLine(
+            t,
+            find.descendant(
+              of: identity,
+              matching: find.text(l10n.statusOnline),
+            ),
+          );
+          await capturePreview(t, 'services-scaled-$variant');
+
+          // One device's detail: the capabilities title and its count.
+          final tile = find.byWidgetPredicate((w) {
+            final key = w.key;
+            return key is ValueKey<String> &&
+                key.value.startsWith('device-') &&
+                !key.value.startsWith('device-capability-') &&
+                key.value != 'device-back' &&
+                key.value != 'device-clean-unreachable';
+          });
+          expect(tile, findsWidgets);
+          await t.tap(tile.first);
+          await t.pumpAndSettle();
+          expect(t.takeException(), isNull, reason: 'no overflow (detail)');
+          final title = find.text(l10n.servicesCapabilities);
+          final card = t.getRect(
+            find.ancestor(of: title, matching: find.byType(Card)).first,
+          );
+          final count = find.textContaining(
+            RegExp(
+              r'^\d+ ' +
+                  RegExp.escape(
+                    l10n
+                        .servicesDeviceCapabilityCount(0)
+                        .replaceFirst('0 ', ''),
+                  ) +
+                  r'$',
+            ),
+          );
+          for (final shown in [title, count]) {
+            expect(shown, findsOneWidget, reason: '$shown');
+            final rect = t.getRect(shown);
+            expect(
+              _inside(rect, size, card),
+              isTrue,
+              reason: '$shown $rect inside its card $card',
+            );
+          }
+          _operable(t, find.byKey(const Key('device-back')));
+          await capturePreview(t, 'services-scaled-detail-$variant');
+          await t.pumpWidget(const SizedBox());
+        } finally {
+          debugDefaultTargetPlatformOverride = null;
+        }
+      });
+    }
+  }
+}

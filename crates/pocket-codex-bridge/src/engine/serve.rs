@@ -180,6 +180,8 @@ pub struct ServeStatus {
     pub agent_error: Option<String>,
     /// The agent reported that authentication is required (ACP).
     pub auth_required: bool,
+    /// The OpenCode model catalog for this host (ACP, `opencode` profile).
+    pub catalog: Option<pocket_codex_host_svc::acp::catalog::CatalogStatus>,
 }
 
 fn hosts() -> &'static Mutex<HashMap<String, LocalServe>> {
@@ -669,13 +671,23 @@ pub fn serve_start(
     if embedded {
         bail!("the built-in engine is not implemented; use an external codex binary");
     }
-    let support = runtime::support_dir()?;
-    let mut config = load_config(&support)?;
-    if config.account_token().is_none() {
-        bail!("sign in with GitHub before hosting a local app-server");
-    }
+    serve_start_in(&runtime::support_dir()?, port, binary_override, name, proxy)
+}
 
-    let binary = resolve_codex_binary(binary_override, &support, &mut config)?;
+/// [`serve_start`] reading its configuration (and saving an explicit codex
+/// path) in `support`. Publishing still resolves the process-wide transport.
+fn serve_start_in(
+    support: &std::path::Path,
+    port: u16,
+    binary_override: Option<String>,
+    name: Option<String>,
+    proxy: Option<String>,
+) -> Result<ServeReport> {
+    // No account gate: publishing goes through the shared transport, which
+    // resolves self-host (relay + key) and account mode alike.
+    let mut config = load_config(support)?;
+
+    let binary = resolve_codex_binary(binary_override, support, &mut config)?;
     // Capture the resolved path for the host details before `binary` is moved
     // into the spawn options below.
     let codex_binary_display = binary.as_ref().map(|p| p.display().to_string());
@@ -1486,6 +1498,46 @@ mod tests {
         assert!(err
             .to_string()
             .contains("built-in engine is not implemented"));
+    }
+
+    #[test]
+    fn self_host_start_is_not_gated_on_an_account() {
+        // A support dir of its own holding only a self-host configuration
+        // (relay + key, no account), independent of the process-global
+        // support dir and of what other tests left there. The start must get
+        // past configuration to binary resolution (and fail there, before
+        // spawning or touching any relay) instead of demanding a GitHub
+        // sign-in as it once did. This proves only the gate; hosting two
+        // instances side by side needs a real codex and is not exercised.
+        use pocket_codex_core::config::Config;
+
+        use crate::engine::config::save_config;
+
+        let support = tempfile::tempdir().expect("support dir");
+        let mut config = Config::default();
+        config.set_relay("relay.invalid:7666");
+        config.set_relay_key("k".repeat(32));
+        save_config(support.path(), &config).expect("save self-host config");
+        let saved = std::fs::read(support.path().join("config.toml")).ok();
+        // Inside the support dir, which exists, so nothing outside is named.
+        let missing = support.path().join("no-codex-here").join("codex");
+        let err = serve_start_in(
+            support.path(),
+            0,
+            Some(missing.display().to_string()),
+            Some("self-host-gate".into()),
+            None,
+        )
+        .expect_err("no codex at that path");
+        let msg = err.to_string();
+        assert!(msg.contains("could not find the codex binary"), "{msg}");
+        assert!(!msg.contains("sign in"), "{msg}");
+        assert!(!hosts_locked().contains_key("self-host-gate"), "nothing was recorded");
+        assert_eq!(
+            std::fs::read(support.path().join("config.toml")).ok(),
+            saved,
+            "a missing binary is not saved as the codex path"
+        );
     }
 
     #[test]

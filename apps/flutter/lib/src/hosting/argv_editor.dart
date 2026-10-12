@@ -86,8 +86,13 @@ class _ArgvEditorState extends State<ArgvEditor> {
     final small = Theme.of(context).textTheme.bodySmall;
     final enabled = widget.enabled;
     return LayoutBuilder(
-      builder: (context, constraints) =>
-          _rowsColumn(l10n, small, enabled, constraints.maxWidth >= 340),
+      builder: (context, constraints) => _rowsColumn(
+        l10n,
+        small,
+        enabled,
+        constraints.maxWidth >= 340,
+        constraints.maxWidth,
+      ),
     );
   }
 
@@ -98,7 +103,9 @@ class _ArgvEditorState extends State<ArgvEditor> {
     TextStyle? small,
     bool enabled,
     bool reorder,
+    double width,
   ) {
+    final buttons = (reorder ? 3 : 1) * kMinInteractiveDimension;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
@@ -110,50 +117,7 @@ class _ArgvEditorState extends State<ArgvEditor> {
         for (var i = 0; i < _rows.length; i++)
           Padding(
             padding: const EdgeInsets.only(bottom: 6),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    key: Key('acp-arg-field-$i'),
-                    controller: _rows[i],
-                    enabled: enabled,
-                    autocorrect: false,
-                    enableSuggestions: false,
-                    style: const TextStyle(
-                      fontFamily: monoFontFamily,
-                      fontFamilyFallback: monoCjkFallback,
-                    ),
-                    decoration: InputDecoration(
-                      isDense: true,
-                      labelText: l10n.acpArgumentLabel(i + 1),
-                    ),
-                    onChanged: (_) => _emit(),
-                  ),
-                ),
-                if (reorder) ...[
-                  IconButton(
-                    key: Key('acp-arg-up-$i'),
-                    tooltip: l10n.acpArgumentMoveUp,
-                    icon: const Icon(Icons.arrow_upward),
-                    onPressed: enabled && i > 0 ? () => _move(i, i - 1) : null,
-                  ),
-                  IconButton(
-                    key: Key('acp-arg-down-$i'),
-                    tooltip: l10n.acpArgumentMoveDown,
-                    icon: const Icon(Icons.arrow_downward),
-                    onPressed: enabled && i < _rows.length - 1
-                        ? () => _move(i, i + 1)
-                        : null,
-                  ),
-                ],
-                IconButton(
-                  key: Key('acp-arg-remove-$i'),
-                  tooltip: l10n.acpArgumentRemove,
-                  icon: const Icon(Icons.close),
-                  onPressed: enabled ? () => _remove(i) : null,
-                ),
-              ],
-            ),
+            child: _row(l10n, enabled, reorder, i, width, buttons),
           ),
         Align(
           alignment: AlignmentDirectional.centerStart,
@@ -167,4 +131,97 @@ class _ArgvEditorState extends State<ArgvEditor> {
       ],
     );
   }
+
+  /// One argument. The row's buttons sit beside the field while its whole
+  /// resting label still fits there; otherwise they go under a full-width
+  /// field, so the label is never cut.
+  Widget _row(
+    AppLocalizations l10n,
+    bool enabled,
+    bool reorder,
+    int i,
+    double width,
+    double buttons,
+  ) {
+    final label = l10n.acpArgumentLabel(i + 1);
+    final field = TextField(
+      key: Key('acp-arg-field-$i'),
+      controller: _rows[i],
+      enabled: enabled,
+      autocorrect: false,
+      enableSuggestions: false,
+      style: const TextStyle(
+        fontFamily: monoFontFamily,
+        fontFamilyFallback: monoCjkFallback,
+      ),
+      decoration: InputDecoration(isDense: true, labelText: label),
+      onChanged: (_) => _emit(),
+    );
+    final actions = [
+      if (reorder) ...[
+        IconButton(
+          key: Key('acp-arg-up-$i'),
+          tooltip: l10n.acpArgumentMoveUp,
+          icon: const Icon(Icons.arrow_upward),
+          onPressed: enabled && i > 0 ? () => _move(i, i - 1) : null,
+        ),
+        IconButton(
+          key: Key('acp-arg-down-$i'),
+          tooltip: l10n.acpArgumentMoveDown,
+          icon: const Icon(Icons.arrow_downward),
+          onPressed: enabled && i < _rows.length - 1
+              ? () => _move(i, i + 1)
+              : null,
+        ),
+      ],
+      IconButton(
+        key: Key('acp-arg-remove-$i'),
+        tooltip: l10n.acpArgumentRemove,
+        icon: const Icon(Icons.close),
+        onPressed: enabled ? () => _remove(i) : null,
+      ),
+    ];
+    if (width - buttons >= _labelRoom(context, label)) {
+      return Row(
+        children: [
+          Expanded(child: field),
+          ...actions,
+        ],
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        field,
+        Row(mainAxisAlignment: MainAxisAlignment.end, children: actions),
+      ],
+    );
+  }
+}
+
+/// The field width [label] needs at rest: its text in the decorator's label
+/// style at the current text scale, plus the theme's horizontal content
+/// padding (Material's dense 12 px a side when the theme sets none) and the
+/// outline's 4 px gap a side around a floating label.
+double _labelRoom(BuildContext context, String label) {
+  final theme = Theme.of(context);
+  final direction = Directionality.of(context);
+  final style = theme.textTheme.bodyLarge?.merge(
+    theme.inputDecorationTheme.labelStyle,
+  );
+  final painter = TextPainter(
+    text: TextSpan(text: label, style: style),
+    textDirection: direction,
+    textScaler: MediaQuery.textScalerOf(context),
+    maxLines: 1,
+  )..layout();
+  final width = painter.width;
+  painter.dispose();
+  final padding =
+      theme.inputDecorationTheme.contentPadding
+          ?.resolve(direction)
+          .horizontal ??
+      24;
+  return width + padding + 8;
 }

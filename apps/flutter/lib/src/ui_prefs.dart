@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show protected, visibleForTesting;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pocket_codex/src/bridge_api.dart' show AcpAgentSpec;
@@ -21,7 +22,7 @@ class UiPrefs {
     this.preferredAppServiceKey,
     this.lastServiceKey,
     this.lastThreadByService = const {},
-    this.autoHost,
+    this.autoHostCodex = const [],
     this.acpAgents = const [],
     this.autoHostAcp = const [],
     this.guideSeen = false,
@@ -46,10 +47,33 @@ class UiPrefs {
   /// Last-open thread id, keyed by service key.
   final Map<String, String> lastThreadByService;
 
-  /// Parameters of the hosting the user left running, or null when the user
-  /// stopped hosting (or never hosted). Used to auto-restore hosting on a
-  /// desktop cold start.
-  final AutoHostPrefs? autoHost;
+  /// The Codex hosts the user left running, one record per instance name
+  /// (at most [maxAutoHosts]), restored on a desktop cold start. Stopping a
+  /// host forgets only its own record.
+  final List<AutoHostPrefs> autoHostCodex;
+
+  /// The first Codex auto-host record — the single record older builds kept
+  /// (and still read from `autoHost` in the JSON).
+  AutoHostPrefs? get autoHost => autoHostCodex.firstOrNull;
+
+  /// Most restore records kept per provider (Codex, ACP). A host started
+  /// beyond this still runs but is not restored at the next launch; the
+  /// hosting dialog says so instead of silently dropping another record.
+  static const maxAutoHosts = 16;
+
+  /// Most saved custom ACP agents.
+  static const maxSavedAgents = 50;
+
+  /// Whether a Codex host named [name] can get a restore record: it already
+  /// has one, or there is room for another.
+  bool canRememberCodexHost(String name) =>
+      autoHostCodex.any((h) => h.name == name) ||
+      autoHostCodex.length < maxAutoHosts;
+
+  /// Whether an ACP host named [name] can get a restore record.
+  bool canRememberAcpHost(String name) =>
+      autoHostAcp.any((h) => h.name == name) ||
+      autoHostAcp.length < maxAutoHosts;
 
   /// Whether the first-run welcome guide has been shown on this device. Set
   /// the first time it renders, so signing in ever again skips it.
@@ -70,15 +94,13 @@ class UiPrefs {
   /// The desktop sidebar width the user dragged to; null uses the default.
   final double? sidebarWidth;
 
-  /// Copy with the given fields replaced. `clearAutoHost` removes the
-  /// Codex auto-host record; `clearThemeMode` returns to follow-system (a plain
-  /// null argument means "keep").
+  /// Copy with the given fields replaced. `clearThemeMode` returns to
+  /// follow-system (a plain null argument means "keep").
   UiPrefs copyWith({
     String? preferredAppServiceKey,
     String? lastServiceKey,
     Map<String, String>? lastThreadByService,
-    AutoHostPrefs? autoHost,
-    bool clearAutoHost = false,
+    List<AutoHostPrefs>? autoHostCodex,
     List<AcpAgentSpec>? acpAgents,
     List<AutoHostAcpPrefs>? autoHostAcp,
     bool? guideSeen,
@@ -92,7 +114,7 @@ class UiPrefs {
         preferredAppServiceKey ?? this.preferredAppServiceKey,
     lastServiceKey: lastServiceKey ?? this.lastServiceKey,
     lastThreadByService: lastThreadByService ?? this.lastThreadByService,
-    autoHost: clearAutoHost ? null : (autoHost ?? this.autoHost),
+    autoHostCodex: autoHostCodex ?? this.autoHostCodex,
     acpAgents: acpAgents ?? this.acpAgents,
     autoHostAcp: autoHostAcp ?? this.autoHostAcp,
     guideSeen: guideSeen ?? this.guideSeen,
@@ -112,16 +134,18 @@ class UiPrefs {
       });
     }
     final rawHost = json['autoHost'];
+    final rawCodexHosts = json['autoHostCodex'];
     final rawAgents = json['acpAgents'];
     final rawAcpHosts = json['autoHostAcp'];
     return UiPrefs(
       acpAgents: [
         if (rawAgents is List)
-          for (final agent in rawAgents.take(50)) ?AcpAgentSpec.fromJson(agent),
+          for (final agent in rawAgents.take(maxSavedAgents))
+            ?AcpAgentSpec.fromJson(agent),
       ],
       autoHostAcp: [
         if (rawAcpHosts is List)
-          for (final host in rawAcpHosts.take(16))
+          for (final host in rawAcpHosts.take(maxAutoHosts))
             ?AutoHostAcpPrefs.fromJson(host),
       ],
       preferredAppServiceKey: json['preferredAppServiceKey'] is String
@@ -131,9 +155,17 @@ class UiPrefs {
           ? json['lastServiceKey'] as String
           : null,
       lastThreadByService: threads,
-      autoHost: rawHost is Map<String, dynamic>
-          ? AutoHostPrefs.fromJson(rawHost)
-          : null,
+      // `autoHostCodex` supersedes the single legacy `autoHost` record; a
+      // file written by an older build only has the latter.
+      autoHostCodex: rawCodexHosts is List
+          ? _uniqueByName([
+              for (final host in rawCodexHosts.take(maxAutoHosts))
+                if (host is Map<String, dynamic>) AutoHostPrefs.fromJson(host),
+            ])
+          : [
+              if (rawHost is Map<String, dynamic>)
+                AutoHostPrefs.fromJson(rawHost),
+            ],
       guideSeen: json['guideSeen'] == true,
       themeMode: json['themeMode'] == 'light' || json['themeMode'] == 'dark'
           ? json['themeMode'] as String
@@ -159,7 +191,11 @@ class UiPrefs {
     if (lastServiceKey != null) 'lastServiceKey': lastServiceKey,
     if (lastThreadByService.isNotEmpty)
       'lastThreadByService': lastThreadByService,
+    // The first record also goes under the legacy key, so a downgraded
+    // build still restores one host instead of none.
     if (autoHost != null) 'autoHost': autoHost!.toJson(),
+    if (autoHostCodex.isNotEmpty)
+      'autoHostCodex': [for (final host in autoHostCodex) host.toJson()],
     if (acpAgents.isNotEmpty)
       'acpAgents': [for (final agent in acpAgents) agent.toJson()],
     if (autoHostAcp.isNotEmpty)
@@ -172,7 +208,16 @@ class UiPrefs {
   };
 }
 
-/// The `appServeStart` parameters of the last hosting the user started, so a
+/// [hosts] with later duplicates of a name dropped.
+List<AutoHostPrefs> _uniqueByName(List<AutoHostPrefs> hosts) {
+  final seen = <String>{};
+  return [
+    for (final host in hosts)
+      if (seen.add(host.name)) host,
+  ];
+}
+
+/// The `appServeStart` parameters of one Codex host the user started, so a
 /// cold start can restore external hosting.
 class AutoHostPrefs {
   /// Creates an auto-host record.
@@ -244,16 +289,47 @@ class AutoHostAcpPrefs {
   Map<String, dynamic> toJson() => {'name': name, 'spec': spec.toJson()};
 }
 
+/// One preference change: the next snapshot from [prefs], or null when it
+/// changes nothing.
+typedef UiPrefsOp = UiPrefs? Function(UiPrefs prefs);
+
 /// Store notifier: load-once, serial best-effort writes (mirrors the
 /// robustness contract of [DismissedServices]).
+///
+/// Every mutation is an operation ([UiPrefsOp]) on the current snapshot.
+/// Operations issued before the file has been read are applied to the
+/// interim in-memory state and also queued; once the file is read they are
+/// replayed, in order, on the loaded snapshot. So a per-name update or
+/// removal made during the initial load (stopping host A, starting host B)
+/// keeps every other loaded entry and is never undone by the file.
+///
+/// The provider's `future` resolves on the first non-loading state, which
+/// may be such an interim snapshot; [ready] resolves only once the file was
+/// read and every queued operation replayed. Bounded records report whether
+/// the settled snapshot accepted them (see [setAutoHost]).
 class UiPrefsStore extends AsyncNotifier<UiPrefs> {
   File? _cachedFile;
   bool _loaded = false;
+  final List<UiPrefsOp> _beforeLoad = [];
+  final Completer<void> _ready = Completer<void>();
+  // The authoritative snapshot once the file is read. The provider state
+  // takes the build result a microtask after build returns; an operation
+  // applied in between works on, and is restored from, this snapshot.
+  UiPrefs? _settled;
+  // Verdicts of operations issued before the load, decided by its replay.
+  final List<Completer<bool>> _pendingVerdicts = [];
   Future<void> _writes = Future<void>.value();
+
+  /// Replaces the app-support file lookup (tests: a temporary file whose
+  /// lookup can be delayed to hold the initial load open).
+  @visibleForTesting
+  static Future<File> Function()? debugFileOverride;
 
   Future<File> _file() async {
     final cached = _cachedFile;
     if (cached != null) return cached;
+    final override = debugFileOverride;
+    if (override != null) return _cachedFile = await override();
     final dir = await getApplicationSupportDirectory();
     final handle = File('${dir.path}/ui_state.json');
     _cachedFile = handle;
@@ -262,41 +338,56 @@ class UiPrefsStore extends AsyncNotifier<UiPrefs> {
 
   @override
   Future<UiPrefs> build() async {
-    final loaded = await _load();
-    // A mutation that raced the initial load computed its snapshot from EMPTY
-    // defaults (state had no value yet), so adopting it wholesale would wipe
-    // everything already on disk. Mutations during the race window only ever
-    // SET fields (the clear-style ops early-return on a default snapshot), so
-    // null/absent in the raced snapshot means "untouched" and a field-wise
-    // merge onto the loaded file is lossless.
-    final raced = state.valueOrNull;
-    _loaded = true;
-    if (raced != null) {
-      final merged = UiPrefs(
-        preferredAppServiceKey:
-            raced.preferredAppServiceKey ?? loaded.preferredAppServiceKey,
-        lastServiceKey: raced.lastServiceKey ?? loaded.lastServiceKey,
-        lastThreadByService: {
-          ...loaded.lastThreadByService,
-          ...raced.lastThreadByService,
-        },
-        autoHost: raced.autoHost ?? loaded.autoHost,
-        acpAgents: raced.acpAgents.isEmpty ? loaded.acpAgents : raced.acpAgents,
-        autoHostAcp: raced.autoHostAcp.isEmpty
-            ? loaded.autoHostAcp
-            : raced.autoHostAcp,
-        // Only ever flips false→true, so OR-merging is lossless.
-        guideSeen: raced.guideSeen || loaded.guideSeen,
-        themeMode: raced.themeMode ?? loaded.themeMode,
-        composerHeight: raced.composerHeight ?? loaded.composerHeight,
-        sidebarOpen: raced.sidebarOpen ?? loaded.sidebarOpen,
-        sidebarWidth: raced.sidebarWidth ?? loaded.sidebarWidth,
-      );
-      _enqueueWrite(merged);
-      return merged;
+    var disposed = false;
+    ref.onDispose(() {
+      disposed = true;
+      // Never replayed, so never stored.
+      for (final verdict in _pendingVerdicts) {
+        if (!verdict.isCompleted) verdict.complete(false);
+      }
+      _pendingVerdicts.clear();
+    });
+    listenSelf((_, next) {
+      if (!next.hasValue || identical(next.valueOrNull, _settled)) return;
+      // The build result arrived after a newer operation: restore it.
+      scheduleMicrotask(() {
+        final settled = _settled;
+        if (disposed || settled == null) return;
+        if (!identical(state.valueOrNull, settled)) state = AsyncData(settled);
+      });
+    });
+    var prefs = await load();
+    // A store disposed during the load (container gone) replays and writes
+    // nothing; [ready] still resolves, so nothing waits on it forever.
+    if (disposed) {
+      _settled = prefs;
+      if (!_ready.isCompleted) _ready.complete();
+      return prefs;
     }
-    return loaded;
+    // Replay runs with the file loaded, so the verdicts it reports (see
+    // [_decide]) are taken on the loaded snapshot.
+    _loaded = true;
+    if (_beforeLoad.isNotEmpty) {
+      for (final op in _beforeLoad) {
+        prefs = op(prefs) ?? prefs;
+      }
+      _beforeLoad.clear();
+      _enqueueWrite(prefs);
+    }
+    _pendingVerdicts.clear();
+    _settled = prefs;
+    if (!_ready.isCompleted) _ready.complete();
+    return prefs;
   }
+
+  /// The settled snapshot: the file has been read and every operation
+  /// issued before that has been replayed on it (and its write queued).
+  Future<UiPrefs> get ready => _ready.future.then((_) => _current);
+
+  /// Reads the persisted snapshot. Tests override it (with [save]) to stay
+  /// in memory.
+  @protected
+  Future<UiPrefs> load() => _load();
 
   Future<UiPrefs> _load() async {
     try {
@@ -313,158 +404,180 @@ class UiPrefsStore extends AsyncNotifier<UiPrefs> {
     }
   }
 
+  /// Persists [prefs]. In-memory test stores override it (with [load]) so
+  /// they never touch the app-support file.
+  @protected
+  Future<void> save(UiPrefs prefs) async {
+    final file = await _file();
+    await file.writeAsString(jsonEncode(prefs.toJson()));
+  }
+
   void _enqueueWrite(UiPrefs prefs) {
     if (!_loaded) return;
     _writes = _writes.then((_) async {
       try {
-        final file = await _file();
-        await file.writeAsString(jsonEncode(prefs.toJson()));
+        await save(prefs);
       } catch (_) {
         // Best-effort: an unwritable dir just loses the pref, not the app.
       }
     });
   }
 
-  UiPrefs get _current => state.valueOrNull ?? const UiPrefs();
+  /// Resolves once every write issued so far has finished (tests).
+  @visibleForTesting
+  Future<void> get debugWritesDone => _writes;
+
+  UiPrefs get _current => _settled ?? state.valueOrNull ?? const UiPrefs();
+
+  /// Apply [op] now, and again on the loaded file if it is not read yet.
+  void _mutate(UiPrefsOp op) {
+    if (!_loaded) _beforeLoad.add(op);
+    final next = op(_current);
+    if (next == null) return;
+    if (_loaded) _settled = next;
+    state = AsyncData(next);
+    _enqueueWrite(next);
+  }
+
+  /// [_mutate] with [op]'s verdict on the settled snapshot: an operation
+  /// issued before the file is read also runs on the interim state, but
+  /// only its replay on the loaded file decides. Ordered with every other
+  /// operation, so a later stop still wins over an earlier start.
+  Future<bool> _decide((UiPrefs?, bool) Function(UiPrefs prefs) op) {
+    final verdict = Completer<bool>();
+    if (!_loaded) _pendingVerdicts.add(verdict);
+    _mutate((p) {
+      final (next, accepted) = op(p);
+      if (_loaded && !verdict.isCompleted) verdict.complete(accepted);
+      return next;
+    });
+    return verdict.future;
+  }
 
   /// Choose the app service that chat-first home should try before all others.
-  void setPreferredAppService(String serviceKey) {
-    if (_current.preferredAppServiceKey == serviceKey) return;
-    final next = _current.copyWith(preferredAppServiceKey: serviceKey);
-    state = AsyncData(next);
-    _enqueueWrite(next);
-  }
+  void setPreferredAppService(String serviceKey) => _mutate(
+    (p) => p.preferredAppServiceKey == serviceKey
+        ? null
+        : p.copyWith(preferredAppServiceKey: serviceKey),
+  );
 
   /// Record the app service the user is chatting on.
-  void setLastService(String serviceKey) {
-    final next = _current.copyWith(lastServiceKey: serviceKey);
-    state = AsyncData(next);
-    _enqueueWrite(next);
-  }
+  void setLastService(String serviceKey) =>
+      _mutate((p) => p.copyWith(lastServiceKey: serviceKey));
 
   /// Record the last-open thread for [serviceKey] (null clears it, e.g. when
   /// the user starts a fresh conversation that has no id yet).
-  void setLastThread(String serviceKey, String? threadId) {
-    final threads = {..._current.lastThreadByService};
+  void setLastThread(String serviceKey, String? threadId) => _mutate((p) {
+    final threads = {...p.lastThreadByService};
     if (threadId == null) {
-      if (threads.remove(serviceKey) == null) return;
+      if (threads.remove(serviceKey) == null) return null;
     } else {
-      if (threads[serviceKey] == threadId) return;
+      if (threads[serviceKey] == threadId) return null;
       threads[serviceKey] = threadId;
     }
-    final next = _current.copyWith(lastThreadByService: threads);
-    state = AsyncData(next);
-    _enqueueWrite(next);
-  }
+    return p.copyWith(lastThreadByService: threads);
+  });
 
   /// Record that the first-run welcome guide has been shown on this device.
-  void markGuideSeen() {
-    if (_current.guideSeen) return;
-    final next = _current.copyWith(guideSeen: true);
-    state = AsyncData(next);
-    _enqueueWrite(next);
-  }
+  void markGuideSeen() =>
+      _mutate((p) => p.guideSeen ? null : p.copyWith(guideSeen: true));
 
-  /// Remember the hosting the user just started, for cold-start restore.
-  void setAutoHost(AutoHostPrefs host) {
-    final next = _current.copyWith(autoHost: host);
-    state = AsyncData(next);
-    _enqueueWrite(next);
-  }
+  /// Remember the Codex host the user just started under `host.name`, for
+  /// cold-start restore. Records of other instance names are kept: with
+  /// [UiPrefs.maxAutoHosts] others already kept, nothing changes. Resolves
+  /// with whether the settled snapshot holds the record.
+  Future<bool> setAutoHost(AutoHostPrefs host) => _decide((p) {
+    final others = [
+      for (final saved in p.autoHostCodex)
+        if (saved.name != host.name) saved,
+    ];
+    if (others.length >= UiPrefs.maxAutoHosts) return (null, false);
+    return (p.copyWith(autoHostCodex: [...others, host]), true);
+  });
 
   /// Set the theme: `'light'` / `'dark'`, or null to follow the system.
-  void setThemeMode(String? mode) {
-    if (_current.themeMode == mode) return;
-    final next = mode == null
-        ? _current.copyWith(clearThemeMode: true)
-        : _current.copyWith(themeMode: mode);
-    state = AsyncData(next);
-    _enqueueWrite(next);
-  }
+  void setThemeMode(String? mode) => _mutate((p) {
+    if (p.themeMode == mode) return null;
+    return mode == null
+        ? p.copyWith(clearThemeMode: true)
+        : p.copyWith(themeMode: mode);
+  });
 
   /// Persist the preferred input height within the supported range.
   void setComposerHeight(double height) {
     if (!height.isFinite) return;
-    final next = _current.copyWith(composerHeight: height.clamp(28, 280));
-    state = AsyncData(next);
-    _enqueueWrite(next);
+    _mutate((p) => p.copyWith(composerHeight: height.clamp(28, 280)));
   }
 
   /// Remember whether the desktop sidebar is open.
-  void setSidebarOpen(bool open) {
-    if (_current.sidebarOpen == open) return;
-    final next = _current.copyWith(sidebarOpen: open);
-    state = AsyncData(next);
-    _enqueueWrite(next);
-  }
+  void setSidebarOpen(bool open) => _mutate(
+    (p) => p.sidebarOpen == open ? null : p.copyWith(sidebarOpen: open),
+  );
 
   /// Persist the desktop sidebar width within the supported range.
   void setSidebarWidth(double width) {
     if (!width.isFinite) return;
-    final next = _current.copyWith(sidebarWidth: width.clamp(200, 520));
-    state = AsyncData(next);
-    _enqueueWrite(next);
+    _mutate((p) => p.copyWith(sidebarWidth: width.clamp(200, 520)));
   }
 
-  /// Forget the auto-host record (the user stopped hosting on purpose).
-  void clearAutoHost() {
-    if (_current.autoHost == null) return;
-    final next = _current.copyWith(clearAutoHost: true);
-    state = AsyncData(next);
-    _enqueueWrite(next);
-  }
-
-  /// Save (or replace, by profile id) a custom ACP agent.
-  void saveAcpAgent(AcpAgentSpec agent) {
-    final agents = [
-      for (final saved in _current.acpAgents)
-        if (saved.profileId != agent.profileId) saved,
-      agent,
-    ];
-    final next = _current.copyWith(acpAgents: agents);
-    state = AsyncData(next);
-    _enqueueWrite(next);
-  }
-
-  /// Forget a saved custom ACP agent.
-  void removeAcpAgent(String profileId) {
-    final agents = [
-      for (final saved in _current.acpAgents)
-        if (saved.profileId != profileId) saved,
-    ];
-    if (agents.length == _current.acpAgents.length) return;
-    final next = _current.copyWith(acpAgents: agents);
-    state = AsyncData(next);
-    _enqueueWrite(next);
-  }
-
-  /// Remember an ACP agent the user just hosted under `host.name`.
-  void setAutoHostAcp(AutoHostAcpPrefs host) {
+  /// Forget the Codex auto-host record of [name] (the user stopped that host
+  /// on purpose). Other hosts keep restoring.
+  void clearAutoHost(String name) => _mutate((p) {
     final hosts = [
-      for (final saved in _current.autoHostAcp)
-        if (saved.name != host.name) saved,
-      host,
-    ];
-    final next = _current.copyWith(autoHostAcp: hosts);
-    state = AsyncData(next);
-    _enqueueWrite(next);
-  }
-
-  /// Forget the ACP auto-host record of [name] (stopped on purpose).
-  void clearAutoHostAcp(String name) {
-    final hosts = [
-      for (final saved in _current.autoHostAcp)
+      for (final saved in p.autoHostCodex)
         if (saved.name != name) saved,
     ];
-    if (hosts.length == _current.autoHostAcp.length) return;
-    final next = _current.copyWith(autoHostAcp: hosts);
-    state = AsyncData(next);
-    _enqueueWrite(next);
-  }
+    if (hosts.length == p.autoHostCodex.length) return null;
+    return p.copyWith(autoHostCodex: hosts);
+  });
+
+  /// Save (or replace, by profile id) a custom ACP agent. A full list
+  /// ([UiPrefs.maxSavedAgents] others) is left as is; resolves with whether
+  /// the settled snapshot holds the agent.
+  Future<bool> saveAcpAgent(AcpAgentSpec agent) => _decide((p) {
+    final others = [
+      for (final saved in p.acpAgents)
+        if (saved.profileId != agent.profileId) saved,
+    ];
+    if (others.length >= UiPrefs.maxSavedAgents) return (null, false);
+    return (p.copyWith(acpAgents: [...others, agent]), true);
+  });
+
+  /// Forget a saved custom ACP agent.
+  void removeAcpAgent(String profileId) => _mutate((p) {
+    final agents = [
+      for (final saved in p.acpAgents)
+        if (saved.profileId != profileId) saved,
+    ];
+    if (agents.length == p.acpAgents.length) return null;
+    return p.copyWith(acpAgents: agents);
+  });
+
+  /// Remember an ACP agent the user just hosted under `host.name`; same
+  /// bound and verdict as [setAutoHost].
+  Future<bool> setAutoHostAcp(AutoHostAcpPrefs host) => _decide((p) {
+    final others = [
+      for (final saved in p.autoHostAcp)
+        if (saved.name != host.name) saved,
+    ];
+    if (others.length >= UiPrefs.maxAutoHosts) return (null, false);
+    return (p.copyWith(autoHostAcp: [...others, host]), true);
+  });
+
+  /// Forget the ACP auto-host record of [name] (stopped on purpose).
+  void clearAutoHostAcp(String name) => _mutate((p) {
+    final hosts = [
+      for (final saved in p.autoHostAcp)
+        if (saved.name != name) saved,
+    ];
+    if (hosts.length == p.autoHostAcp.length) return null;
+    return p.copyWith(autoHostAcp: hosts);
+  });
 }
 
 /// The durable UI prefs. `loading` until the file is read; consumers treat a
-/// missing value as defaults.
+/// missing value as defaults. Decisions that must see the file (bounded
+/// restore records) use [UiPrefsStore.ready] or the verdicts it reports.
 final uiPrefsProvider = AsyncNotifierProvider<UiPrefsStore, UiPrefs>(
   UiPrefsStore.new,
 );

@@ -104,14 +104,16 @@ String tinyPngDataUrl() => 'data:image/png;base64,${base64Encode(tinyPng())}';
 
 /// Mount [child] with a fake bridge and localizations. Defaults to the
 /// Chinese locale so the existing zh assertions hold; pass [locale] to test
-/// other languages.
+/// other languages and [theme] to use one of the app's themes.
 Widget host(
   Widget child,
   BridgeApi api, {
   Locale locale = const Locale('zh'),
+  ThemeData? theme,
 }) => ProviderScope(
   overrides: [bridgeApiProvider.overrideWithValue(api)],
   child: MaterialApp(
+    theme: theme,
     locale: locale,
     localizationsDelegates: AppLocalizations.localizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,

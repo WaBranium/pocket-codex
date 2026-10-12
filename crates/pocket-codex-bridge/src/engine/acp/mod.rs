@@ -583,6 +583,9 @@ pub fn capabilities_of(info: &Value, generation: u64) -> Capabilities {
     if let Some(name) = info["profile"]["displayName"].as_str() {
         caps.provider_name = name.to_string();
     }
+    if let Some(id) = info["profile"]["id"].as_str() {
+        caps.profile_id = id.to_string();
+    }
     caps.auth_required = info["authRequired"] == true;
     let negotiated = &info["capabilities"];
     if info["phase"]["state"] == "ready" && negotiated.is_object() {
@@ -1467,5 +1470,19 @@ mod tests {
         assert!(capabilities_of(&view.info, view.generation).negotiated);
         drop(view);
         task.abort();
+    }
+
+    /// The agent identity comes from the host's explicit profile, never from
+    /// the instance name a user chose for the host.
+    #[test]
+    fn capabilities_carry_the_hosts_profile_identity() {
+        let caps = capabilities_of(
+            &json!({"profile": {"id": "opencode", "displayName": "OpenCode"}, "name": "claude"}),
+            1,
+        );
+        assert_eq!(caps.profile_id, "opencode");
+        assert_eq!(caps.provider_name, "OpenCode");
+        let bare = capabilities_of(&json!({"name": "opencode"}), 1);
+        assert!(bare.profile_id.is_empty(), "an instance name is not an identity");
     }
 }

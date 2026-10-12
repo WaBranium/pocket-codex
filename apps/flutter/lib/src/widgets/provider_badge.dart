@@ -1,32 +1,54 @@
 import 'package:flutter/material.dart';
 import 'package:pocket_codex/l10n/gen/app_localizations.dart';
 import 'package:pocket_codex/src/service_key.dart';
+import 'package:pocket_codex/src/widgets/agent_icon.dart';
 
 /// A compact pill naming the service provider of a host (Codex or
 /// an ACP agent), shown next to host names so providers on one device stay
 /// apart. ACP agents show their own name plus an "ACP" tag, so the protocol
-/// is visible without guessing it from the name.
+/// is visible without guessing it from the name. The leading mark comes from
+/// the explicit profile id ([AgentIcon]), never from the host's name.
 class ProviderBadge extends StatelessWidget {
   /// A badge for [provider] (`codex` or `acp`); [name] labels an
-  /// ACP agent.
-  const ProviderBadge({super.key, required this.provider, this.name});
+  /// ACP agent and [profileId] picks its mark.
+  const ProviderBadge({
+    super.key,
+    required this.provider,
+    this.name,
+    this.profileId,
+    this.showIcon = true,
+  });
 
   /// A badge for the provider behind the relay service [key].
-  factory ProviderBadge.forKey(String key, {Key? badgeKey, String? name}) =>
-      ProviderBadge(
-        key: badgeKey,
-        provider: switch (sessionProtocolOf(key)) {
-          SessionProtocol.acp => 'acp',
-          SessionProtocol.codexAppServer => 'codex',
-        },
-        name: name,
-      );
+  factory ProviderBadge.forKey(
+    String key, {
+    Key? badgeKey,
+    String? name,
+    String? profileId,
+    bool showIcon = true,
+  }) => ProviderBadge(
+    key: badgeKey,
+    provider: switch (sessionProtocolOf(key)) {
+      SessionProtocol.acp => 'acp',
+      SessionProtocol.codexAppServer => 'codex',
+    },
+    name: name,
+    profileId: profileId,
+    showIcon: showIcon,
+  );
 
   /// `codex` or `acp`.
   final String provider;
 
   /// Agent name for ACP badges (empty or null falls back to "ACP agent").
   final String? name;
+
+  /// ACP agent profile id, when known; selects the agent's mark.
+  final String? profileId;
+
+  /// Whether the badge leads with the agent's mark; off where the mark is
+  /// already shown beside it.
+  final bool showIcon;
 
   @override
   Widget build(BuildContext context) {
@@ -59,6 +81,16 @@ class ProviderBadge extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (showIcon) ...[
+            AgentIcon.of(
+              provider: acp ? 'acp' : 'codex',
+              profileId: profileId,
+              name: label,
+              size: 11,
+              color: fg,
+            ),
+            const SizedBox(width: 4),
+          ],
           Flexible(
             child: Text(
               label,

@@ -40,7 +40,8 @@ pub struct ConfigView {
 pub struct ServiceIdDto {
     /// Device id segment.
     pub device: String,
-    /// `app` or `api`.
+    /// `app` (Codex app-server), `acp` (ACP agent gateway), `api`
+    /// (Responses proxy) or `meta` (host meta service).
     pub kind: String,
     /// Instance name segment.
     pub name: String,
@@ -363,20 +364,21 @@ pub struct AppServeDto {
     pub reused: bool,
 }
 
-/// Status of one local host, mirrored for Dart. Each host carries both tunnels'
-/// publish state so the UI can offer per-tunnel 注销 / 重新注册.
+/// Status of one local host (a Codex app-server or an ACP agent gateway),
+/// mirrored for Dart. Each host carries its tunnels' publish state so the UI
+/// can offer per-tunnel 注销 / 重新注册.
 pub struct AppServeStatusDto {
     /// Service instance name.
     pub name: String,
     /// Device id.
     pub device: String,
-    /// codex process id.
+    /// codex process id; `None` for ACP hosts.
     pub pid: Option<u32>,
-    /// codex is accepting on its listen port.
+    /// codex is accepting on its listen port; for ACP, the agent is ready.
     pub alive: bool,
-    /// Loopback `host:port` codex listens on.
+    /// Loopback `host:port` codex (or the ACP gateway) listens on.
     pub app_listen_addr: String,
-    /// `pcx:<device>:app:<name>` key.
+    /// `pcx:<device>:app:<name>` key, or `pcx:<device>:acp:<name>` for ACP.
     pub app_service_key: String,
     /// The app tunnel is currently published.
     pub app_registered: bool,
@@ -418,6 +420,70 @@ pub struct AppServeStatusDto {
     pub agent_error: Option<String>,
     /// The ACP agent reported that authentication is required.
     pub auth_required: bool,
+    /// The OpenCode model catalog (ACP hosts of the `opencode` profile).
+    pub catalog: Option<AcpCatalogStatusDto>,
+}
+
+/// What the OpenCode model catalog plugin found for one host. Holds provider
+/// ids, counts and fixed reason codes, plus the plugin's own local file URL;
+/// never a provider endpoint, key or header.
+pub struct AcpCatalogStatusDto {
+    /// `waiting` (no session opened yet), `reported` or `unavailable`.
+    pub state: String,
+    /// Why it is unavailable: `plugins-disabled`, `config-env-taken` or
+    /// `install-failed`.
+    pub reason: Option<String>,
+    /// The plugin's local `file://` URL, shown when it is unavailable so it
+    /// can be added to an OpenCode config by hand.
+    pub plugin: Option<String>,
+    /// One entry per listed provider.
+    pub providers: Vec<AcpCatalogProviderDto>,
+}
+
+/// One provider's model listing.
+pub struct AcpCatalogProviderDto {
+    /// Provider id from the OpenCode config.
+    pub id: String,
+    /// `complete`, `partial` (bounded), `failed` (nothing added) or
+    /// `skipped`.
+    pub status: String,
+    /// Reason code (`http-401`, `timeout`, `model-limit`, …).
+    pub reason: Option<String>,
+    /// Chat models listed.
+    pub listed: u32,
+    /// Models added beyond the configured ones.
+    pub added: u32,
+    /// Entries left out for an explicit non-chat type.
+    pub excluded: u32,
+    /// Ids OpenCode cannot hold, left out.
+    pub unsafe_ids: u32,
+    /// Where the credential came from: `config`, `env`, `headers`
+    /// (configured request headers) or `none`.
+    pub key_source: String,
+}
+
+impl From<pocket_codex_host_svc::acp::catalog::CatalogStatus> for AcpCatalogStatusDto {
+    fn from(s: pocket_codex_host_svc::acp::catalog::CatalogStatus) -> Self {
+        Self {
+            state: s.state.to_string(),
+            reason: s.reason.map(str::to_string),
+            plugin: s.plugin,
+            providers: s
+                .providers
+                .into_iter()
+                .map(|p| AcpCatalogProviderDto {
+                    id: p.id,
+                    status: p.status,
+                    reason: p.reason,
+                    listed: p.listed,
+                    added: p.added,
+                    excluded: p.excluded,
+                    unsafe_ids: p.unsafe_ids,
+                    key_source: p.key_source,
+                })
+                .collect(),
+        }
+    }
 }
 
 /// An ACP agent executable and argument vector, passed verbatim without a
@@ -580,6 +646,7 @@ pub fn app_serve_status() -> Vec<AppServeStatusDto> {
             agent_phase: s.agent_phase,
             agent_error: s.agent_error,
             auth_required: s.auth_required,
+            catalog: s.catalog.map(Into::into),
         })
         .collect()
 }
@@ -854,8 +921,10 @@ pub struct ThreadRuntimeConfigDto {
     pub confirmed_by_update: bool,
 }
 
-/// Connect to an app-server service: subscribe on `127.0.0.1:<local_port>`,
-/// open the JSON-RPC websocket and run the `initialize` handshake. Idempotent.
+/// Connect to a session service, dispatched by its key's protocol: a Codex
+/// app-server (subscribe on `127.0.0.1:<local_port>`, open the JSON-RPC
+/// websocket, run `initialize`) or an ACP gateway (`/acp/v1` snapshot, then
+/// its event stream). Idempotent.
 pub fn app_connect(service_key: String, local_port: u16) -> Result<()> {
     engine(&service_key).connect(service_key.clone(), local_port)
 }
@@ -872,12 +941,13 @@ pub fn app_disconnect(service_key: String) {
     engine(&service_key).disconnect(&service_key);
 }
 
-/// Probe whether an app-server is actually REACHABLE — its backend responds to
-/// a handshake — rather than merely registered on the relay. The services list
-/// uses this so a registered-but-dead app-server (a live relay registrant
-/// forwarding to a codex app-server that has died) shows as unreachable instead
-/// of a false "online". Opens a transient tunnel + `initialize` with a timeout,
-/// then tears it down; a live session short-circuits to `true`.
+/// Probe whether a session service is actually REACHABLE — its backend
+/// answers — rather than merely registered on the relay, so a
+/// registered-but-dead host shows as unreachable instead of a false "online".
+/// Dispatched by the key's protocol: a Codex app-server gets a transient
+/// tunnel + `initialize` with a timeout; an ACP gateway answers `/acp/v1`
+/// info with a ready agent.
+/// A live session short-circuits to `true`.
 pub fn app_probe(service_key: String) -> Result<bool> {
     Ok(app_probe_reason(service_key)?.is_none())
 }
@@ -1099,6 +1169,38 @@ fn forward_retained_requests(
 #[cfg(test)]
 #[path = "bridge_events_tests.rs"]
 mod bridge_events_tests;
+
+#[cfg(test)]
+mod settings_dto_tests {
+    use serde_json::json;
+
+    use super::settings_dto;
+
+    #[test]
+    fn every_advertised_value_reaches_dart_verbatim() {
+        let flat: Vec<_> = (0..200)
+            .map(|i| json!({"value": format!("openrouter/vendor/m{i}"), "name": format!("M{i}")}))
+            .collect();
+        let dto = settings_dto(&json!({
+            "configOptions": [
+                {"id": "model", "name": "Model", "currentValue": "openrouter/vendor/m7",
+                 "options": flat},
+                {"id": "effort", "name": "Effort", "category": "thought_level",
+                 "currentValue": "high",
+                 "options": [{"group": "g", "name": "Group", "options": [
+                     {"value": "low", "name": "Low"}, {"value": "high", "name": "High"}]}]},
+            ],
+        }));
+        let model = &dto.config_options[0];
+        assert_eq!(model.values.len(), 200);
+        assert_eq!(model.values[199].value, "openrouter/vendor/m199");
+        assert_eq!(model.current_value, "openrouter/vendor/m7");
+        let effort = &dto.config_options[1];
+        assert_eq!(effort.category.as_deref(), Some("thought_level"));
+        assert_eq!(effort.values.len(), 2);
+        assert_eq!(effort.values[1].group.as_deref(), Some("Group"));
+    }
+}
 
 /// List threads known to the app-server.
 pub fn app_thread_list(service_key: String) -> Result<Vec<ThreadMetaDto>> {
@@ -1479,6 +1581,8 @@ pub struct AppCapabilitiesDto {
     pub protocol: String,
     /// Human-readable agent name (ACP: the host's profile name).
     pub provider_name: String,
+    /// ACP agent profile id from the host; empty for Codex or when unknown.
+    pub profile_id: String,
     /// Whether the values come from a live ACP negotiation.
     pub negotiated: bool,
     /// Host generation the values belong to (ACP; 0 otherwise). A change
@@ -1537,6 +1641,7 @@ pub fn app_capabilities(service_key: String) -> AppCapabilitiesDto {
         plan_mode: c.plan_mode,
         protocol: c.protocol,
         provider_name: c.provider_name,
+        profile_id: c.profile_id,
         negotiated: c.negotiated,
         generation: c.generation,
         voice: c.voice,
@@ -2308,7 +2413,7 @@ pub struct AccountUserDto {
 pub struct AccountServiceDto {
     /// Device id segment.
     pub device: String,
-    /// `app` or `api`.
+    /// `app`, `acp`, `api` or `meta` (see [`ServiceIdDto::kind`]).
     pub kind: String,
     /// Instance name segment.
     pub name: String,
@@ -2488,8 +2593,8 @@ pub fn account_services() -> Result<Vec<AccountServiceDto>> {
 }
 
 /// Deregister one of the account's services from the relay (best-effort; a
-/// still-running host re-registers shortly after). `kind` is `"app"` or
-/// `"api"`.
+/// still-running host re-registers shortly after). `kind` is the service's
+/// key segment (`"app"`, `"acp"`, `"api"` or `"meta"`).
 pub fn account_deregister_service(device: String, kind: String, name: String) -> Result<()> {
     let dir = runtime::support_dir()?;
     runtime::runtime().block_on(account::deregister_service(&dir, &device, &kind, &name))

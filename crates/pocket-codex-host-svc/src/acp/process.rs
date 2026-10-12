@@ -51,12 +51,14 @@ pub struct AgentProcess {
 }
 
 /// Start `program` with `args` verbatim. `path` replaces only the child's
-/// `PATH`; `stderr` is drained and discarded (it may echo secrets).
+/// `PATH` and `env` adds child-only variables; `stderr` is drained and
+/// discarded (it may echo secrets).
 #[cfg(unix)]
 pub fn spawn(
     program: &Path,
     args: &[String],
     path: Option<&OsString>,
+    env: &[(OsString, OsString)],
 ) -> Result<Spawned, SpawnError> {
     let mut command = Command::new(program);
     command
@@ -71,6 +73,7 @@ pub fn spawn(
     if let Some(path) = path {
         command.env("PATH", path);
     }
+    command.envs(env.iter().map(|(key, value)| (key, value)));
     let mut child = command.spawn().map_err(|_| SpawnError::Start)?;
     let group = child.id().and_then(|pid| i32::try_from(pid).ok());
     let (Some(stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
@@ -103,6 +106,7 @@ pub fn spawn(
     _program: &Path,
     _args: &[String],
     _path: Option<&OsString>,
+    _env: &[(OsString, OsString)],
 ) -> Result<Spawned, SpawnError> {
     Err(SpawnError::UnsupportedPlatform)
 }
@@ -200,7 +204,7 @@ mod tests {
             process,
             stdin,
             mut stdout,
-        } = spawn(Path::new("/bin/sh"), &["-c".into(), script.into()], None).expect("spawn");
+        } = spawn(Path::new("/bin/sh"), &["-c".into(), script.into()], None, &[]).expect("spawn");
         let mut line = Vec::new();
         let mut byte = [0u8; 1];
         while stdout.read(&mut byte).await.expect("read") == 1 && byte[0] != b'\n' {
@@ -232,7 +236,7 @@ mod tests {
             process,
             stdin: _stdin,
             mut stdout,
-        } = spawn(Path::new("/bin/sh"), &["-c".into(), script.into()], None).expect("spawn");
+        } = spawn(Path::new("/bin/sh"), &["-c".into(), script.into()], None, &[]).expect("spawn");
         let mut line = Vec::new();
         let mut byte = [0u8; 1];
         while stdout.read(&mut byte).await.expect("read") == 1 && byte[0] != b'\n' {
@@ -260,9 +264,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn child_variables_reach_only_the_child() {
+        const KEY: &str = "PCX_ACP_CHILD_ONLY_TEST";
+        assert!(std::env::var_os(KEY).is_none(), "precondition: unset here");
+        let script = format!("printf '%s\\n' \"${KEY}\"; exec sleep 30");
+        let env = [(OsString::from(KEY), OsString::from("child value"))];
+        let Spawned {
+            process,
+            stdin: _stdin,
+            mut stdout,
+        } = spawn(Path::new("/bin/sh"), &["-c".into(), script], None, &env).expect("spawn");
+        let mut line = Vec::new();
+        let mut byte = [0u8; 1];
+        while stdout.read(&mut byte).await.expect("read") == 1 && byte[0] != b'\n' {
+            line.push(byte[0]);
+        }
+        assert_eq!(String::from_utf8(line).expect("utf8"), "child value");
+        assert!(
+            std::env::var_os(KEY).is_none(),
+            "the variable is passed to the child, never set on this process"
+        );
+        process.terminate(Duration::from_millis(100)).await;
+    }
+
+    #[tokio::test]
     async fn a_missing_program_fails_to_start() {
         assert_eq!(
-            spawn(Path::new("/definitely/not/here"), &[], None).err(),
+            spawn(Path::new("/definitely/not/here"), &[], None, &[]).err(),
             Some(SpawnError::Start)
         );
     }

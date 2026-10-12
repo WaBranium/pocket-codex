@@ -25,6 +25,7 @@ import 'package:pocket_codex/src/screens/app_session/step_body.dart';
 import 'package:pocket_codex/src/screens/app_session/transcript_model.dart';
 import 'package:pocket_codex/src/screens/app_session_screen.dart';
 import 'package:pocket_codex/src/widgets/host_switcher.dart';
+import 'package:pocket_codex/src/widgets/local_host_dialog.dart';
 import 'package:pocket_codex/src/widgets/file_preview.dart';
 import 'package:pocket_codex/src/screens/home_screen.dart';
 import 'package:pocket_codex/src/screens/services_screen.dart';
@@ -32,6 +33,7 @@ import 'package:pocket_codex/src/screens/settings_screen.dart';
 import 'package:pocket_codex/src/theme.dart';
 
 import '../../test/fake_bridge_api.dart';
+import '../../test/support/agent_catalog_fixture.dart';
 
 const _service = 'pcx:lb7666:app:default';
 
@@ -265,6 +267,8 @@ void main() {
   drawerShots();
   heroShots();
   stepShots();
+  agentPickerShots();
+  hostingShots();
 
   for (final MapEntry(key: name, value: scene) in _scenes.entries) {
     for (final d in _devices) {
@@ -481,6 +485,162 @@ void heroShots() {
           debugDefaultTargetPlatformOverride = null;
         }
       });
+    }
+  }
+}
+
+const _acp = 'pcx:lb7666:acp:opencode';
+
+/// The ACP composer chips, and the model list searched with the phone
+/// keyboard up.
+void agentPickerShots() {
+  for (final d in _devices) {
+    for (final b in Brightness.values) {
+      for (final state in ['chips', 'search']) {
+        testWidgets('agent-$state ${d.name}-${b.name}', (t) async {
+          debugDefaultTargetPlatformOverride = d.platform;
+          try {
+            AppSessionScreen.debugResetThreadMemory();
+            t.view.devicePixelRatio = 2.0;
+            t.view.physicalSize = d.size * 2.0;
+            addTearDown(t.view.reset);
+            addTearDown(t.view.resetViewInsets);
+            final api = _api()
+              ..acpCapabilities[_acp] = const AppCapabilities(
+                provider: 'acp',
+                fast: false,
+                permissionPresets: false,
+                guardian: false,
+                rateLimits: false,
+                takeover: false,
+                externalWriterMonitor: false,
+                localSessions: false,
+                planMode: false,
+                protocol: 'acp',
+                providerName: 'OpenCode',
+                profileId: 'opencode',
+                negotiated: true,
+                generation: 1,
+                sessionConfig: true,
+                permissionOptions: true,
+              );
+            api.sessionSettings['$_acp|t1'] = previewAgentSettings();
+            await api.appConnect(_acp, 28080);
+            await t.pumpWidget(
+              _app(
+                const AppSessionScreen(
+                  serviceKey: _acp,
+                  threadId: 't1',
+                  home: true,
+                ),
+                api,
+                b,
+              ),
+            );
+            await t.pumpAndSettle();
+            if (state == 'search') {
+              await t.tap(find.byKey(const Key('agent-config-model')));
+              await t.pumpAndSettle();
+              await t.enterText(
+                find.byKey(const Key('agent-option-search')),
+                'lab/',
+              );
+              if (d.size.width < 720) {
+                t.view.viewInsets = FakeViewPadding(
+                  bottom: d.size.height * 0.38 * 2.0,
+                );
+              }
+              await t.pumpAndSettle();
+            }
+            await expectLater(
+              find.byType(MaterialApp),
+              matchesGoldenFile('out/agent-$state-${d.name}-${b.name}.png'),
+            );
+            await t.pumpWidget(const SizedBox());
+          } finally {
+            debugDefaultTargetPlatformOverride = null;
+          }
+        });
+      }
+    }
+  }
+}
+
+/// Hosting management: the manage page with Codex and OpenCode hosted and a
+/// remote device selected, and the new-host dialog's agent grid.
+void hostingShots() {
+  for (final d in [_devices[0], _devices[1]]) {
+    for (final b in Brightness.values) {
+      for (final state in ['manage', 'dialog']) {
+        testWidgets('hosting-$state ${d.name}-${b.name}', (t) async {
+          debugDefaultTargetPlatformOverride = d.platform;
+          try {
+            t.view.devicePixelRatio = 2.0;
+            t.view.physicalSize = d.size * 2.0;
+            addTearDown(t.view.reset);
+            final api = FakeBridgeApi(
+              config: const ConfigInfo(relay: 'lb7666.top:7666', hasKey: true),
+              services: const [
+                ServiceEntry(
+                  device: 'workstation',
+                  kind: 'app',
+                  name: 'default',
+                  key: 'pcx:workstation:app:default',
+                ),
+              ],
+            );
+            await api.appServeStart(
+              port: 18080,
+              name: 'default',
+              embedded: false,
+            );
+            await api.appServeStartAcp(
+              name: 'opencode',
+              spec: const AcpAgentSpec(
+                profileId: 'opencode',
+                displayName: 'OpenCode',
+                program: 'opencode',
+                args: ['acp'],
+              ),
+            );
+            await t.pumpWidget(
+              _app(
+                state == 'manage'
+                    ? const ServicesScreen()
+                    : Builder(
+                        builder: (context) => Scaffold(
+                          body: Center(
+                            child: TextButton(
+                              onPressed: () => showDialog<void>(
+                                context: context,
+                                builder: (_) => const LocalHostDialog(),
+                              ),
+                              child: const Text('open'),
+                            ),
+                          ),
+                        ),
+                      ),
+                api,
+                b,
+              ),
+            );
+            await t.pumpAndSettle();
+            if (state == 'manage') {
+              await t.tap(find.byKey(const Key('device-workstation')));
+            } else {
+              await t.tap(find.text('open'));
+            }
+            await t.pumpAndSettle();
+            await expectLater(
+              find.byType(MaterialApp),
+              matchesGoldenFile('out/hosting-$state-${d.name}-${b.name}.png'),
+            );
+            await t.pumpWidget(const SizedBox());
+          } finally {
+            debugDefaultTargetPlatformOverride = null;
+          }
+        });
+      }
     }
   }
 }

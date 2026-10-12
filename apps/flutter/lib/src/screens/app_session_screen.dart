@@ -59,6 +59,7 @@ import 'package:pocket_codex/src/widgets/brand_logo.dart';
 import 'package:pocket_codex/src/widgets/diff_review.dart';
 import 'package:pocket_codex/src/widgets/draggable_navigation.dart';
 import 'package:pocket_codex/src/widgets/history_arrival.dart';
+import 'package:pocket_codex/src/widgets/agent_icon.dart';
 import 'package:pocket_codex/src/widgets/host_switcher.dart';
 import 'package:pocket_codex/src/widgets/file_browser_panel.dart';
 import 'package:pocket_codex/src/widgets/folder_tree_picker.dart';
@@ -280,6 +281,9 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
   // state change or reconnect (see [_invalidateCaps]).
   AppCapabilities? _capsCache;
   String? _capsKey;
+  // Moves whenever cached capabilities are dropped; agent option changes
+  // and prepared sessions are bound to it (see [_AgentTarget]).
+  int _capsEpoch = 0;
   AppCapabilities get _caps {
     final cached = _capsCache;
     if (_capsKey != widget.serviceKey ||
@@ -296,6 +300,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
   /// Drop cached capabilities (host generation / phase changed, reconnect)
   /// and stop native microphone features the new connection does not have.
   void _invalidateCaps() {
+    _capsEpoch++;
     final imageInputBefore = _capsCache?.imageInput;
     _capsCache = null;
     final caps = _caps;
@@ -311,6 +316,44 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
 
   /// The ACP agent's state for the open session (options, modes, usage).
   SessionSettings? _agentSettings;
+
+  /// The session an agent option change would apply to right now, or null
+  /// when there is none. A change is bound to the target current when its
+  /// menu opened and refused if any part moved (conversation, its load,
+  /// capabilities/host generation, event connection).
+  _AgentTarget? _agentTarget() {
+    final tid = _threadId;
+    if (tid == null) return null;
+    return (
+      service: widget.serviceKey,
+      thread: tid,
+      load: _threadLoadGeneration,
+      caps: _capsEpoch,
+      link: _subscriptionEpoch,
+    );
+  }
+
+  /// Whether the agent's per-session options can be changed now: a live,
+  /// editable, idle conversation.
+  bool get _agentControlsEnabled =>
+      _caps.sessionConfig &&
+      !_sending &&
+      !_preparingSession &&
+      !_streaming &&
+      !(_agentSettings?.running ?? false) &&
+      !_externalWriterMode &&
+      !_guardianReadOnly &&
+      !_reconnecting &&
+      !_historySyncing &&
+      !_showingCachedHistory &&
+      !_connectionLost;
+
+  /// Whether a change bound to [target] may still be sent.
+  bool _agentTargetCurrent(_AgentTarget? target) =>
+      mounted &&
+      target != null &&
+      target == _agentTarget() &&
+      _agentControlsEnabled;
 
   void _refreshAgentSettings() {
     final tid = _threadId;
@@ -1655,6 +1698,10 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
       _effortActive = null;
       // The runtime config and turn stamps describe the previous thread.
       _runtime = null;
+      // So do the agent's options: offering (and validating a change
+      // against) the previous session's catalog would apply its values to
+      // this one. Reopening the session reads its own.
+      _agentSettings = null;
       _runtimeAt = null;
       _turnStampModel = null;
       _turnStampEffort = null;
@@ -3573,6 +3620,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
         _reconnecting ||
         _historySyncing ||
         _restoringSettings ||
+        _preparingSession ||
         _showingCachedHistory) {
       return;
     }
@@ -4635,30 +4683,134 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
     }
   }
 
-  Future<void> _setAgentConfig(String configId, String value) async {
-    final tid = _threadId;
-    if (tid == null) return;
-    try {
-      await ref
-          .read(bridgeApiProvider)
-          .appSetSessionConfig(widget.serviceKey, tid, configId, value);
-    } catch (e) {
-      if (mounted) setState(() => _error = friendlyError(e));
+  /// A "prepare session" is in flight (see [_prepareAgentSession]).
+  bool _preparingSession = false;
+
+  /// Open the ACP agent's session for the chosen project without sending, so
+  /// its model, effort and mode can be chosen before the first prompt (the
+  /// agent's catalog is per session and project). The current draft — text,
+  /// attachments, queue — is adopted by the new session as is; nothing is
+  /// sent. Only a completion for the same service, project, draft and
+  /// conversation state is applied: if the user switched project or
+  /// conversation meanwhile, the new session stays an empty entry in the
+  /// host's list and this view is left alone.
+  Future<void> _prepareAgentSession() async {
+    final cwd = _cwd;
+    if (_threadId != null ||
+        cwd == null ||
+        _preparingSession ||
+        _sending ||
+        !_caps.sessionConfig ||
+        _externalWriterMode ||
+        _guardianReadOnly ||
+        _reconnecting ||
+        _connectionLost ||
+        _showingCachedHistory) {
+      return;
     }
-    _refreshAgentSettings();
+    final serviceKey = widget.serviceKey;
+    final generation = _threadLoadGeneration;
+    final selection = _projectSelectionGeneration;
+    final caps = _capsEpoch;
+    final link = _subscriptionEpoch;
+    _saveDraft();
+    final draft = _draft;
+    // The same view, project, draft and connection, still editable and
+    // still offering per-session options.
+    bool current() =>
+        mounted &&
+        widget.serviceKey == serviceKey &&
+        generation == _threadLoadGeneration &&
+        selection == _projectSelectionGeneration &&
+        caps == _capsEpoch &&
+        link == _subscriptionEpoch &&
+        identical(_draft, draft) &&
+        _threadId == null &&
+        _cwd == cwd &&
+        !_sending &&
+        !_externalWriterMode &&
+        !_guardianReadOnly &&
+        !_reconnecting &&
+        !_connectionLost &&
+        _caps.sessionConfig;
+    setState(() {
+      _preparingSession = true;
+      _error = null;
+    });
+    try {
+      final id = await ref
+          .read(bridgeApiProvider)
+          .appThreadStart(serviceKey, cwd: cwd);
+      if (!current()) return;
+      _drafts.adoptThread(draft, id);
+      _threadId = id;
+      ref.read(uiPrefsProvider.notifier).setLastThread(serviceKey, id);
+      setState(() {
+        if (!_threads.any((t) => t.id == id)) {
+          _threads = [
+            ThreadMeta(id: id, preview: '', cwd: cwd, updatedAt: 0),
+            ..._threads,
+          ];
+        }
+      });
+      _refreshAgentSettings();
+      unawaited(_loadThreads());
+    } catch (e) {
+      if (current()) setState(() => _error = friendlyError(e));
+    } finally {
+      if (mounted) setState(() => _preparingSession = false);
+    }
   }
 
-  Future<void> _setAgentMode(String modeId) async {
-    final tid = _threadId;
-    if (tid == null) return;
+  /// Set the agent's option [configId] to [value] for [target]. Refused —
+  /// nothing is sent — when [target] is no longer the open, editable
+  /// conversation or the value is no longer advertised.
+  Future<void> _setAgentConfig(
+    _AgentTarget? target,
+    String configId,
+    String value,
+  ) async {
+    if (!_agentTargetCurrent(target)) return;
+    final offered = _agentSettings?.configOptions
+        .where((o) => o.id == configId)
+        .firstOrNull;
+    if (offered == null || !offered.values.any((v) => v.value == value)) {
+      return;
+    }
     try {
       await ref
           .read(bridgeApiProvider)
-          .appSetSessionMode(widget.serviceKey, tid, modeId);
+          .appSetSessionConfig(target!.service, target.thread, configId, value);
     } catch (e) {
-      if (mounted) setState(() => _error = friendlyError(e));
+      // The agent kept its previous value; its option set is unchanged. A
+      // failure for a conversation the user already left is not shown here.
+      if (mounted && _agentTarget() == target) {
+        setState(() => _error = friendlyError(e));
+      }
     }
-    _refreshAgentSettings();
+    if (mounted && _agentTarget() == target) _refreshAgentSettings();
+  }
+
+  /// Switch the agent's legacy mode for [target]; refused like
+  /// [_setAgentConfig].
+  Future<void> _setAgentMode(_AgentTarget? target, String modeId) async {
+    if (!_agentTargetCurrent(target)) return;
+    final settings = _agentSettings;
+    if (settings == null ||
+        !showsLegacyModes(settings) ||
+        !settings.modes.any((m) => m.id == modeId)) {
+      return;
+    }
+    try {
+      await ref
+          .read(bridgeApiProvider)
+          .appSetSessionMode(target!.service, target.thread, modeId);
+    } catch (e) {
+      if (mounted && _agentTarget() == target) {
+        setState(() => _error = friendlyError(e));
+      }
+    }
+    if (mounted && _agentTarget() == target) _refreshAgentSettings();
   }
 
   /// Answer a `request_user_input` elicitation. `answers` maps each question id
@@ -8115,8 +8267,36 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
     services: widget.services,
     current: widget.serviceKey,
     pending: widget.hostSwitch,
+    identities: _hostIdentities(),
     onPick: (key) => widget.onSwitchService?.call(key),
+    onManage: () => context.push('/manage'),
   );
+
+  /// Agent identity per service key, from explicit sources only: this
+  /// device's hosts report their provider and profile, and the connected
+  /// ACP host reports its profile. Other remote hosts stay generic.
+  Map<String, AgentIdentity> _hostIdentities() {
+    final out = <String, AgentIdentity>{};
+    for (final host
+        in ref.watch(localServeListProvider).valueOrNull ??
+            const <AppServeStatus>[]) {
+      if (host.appServiceKey.isEmpty) continue;
+      out[host.appServiceKey] = AgentIdentity(
+        provider: host.provider,
+        profileId: host.profileId,
+        name: host.providerName.isEmpty ? null : host.providerName,
+      );
+    }
+    final caps = _caps;
+    if (caps.isAcp && caps.profileId.isNotEmpty) {
+      out[widget.serviceKey] ??= AgentIdentity(
+        provider: 'acp',
+        profileId: caps.profileId,
+        name: caps.providerName,
+      );
+    }
+    return out;
+  }
 
   /// The switch strip above the conversation, while one runs or after it
   /// fails. Null otherwise.
@@ -9846,6 +10026,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
         onSelected: onSelected,
       ),
     );
+    final agentTarget = _agentTarget();
     final modeChips = [
       if (_fastAvailable)
         turnChip(
@@ -10069,13 +10250,32 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
                       ? _modelChip(l10n)
                       : AgentSessionOptions(
                           settings: _agentSettings,
-                          enabled: !_sending && _threadId != null,
+                          enabled: _agentControlsEnabled,
                           projectLabel: _threadId == null
                               ? _projectName()
                               : null,
                           onPickProject: _pickProject,
-                          onSelectConfig: _setAgentConfig,
-                          onSelectMode: _setAgentMode,
+                          // Before the first send, the agent's options exist
+                          // only once its session does; offer to open it for
+                          // the chosen project.
+                          onPrepare:
+                              _threadId == null &&
+                                  _cwd != null &&
+                                  _caps.sessionConfig &&
+                                  !_externalWriterMode &&
+                                  !_guardianReadOnly &&
+                                  !_reconnecting &&
+                                  !_connectionLost &&
+                                  !_showingCachedHistory
+                              ? _prepareAgentSession
+                              : null,
+                          preparing: _preparingSession,
+                          // Bound to this build's target: a menu opened now
+                          // answers to it, never to a later conversation.
+                          onSelectConfig: (id, value) =>
+                              _setAgentConfig(agentTarget, id, value),
+                          onSelectMode: (mode) =>
+                              _setAgentMode(agentTarget, mode),
                         ),
                 ),
               ),
@@ -11643,3 +11843,13 @@ class _SelectionBar extends StatelessWidget {
     );
   }
 }
+
+/// What an agent option change applies to: the service, conversation and the
+/// load, capability and connection generations it was offered under.
+typedef _AgentTarget = ({
+  String service,
+  String thread,
+  int load,
+  int caps,
+  int link,
+});

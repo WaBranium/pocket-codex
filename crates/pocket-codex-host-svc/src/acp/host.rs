@@ -1,24 +1,24 @@
 //! The host-owned ACP client for one agent.
 //!
-//! [`AgentHost`] owns the agent process for its whole life. One lifecycle
-//! lock serializes start, stop, restart and exit handling; whoever holds it
-//! and takes the running process is its only owner and performs the full
-//! teardown: invalidate the generation (ending turns with their real
-//! outcome and withdrawing permissions), close the writer (and with it the
-//! agent's input), give the output a moment to end, terminate the process
-//! group and reap the leader. [`AgentHost::stop`] is final and bounded: it
-//! first cuts short a launch still negotiating, so stopping never waits for
-//! a slow handshake.
+//! ```text
+//!        one lifecycle lock: start | stop | restart | exit handling
+//! launch ──► negotiating ──► ready ──► gone (connection closed, or leader
+//!               │                        │  exited while a descendant holds
+//!          stop cuts it short            │  its output; seen unreaped)
+//!               ▼                        ▼ watcher reports its generation
+//!           teardown ◄──── supervisor: teardown unless done, bounded relaunch
 //!
-//! An unexpected exit is handled by the host's one supervisor task: each
-//! generation's watcher only reports "gone" for its generation — when the
-//! connection closes *or* the leader exits while a descendant still holds
-//! its output open — and the supervisor takes the lifecycle lock, tears
-//! that generation down (unless a stop or restart already did) and
-//! relaunches within the bounded restart budget. The leader is detected
-//! without being reaped, so its group is still signalled safely. Launching
-//! never waits on the supervisor, so there is no recursion between launch,
-//! exit handling and relaunch.
+//! teardown: invalidate generation (end turns truthfully, withdraw
+//!           permissions) → close writer → brief output drain
+//!           → signal process group → reap leader
+//! ```
+//!
+//! [`AgentHost`] owns the agent process for its whole life: whoever holds
+//! the lifecycle lock and takes the running process performs the teardown.
+//! [`AgentHost::stop`] is final and bounded and never waits for a slow
+//! handshake. The leader is detected without being reaped, so its group is
+//! still signalled safely. Launching never waits on the supervisor, so
+//! launch, exit handling and relaunch never recurse.
 //!
 //! # Turns
 //!
@@ -251,6 +251,8 @@ pub struct HostOptions {
     pub program: PathBuf,
     /// `PATH` for the child only, when it must differ from the inherited one.
     pub path: Option<OsString>,
+    /// Extra environment for the child (see [`super::catalog`]).
+    pub env: Vec<(OsString, OsString)>,
     /// Admitted-session record of this agent source.
     pub store: SessionStore,
 }
@@ -333,6 +335,7 @@ struct Inner {
     spec: AgentSpec,
     program: PathBuf,
     path: Option<OsString>,
+    env: Vec<(OsString, OsString)>,
     store: Arc<SessionStore>,
     persist: Persist,
     state: Mutex<State>,
@@ -476,6 +479,7 @@ impl AgentHost {
                 spec: options.spec,
                 program: options.program,
                 path: options.path,
+                env: options.env,
                 store,
                 persist: Persist::spawn(apply),
                 state: Mutex::new(State::default()),
@@ -577,6 +581,7 @@ impl AgentHost {
             &self.inner.program,
             &self.inner.spec.args,
             self.inner.path.as_ref(),
+            &self.inner.env,
         ) {
             Ok(spawned) => spawned,
             Err(error) => {
@@ -1519,8 +1524,13 @@ impl AgentHost {
         result
     }
 
-    /// The settings of a usable (admitted, confirmed) session.
-    fn usable_settings(&self, session: &str) -> Result<SessionSettings, HostError> {
+    /// Whether the settings of a usable (admitted, confirmed) session pass
+    /// `check`, read in place under the state lock (released on return).
+    fn settings_allow(
+        &self,
+        session: &str,
+        check: impl FnOnce(&SessionSettings) -> bool,
+    ) -> Result<bool, HostError> {
         let state = self.state();
         let entry = state
             .sessions
@@ -1529,7 +1539,7 @@ impl AgentHost {
         if entry.pending {
             return Err(HostError::Loading);
         }
-        Ok(entry.settings.clone())
+        Ok(check(&entry.settings))
     }
 
     /// Set a select configuration option to one of its advertised values.
@@ -1542,10 +1552,7 @@ impl AgentHost {
     ) -> Result<Value, HostError> {
         valid_id(session)?;
         let (generation, peer, _) = self.ready_for(expected)?;
-        if !self
-            .usable_settings(session)?
-            .allows_config_value(config, value)
-        {
+        if !self.settings_allow(session, |settings| settings.allows_config_value(config, value))? {
             return Err(HostError::InvalidInput("that value is not offered".into()));
         }
         let result = peer
@@ -1576,7 +1583,7 @@ impl AgentHost {
     ) -> Result<Value, HostError> {
         valid_id(session)?;
         let (generation, peer, _) = self.ready_for(expected)?;
-        if !self.usable_settings(session)?.allows_mode(mode) {
+        if !self.settings_allow(session, |settings| settings.allows_mode(mode))? {
             return Err(HostError::InvalidInput("that mode is not offered".into()));
         }
         peer.request(
@@ -1848,6 +1855,7 @@ mod tests {
             spec,
             program,
             path: None,
+            env: Vec::new(),
             store,
         })
         .await;

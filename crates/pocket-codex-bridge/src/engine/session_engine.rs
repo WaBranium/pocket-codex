@@ -128,6 +128,9 @@ pub struct Capabilities {
     pub provider: String,
     /// Human-readable agent name.
     pub provider_name: String,
+    /// ACP agent profile id reported by the host (`opencode` for the preset,
+    /// or a custom id); empty for Codex and before the host answered.
+    pub profile_id: String,
     /// Protocol id (see [`Protocol::id`]).
     pub protocol: String,
     /// Whether the values come from a live negotiation (ACP) rather than the

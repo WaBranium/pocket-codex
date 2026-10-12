@@ -4273,6 +4273,38 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  AcpCatalogProviderDto dco_decode_acp_catalog_provider_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 8)
+      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
+    return AcpCatalogProviderDto(
+      id: dco_decode_String(arr[0]),
+      status: dco_decode_String(arr[1]),
+      reason: dco_decode_opt_String(arr[2]),
+      listed: dco_decode_u_32(arr[3]),
+      added: dco_decode_u_32(arr[4]),
+      excluded: dco_decode_u_32(arr[5]),
+      unsafeIds: dco_decode_u_32(arr[6]),
+      keySource: dco_decode_String(arr[7]),
+    );
+  }
+
+  @protected
+  AcpCatalogStatusDto dco_decode_acp_catalog_status_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return AcpCatalogStatusDto(
+      state: dco_decode_String(arr[0]),
+      reason: dco_decode_opt_String(arr[1]),
+      plugin: dco_decode_opt_String(arr[2]),
+      providers: dco_decode_list_acp_catalog_provider_dto(arr[3]),
+    );
+  }
+
+  @protected
   AcpPresetDto dco_decode_acp_preset_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -4308,8 +4340,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   AppCapabilitiesDto dco_decode_app_capabilities_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 29)
-      throw Exception('unexpected arr length: expect 29 but see ${arr.length}');
+    if (arr.length != 30)
+      throw Exception('unexpected arr length: expect 30 but see ${arr.length}');
     return AppCapabilitiesDto(
       provider: dco_decode_String(arr[0]),
       fast: dco_decode_bool(arr[1]),
@@ -4322,24 +4354,25 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       planMode: dco_decode_bool(arr[8]),
       protocol: dco_decode_String(arr[9]),
       providerName: dco_decode_String(arr[10]),
-      negotiated: dco_decode_bool(arr[11]),
-      generation: dco_decode_u_64(arr[12]),
-      voice: dco_decode_bool(arr[13]),
-      dictation: dco_decode_bool(arr[14]),
-      imageInput: dco_decode_bool(arr[15]),
-      steer: dco_decode_bool(arr[16]),
-      rename: dco_decode_bool(arr[17]),
-      compact: dco_decode_bool(arr[18]),
-      gitDiff: dco_decode_bool(arr[19]),
-      modelCatalog: dco_decode_bool(arr[20]),
-      sessionConfig: dco_decode_bool(arr[21]),
-      permissionOptions: dco_decode_bool(arr[22]),
-      nativeMetadata: dco_decode_bool(arr[23]),
-      sessionReopen: dco_decode_String(arr[24]),
-      sessionList: dco_decode_String(arr[25]),
-      historyScope: dco_decode_String(arr[26]),
-      runningInventory: dco_decode_String(arr[27]),
-      authRequired: dco_decode_bool(arr[28]),
+      profileId: dco_decode_String(arr[11]),
+      negotiated: dco_decode_bool(arr[12]),
+      generation: dco_decode_u_64(arr[13]),
+      voice: dco_decode_bool(arr[14]),
+      dictation: dco_decode_bool(arr[15]),
+      imageInput: dco_decode_bool(arr[16]),
+      steer: dco_decode_bool(arr[17]),
+      rename: dco_decode_bool(arr[18]),
+      compact: dco_decode_bool(arr[19]),
+      gitDiff: dco_decode_bool(arr[20]),
+      modelCatalog: dco_decode_bool(arr[21]),
+      sessionConfig: dco_decode_bool(arr[22]),
+      permissionOptions: dco_decode_bool(arr[23]),
+      nativeMetadata: dco_decode_bool(arr[24]),
+      sessionReopen: dco_decode_String(arr[25]),
+      sessionList: dco_decode_String(arr[26]),
+      historyScope: dco_decode_String(arr[27]),
+      runningInventory: dco_decode_String(arr[28]),
+      authRequired: dco_decode_bool(arr[29]),
     );
   }
 
@@ -4386,8 +4419,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   AppServeStatusDto dco_decode_app_serve_status_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 24)
-      throw Exception('unexpected arr length: expect 24 but see ${arr.length}');
+    if (arr.length != 25)
+      throw Exception('unexpected arr length: expect 25 but see ${arr.length}');
     return AppServeStatusDto(
       name: dco_decode_String(arr[0]),
       device: dco_decode_String(arr[1]),
@@ -4413,6 +4446,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       agentPhase: dco_decode_opt_String(arr[21]),
       agentError: dco_decode_opt_String(arr[22]),
       authRequired: dco_decode_bool(arr[23]),
+      catalog: dco_decode_opt_box_autoadd_acp_catalog_status_dto(arr[24]),
     );
   }
 
@@ -4432,6 +4466,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   AcpAgentSpecDto dco_decode_box_autoadd_acp_agent_spec_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_acp_agent_spec_dto(raw);
+  }
+
+  @protected
+  AcpCatalogStatusDto dco_decode_box_autoadd_acp_catalog_status_dto(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_acp_catalog_status_dto(raw);
   }
 
   @protected
@@ -4652,6 +4694,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<AcpCatalogProviderDto> dco_decode_list_acp_catalog_provider_dto(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>)
+        .map(dco_decode_acp_catalog_provider_dto)
+        .toList();
+  }
+
+  @protected
   List<AcpPresetDto> dco_decode_list_acp_preset_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_acp_preset_dto).toList();
@@ -4843,6 +4895,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   AccountUserDto? dco_decode_opt_box_autoadd_account_user_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_account_user_dto(raw);
+  }
+
+  @protected
+  AcpCatalogStatusDto? dco_decode_opt_box_autoadd_acp_catalog_status_dto(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null
+        ? null
+        : dco_decode_box_autoadd_acp_catalog_status_dto(raw);
   }
 
   @protected
@@ -5307,6 +5369,48 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  AcpCatalogProviderDto sse_decode_acp_catalog_provider_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_id = sse_decode_String(deserializer);
+    var var_status = sse_decode_String(deserializer);
+    var var_reason = sse_decode_opt_String(deserializer);
+    var var_listed = sse_decode_u_32(deserializer);
+    var var_added = sse_decode_u_32(deserializer);
+    var var_excluded = sse_decode_u_32(deserializer);
+    var var_unsafeIds = sse_decode_u_32(deserializer);
+    var var_keySource = sse_decode_String(deserializer);
+    return AcpCatalogProviderDto(
+      id: var_id,
+      status: var_status,
+      reason: var_reason,
+      listed: var_listed,
+      added: var_added,
+      excluded: var_excluded,
+      unsafeIds: var_unsafeIds,
+      keySource: var_keySource,
+    );
+  }
+
+  @protected
+  AcpCatalogStatusDto sse_decode_acp_catalog_status_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_state = sse_decode_String(deserializer);
+    var var_reason = sse_decode_opt_String(deserializer);
+    var var_plugin = sse_decode_opt_String(deserializer);
+    var var_providers = sse_decode_list_acp_catalog_provider_dto(deserializer);
+    return AcpCatalogStatusDto(
+      state: var_state,
+      reason: var_reason,
+      plugin: var_plugin,
+      providers: var_providers,
+    );
+  }
+
+  @protected
   AcpPresetDto sse_decode_acp_preset_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_id = sse_decode_String(deserializer);
@@ -5360,6 +5464,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_planMode = sse_decode_bool(deserializer);
     var var_protocol = sse_decode_String(deserializer);
     var var_providerName = sse_decode_String(deserializer);
+    var var_profileId = sse_decode_String(deserializer);
     var var_negotiated = sse_decode_bool(deserializer);
     var var_generation = sse_decode_u_64(deserializer);
     var var_voice = sse_decode_bool(deserializer);
@@ -5390,6 +5495,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       planMode: var_planMode,
       protocol: var_protocol,
       providerName: var_providerName,
+      profileId: var_profileId,
       negotiated: var_negotiated,
       generation: var_generation,
       voice: var_voice,
@@ -5492,6 +5598,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_agentPhase = sse_decode_opt_String(deserializer);
     var var_agentError = sse_decode_opt_String(deserializer);
     var var_authRequired = sse_decode_bool(deserializer);
+    var var_catalog = sse_decode_opt_box_autoadd_acp_catalog_status_dto(
+      deserializer,
+    );
     return AppServeStatusDto(
       name: var_name,
       device: var_device,
@@ -5517,6 +5626,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       agentPhase: var_agentPhase,
       agentError: var_agentError,
       authRequired: var_authRequired,
+      catalog: var_catalog,
     );
   }
 
@@ -5540,6 +5650,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_acp_agent_spec_dto(deserializer));
+  }
+
+  @protected
+  AcpCatalogStatusDto sse_decode_box_autoadd_acp_catalog_status_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_acp_catalog_status_dto(deserializer));
   }
 
   @protected
@@ -5791,6 +5909,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var ans_ = <AccountServiceDto>[];
     for (var idx_ = 0; idx_ < len_; ++idx_) {
       ans_.add(sse_decode_account_service_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<AcpCatalogProviderDto> sse_decode_list_acp_catalog_provider_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <AcpCatalogProviderDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_acp_catalog_provider_dto(deserializer));
     }
     return ans_;
   }
@@ -6127,6 +6259,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
     if (sse_decode_bool(deserializer)) {
       return (sse_decode_box_autoadd_account_user_dto(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  AcpCatalogStatusDto? sse_decode_opt_box_autoadd_acp_catalog_status_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_acp_catalog_status_dto(deserializer));
     } else {
       return null;
     }
@@ -6725,6 +6870,34 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_acp_catalog_provider_dto(
+    AcpCatalogProviderDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.id, serializer);
+    sse_encode_String(self.status, serializer);
+    sse_encode_opt_String(self.reason, serializer);
+    sse_encode_u_32(self.listed, serializer);
+    sse_encode_u_32(self.added, serializer);
+    sse_encode_u_32(self.excluded, serializer);
+    sse_encode_u_32(self.unsafeIds, serializer);
+    sse_encode_String(self.keySource, serializer);
+  }
+
+  @protected
+  void sse_encode_acp_catalog_status_dto(
+    AcpCatalogStatusDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.state, serializer);
+    sse_encode_opt_String(self.reason, serializer);
+    sse_encode_opt_String(self.plugin, serializer);
+    sse_encode_list_acp_catalog_provider_dto(self.providers, serializer);
+  }
+
+  @protected
   void sse_encode_acp_preset_dto(AcpPresetDto self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(self.id, serializer);
@@ -6763,6 +6936,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_bool(self.planMode, serializer);
     sse_encode_String(self.protocol, serializer);
     sse_encode_String(self.providerName, serializer);
+    sse_encode_String(self.profileId, serializer);
     sse_encode_bool(self.negotiated, serializer);
     sse_encode_u_64(self.generation, serializer);
     sse_encode_bool(self.voice, serializer);
@@ -6842,6 +7016,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_String(self.agentPhase, serializer);
     sse_encode_opt_String(self.agentError, serializer);
     sse_encode_bool(self.authRequired, serializer);
+    sse_encode_opt_box_autoadd_acp_catalog_status_dto(self.catalog, serializer);
   }
 
   @protected
@@ -6866,6 +7041,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_acp_agent_spec_dto(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_acp_catalog_status_dto(
+    AcpCatalogStatusDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_acp_catalog_status_dto(self, serializer);
   }
 
   @protected
@@ -7070,6 +7254,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
       sse_encode_account_service_dto(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_acp_catalog_provider_dto(
+    List<AcpCatalogProviderDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_acp_catalog_provider_dto(item, serializer);
     }
   }
 
@@ -7356,6 +7552,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_bool(self != null, serializer);
     if (self != null) {
       sse_encode_box_autoadd_account_user_dto(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_acp_catalog_status_dto(
+    AcpCatalogStatusDto? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_acp_catalog_status_dto(self, serializer);
     }
   }
 

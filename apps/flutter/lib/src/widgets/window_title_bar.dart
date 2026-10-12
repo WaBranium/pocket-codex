@@ -37,6 +37,11 @@ abstract final class WindowChrome {
   /// there are none.
   static double get leadingInset =>
       isFramelessDesktop && isMacDesktop ? trafficLightsWidth : 0;
+
+  /// Width [WindowTitleBar] adds after its actions for the drawn Windows
+  /// caption buttons; zero elsewhere.
+  static double get trailingInset =>
+      isFramelessDesktop && !isMacDesktop ? 3 * _CaptionButton.width : 0;
 }
 
 /// An [AppBar] replacement for the frameless desktop window.
@@ -137,19 +142,30 @@ class WindowTitleBar extends StatelessWidget implements PreferredSizeWidget {
             child: effectiveLeading,
           );
 
+    final centered = centerTitle ?? isMac;
+    // The toolbar applies its title spacing on both sides of the title, so a
+    // leading-aligned title takes the traffic-light inset as its own leading
+    // padding; only a centred title keeps it symmetric, to stay centred.
+    final insetTitle =
+        effectiveLeading == null && !centered && title != null && leadInset > 0;
     return AppBar(
       automaticallyImplyLeading: false,
       toolbarHeight: barHeight,
       // macOS centres a window's title; Windows leads with it.
-      centerTitle: centerTitle ?? isMac,
+      centerTitle: centered,
       backgroundColor: backgroundColor,
       foregroundColor: foregroundColor,
       leadingWidth: effectiveLeading == null ? null : leadInset + barHeight,
       leading: leadingWidget,
-      titleSpacing: effectiveLeading == null
+      titleSpacing: effectiveLeading == null && !insetTitle
           ? leadInset + NavigationToolbar.kMiddleSpacing
           : NavigationToolbar.kMiddleSpacing,
-      title: title,
+      title: insetTitle
+          ? Padding(
+              padding: EdgeInsets.only(left: leadInset),
+              child: title,
+            )
+          : title,
       actions: [
         ...?actions,
         // macOS keeps its native traffic lights (top-left); Windows lost its

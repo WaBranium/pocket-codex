@@ -83,14 +83,26 @@ pub struct Preset {
 }
 
 /// Built-in presets. OpenCode documents `opencode acp` as its stdio ACP
-/// agent; nothing else about its ACP feature set is assumed.
-pub const PRESETS: &[Preset] = &[Preset {
-    id: "opencode",
-    display_name: "OpenCode",
-    program: "opencode",
-    args: &["acp"],
-    fallback_dirs: &[".opencode/bin"],
-}];
+/// agent; Claude is reached through the separately installed
+/// `@agentclientprotocol/claude-agent-acp` adapter, whose `claude-agent-acp`
+/// binary speaks ACP on stdio without arguments. Nothing else about either
+/// agent's ACP feature set is assumed: capabilities are negotiated.
+pub const PRESETS: &[Preset] = &[
+    Preset {
+        id: "opencode",
+        display_name: "OpenCode",
+        program: "opencode",
+        args: &["acp"],
+        fallback_dirs: &[".opencode/bin"],
+    },
+    Preset {
+        id: "claude",
+        display_name: "Claude",
+        program: "claude-agent-acp",
+        args: &[],
+        fallback_dirs: &[],
+    },
+];
 
 /// The preset with `id`.
 pub fn preset(id: &str) -> Option<&'static Preset> {
@@ -241,6 +253,18 @@ mod tests {
         let spec = preset.spec();
         assert_eq!(spec.program, "opencode");
         assert_eq!(spec.args, vec!["acp".to_string()]);
+    }
+
+    #[test]
+    fn the_claude_preset_runs_the_acp_adapter_without_arguments() {
+        let spec = preset("claude").expect("preset").spec();
+        assert_eq!(spec.program, "claude-agent-acp");
+        assert!(spec.args.is_empty());
+        assert!(spec.validate().is_ok());
+        let mut ids: Vec<_> = PRESETS.iter().map(|p| p.id).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), PRESETS.len(), "preset ids are unique");
     }
 
     #[cfg(unix)]

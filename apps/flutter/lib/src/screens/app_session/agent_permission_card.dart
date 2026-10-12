@@ -67,11 +67,14 @@ class AgentPermissionRequest {
       final decoded = jsonDecode(event.raw);
       if (decoded is Map<String, dynamic>) raw = decoded;
     } catch (_) {}
-    final tool = raw['toolCall'] is Map<String, dynamic>
-        ? raw['toolCall'] as Map<String, dynamic>
-        : const <String, dynamic>{};
+    // Every shape is checked: the tool call is display-only and arbitrary,
+    // and a malformed detail must not hide a valid offered option.
+    final tool = switch (raw['toolCall']) {
+      final Map<String, dynamic> map => map,
+      _ => const <String, dynamic>{},
+    };
     final options = <AgentPermissionOption>[];
-    for (final option in (raw['options'] as List?) ?? const []) {
+    for (final option in _list(raw['options'])) {
       if (option is! Map) continue;
       final id = option['optionId'];
       final name = option['name'];
@@ -80,21 +83,22 @@ class AgentPermissionRequest {
       options.add(AgentPermissionOption(id: id, name: name, kind: kind));
     }
     final lines = <String>[];
-    for (final location in (tool['locations'] as List?) ?? const []) {
-      if (location is Map && location['path'] is String) {
-        lines.add(location['path'] as String);
-      }
+    for (final location in _list(tool['locations'])) {
+      if (location case {'path': final String path}) lines.add(path);
     }
     final input = tool['rawInput'];
     if (input is Map && input.isNotEmpty) {
       lines.add(const JsonEncoder.withIndent('  ').convert(input));
     }
+    final title = tool['title'];
     return AgentPermissionRequest(
-      title: (tool['title'] as String?) ?? event.title ?? '',
+      title: title is String ? title : event.title ?? '',
       detail: lines.join('\n'),
       options: options,
     );
   }
+
+  static List<Object?> _list(Object? value) => value is List ? value : const [];
 }
 
 /// The card; [onAnswer] receives the chosen option id.

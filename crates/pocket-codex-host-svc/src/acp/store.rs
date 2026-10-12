@@ -34,11 +34,17 @@
 //!
 //! # Pending writes
 //!
-//! The host never writes on its event path. It records what changed in a
-//! [`Pending`] set — one coalesced [`Change`] per session, so a burst of
-//! title updates is one write of the newest title — and a worker applies
-//! the set as one batch ([`SessionStore::apply`]). An admission and its
-//! title merge into one change, so their order cannot lose the title.
+//! ```text
+//! event path ──(state lock)──► Pending: one coalesced Change per session
+//!                                  │ worker takes the batch
+//!                                  ▼
+//!         SessionStore::apply ──(entries lock)──► unique temp file ──rename──► record
+//! ```
+//!
+//! The host never writes on its event path. A burst of title updates is one
+//! write of the newest title, and an admission and its title merge into one
+//! [`Change`], so their order cannot lose the title. See [`Pending`] and
+//! [`SessionStore::apply`].
 
 use std::{
     collections::HashMap,
@@ -76,11 +82,20 @@ pub struct Entry {
     pub admitted_at: i64,
 }
 
-#[derive(Serialize, Deserialize)]
+/// The record file, as read.
+#[derive(Deserialize)]
 struct File {
     version: u32,
     source: String,
     sessions: Vec<Entry>,
+}
+
+/// The record file, as written: the same fields, borrowed.
+#[derive(Serialize)]
+struct FileRef<'a> {
+    version: u32,
+    source: &'a str,
+    sessions: &'a [Entry],
 }
 
 /// The identity of an agent invocation (see the module docs).
@@ -330,10 +345,10 @@ impl SessionStore {
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            let bytes = serde_json::to_vec(&File {
+            let bytes = serde_json::to_vec(&FileRef {
                 version: FILE_VERSION,
-                source: self.source.as_str().to_string(),
-                sessions: sessions.to_vec(),
+                source: self.source.as_str(),
+                sessions,
             })
             .map_err(std::io::Error::other)?;
             // A temporary file owned by this write alone.
@@ -637,5 +652,31 @@ mod tests {
             .filter_map(Result::ok)
             .any(|e| e.file_name().to_string_lossy().contains("corrupt"));
         assert!(aside, "and kept for inspection");
+    }
+
+    /// The borrowed writer keeps the version 2 file layout field for field.
+    #[test]
+    fn the_written_record_keeps_its_format() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let id = source(&[]);
+        let store = SessionStore::open(root.path(), "format", id.clone());
+        store.record("s", "/w", Some("Title".into()), Some("2026-10-10T00:00:00Z".into()));
+        let path = root
+            .path()
+            .join(encoded_component("format"))
+            .join(format!("{}.json", id.as_str()));
+        let written: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).expect("record")).expect("json");
+        let admitted = written["sessions"][0]["admittedAt"].clone();
+        assert!(admitted.is_i64());
+        assert_eq!(
+            written,
+            serde_json::json!({
+                "version": 2,
+                "source": id.as_str(),
+                "sessions": [{"sessionId": "s", "cwd": "/w", "title": "Title",
+                    "updatedAt": "2026-10-10T00:00:00Z", "admittedAt": admitted}],
+            })
+        );
     }
 }

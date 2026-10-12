@@ -1145,10 +1145,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get hostProxyInherit => '继承 app 的运行环境';
 
   @override
-  String get localHostDialogTitle => '托管本地 app-server';
+  String get localHostDialogTitle => '在本机托管';
 
   @override
-  String get localHostHint => '在本机运行 codex 并注册到你的账号，让你的其它设备可以驱动它。';
+  String get localHostHint => '在本机运行 codex 并发布到你的中转，让你的其它设备可以驱动它。';
 
   @override
   String localHostListening(String addr) {
@@ -1358,6 +1358,40 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get hostSwitchTitle => '切换主机';
+
+  @override
+  String hostRestoreFull(int count) {
+    return '已开始托管，但启动时不会恢复此主机：已记住 $count 个主机。如需恢复，请先停止其中一个主机，再重新启动此主机。';
+  }
+
+  @override
+  String acpSavedAgentsFull(int count) {
+    return '此智能体未保存到我的智能体：已保存 $count 个智能体。';
+  }
+
+  @override
+  String get hostSwitchManage => '管理主机…';
+
+  @override
+  String get agentChoiceNative => '原生 app-server';
+
+  @override
+  String get agentChoiceSaved => '我的智能体 · ACP';
+
+  @override
+  String get hostNameHelper => '本机内唯一，用作该主机在中转上的名称。';
+
+  @override
+  String get hostAdvanced => '高级';
+
+  @override
+  String get localHostPortInvalid => '请输入 0 到 65535 的端口（0 表示自动选择空闲端口）。';
+
+  @override
+  String get localHostPortHelper => '填 0 会自动选择空闲端口。';
+
+  @override
+  String get hostPortConflict => '本机已有其他主机在使用这个端口。填 0 自动选择空闲端口，或换一个端口。';
 
   @override
   String hostSwitchingTo(String host) {
@@ -2171,6 +2205,72 @@ class AppLocalizationsZh extends AppLocalizations {
   String get acpFeatures => '智能体功能';
 
   @override
+  String get acpCatalog => '模型目录';
+
+  @override
+  String get acpCatalogWaiting => '智能体打开第一个会话时才会读取模型目录。';
+
+  @override
+  String acpCatalogUnavailable(String reason) {
+    return '无法为智能体加入模型目录：$reason';
+  }
+
+  @override
+  String get acpCatalogReasonPluginsDisabled => '智能体的环境禁用了插件（OPENCODE_PURE）';
+
+  @override
+  String get acpCatalogReasonConfigTaken =>
+      '智能体的环境同时设置了 OPENCODE_CONFIG 和 OPENCODE_CONFIG_CONTENT；请把下面的插件加入你的配置';
+
+  @override
+  String get acpCatalogReasonInstallFailed => '目录插件无法写入';
+
+  @override
+  String get acpCatalogPlugin => '插件';
+
+  @override
+  String acpCatalogProviderComplete(String id, int listed, int added) {
+    return '$id：列出 $listed 个模型，新增 $added 个';
+  }
+
+  @override
+  String acpCatalogProviderPartial(
+    String id,
+    int listed,
+    int added,
+    String reason,
+  ) {
+    return '$id：列出 $listed 个模型，新增 $added 个；列表不完整（$reason）';
+  }
+
+  @override
+  String get acpCatalogNoProviders =>
+      '没有找到设置了明确 baseURL 的已启用提供方，因此没有读取模型列表；只提供配置中的模型。';
+
+  @override
+  String acpCatalogProviderFailed(String id, String reason) {
+    return '$id：模型列表无法读取（$reason）；使用配置中的模型';
+  }
+
+  @override
+  String acpCatalogProviderSkipped(String id, String reason) {
+    return '$id：未读取（$reason）';
+  }
+
+  @override
+  String acpCatalogExcluded(int count) {
+    return '排除了 $count 个非对话条目';
+  }
+
+  @override
+  String acpCatalogUnsafe(int count) {
+    return '排除了 $count 个智能体无法保存其标识的条目';
+  }
+
+  @override
+  String get acpCatalogNoKey => '在提供方的配置和环境变量中都没有找到密钥；通过智能体自己的登录保存的密钥在这里不可见';
+
+  @override
   String get acpFeatureReopen => '重新打开以前的会话';
 
   @override
@@ -2215,6 +2315,20 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get agentMode => '模式';
+
+  @override
+  String agentOptionSearch(String option) {
+    return '搜索$option';
+  }
+
+  @override
+  String get agentOptionNoMatch => '没有匹配的选项。';
+
+  @override
+  String get agentPrepareSession => '设置智能体';
+
+  @override
+  String get agentPrepareHint => '现在为该项目打开智能体会话，以便在发送前选择模型和推理强度。';
 
   @override
   String get historyGapNotice => '此智能体主机无法提供更早的历史记录。';

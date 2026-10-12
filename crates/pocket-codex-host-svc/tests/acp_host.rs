@@ -85,6 +85,7 @@ async fn host_named(
         spec,
         program,
         path: None,
+        env: Vec::new(),
     })
     .await
 }
@@ -1017,6 +1018,7 @@ async fn stopping_during_a_slow_handshake_cuts_the_launch_short_and_ends_the_age
         spec,
         program,
         path: None,
+        env: Vec::new(),
     });
     let launching = tokio::spawn({
         let host = host.clone();

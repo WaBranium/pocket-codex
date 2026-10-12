@@ -6,12 +6,7 @@
 //
 // Set PCX_UI_PREVIEW_DIR to also write each layout as a PNG for review.
 
-import 'dart:io';
-import 'dart:ui' as ui;
-
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pocket_codex/l10n/gen/app_localizations.dart';
@@ -23,9 +18,9 @@ import 'package:pocket_codex/src/theme.dart';
 import 'package:pocket_codex/src/widgets/local_host_dialog.dart';
 
 import 'fake_bridge_api.dart';
+import 'support/ui_preview.dart';
 
 const _acp = 'pcx:dev:acp:agent';
-const _preview = Key('acp-preview');
 
 const _devices = [
   ('phone320', Size(320, 640)),
@@ -73,7 +68,7 @@ Widget _app(Widget home, BridgeApi api, Locale locale, Brightness brightness) =>
         theme: brightness == Brightness.light ? lightTheme() : darkTheme(),
         // Wraps the navigator, so dialogs are part of the captured image.
         builder: (context, child) =>
-            RepaintBoundary(key: _preview, child: child),
+            RepaintBoundary(key: previewKey, child: child),
         home: home,
       ),
     );
@@ -107,18 +102,6 @@ void _withinWidth(WidgetTester t, Finder finder, Size size) {
       reason: '$finder ends on screen',
     );
   }
-}
-
-Future<void> _capture(WidgetTester t, String name) async {
-  final dir = Platform.environment['PCX_UI_PREVIEW_DIR'];
-  if (dir == null) return;
-  final boundary = t.renderObject<RenderRepaintBoundary>(find.byKey(_preview));
-  await t.runAsync(() async {
-    final image = await boundary.toImage();
-    final data = await image.toByteData(format: ui.ImageByteFormat.png);
-    await Directory(dir).create(recursive: true);
-    await File('$dir/$name.png').writeAsBytes(data!.buffer.asUint8List());
-  });
 }
 
 Future<void> _openDialog(
@@ -173,30 +156,7 @@ AppEvent _permission(String handle, String title, List<String> options) {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  setUpAll(() async {
-    if (Platform.environment['PCX_UI_PREVIEW_DIR'] == null) return;
-    await (FontLoader(
-      'MaterialIcons',
-    )..addFont(rootBundle.load('fonts/MaterialIcons-Regular.otf'))).load();
-    final prose = FontLoader('Figtree');
-    for (final weight in ['Light', 'Regular', 'Medium', 'SemiBold', 'Bold']) {
-      prose.addFont(rootBundle.load('assets/fonts/Figtree-$weight.ttf'));
-    }
-    await prose.load();
-    final mono = FontLoader('GeistMono');
-    for (final weight in ['Regular', 'Medium', 'SemiBold']) {
-      mono.addFont(rootBundle.load('assets/fonts/GeistMono-$weight.ttf'));
-    }
-    await mono.load();
-    // The headless engine has no OS CJK fonts. This preview-only fallback
-    // does not add the desktop font to the mobile asset bundle.
-    await (FontLoader('Noto Sans SC')..addFont(
-          File(
-            'assets/fonts/NotoSansSC-VariableFont_wght.ttf',
-          ).readAsBytes().then(ByteData.sublistView),
-        ))
-        .load();
-  });
+  setUpAll(loadPreviewFonts);
   setUp(AppSessionScreen.debugResetThreadMemory);
 
   for (final (device, size) in _devices) {
@@ -212,14 +172,9 @@ void main() {
           final l10n = lookupAppLocalizations(locale);
           final api = FakeBridgeApi();
           await _openDialog(t, api, locale, brightness);
-          await t.tap(find.byKey(const Key('provider-acp')));
+          await t.tap(find.byKey(const Key('agent-choice-custom')));
           await t.pumpAndSettle();
-          await t.ensureVisible(find.byKey(const Key('acp-agent-choice')));
-          await t.pumpAndSettle();
-          await t.tap(find.byKey(const Key('acp-agent-choice')));
-          await t.pumpAndSettle();
-          await t.tap(find.text(l10n.acpAgentCustom).last);
-          await t.pumpAndSettle();
+          expect(find.text(l10n.acpAgentCustom), findsWidgets);
           await t.enterText(
             find.byKey(const Key('acp-display-name-field')),
             _names[language]!,
@@ -240,7 +195,7 @@ void main() {
           await t.pumpAndSettle();
           expect(t.takeException(), isNull, reason: 'no overflow');
           _withinWidth(t, find.byKey(const Key('acp-host-form')), size);
-          _withinWidth(t, find.byKey(const Key('host-provider-picker')), size);
+          _withinWidth(t, find.byKey(const Key('agent-choice-grid')), size);
           _withinWidth(t, find.byKey(const Key('acp-program-browse')), size);
           await t.ensureVisible(find.byKey(const Key('start-hosting-btn')));
           await t.pumpAndSettle();
@@ -252,7 +207,7 @@ void main() {
             reason: 'reachable',
           );
           expect(start.top, greaterThanOrEqualTo(0));
-          await _capture(t, 'acp-form-$variant');
+          await capturePreview(t, 'acp-form-$variant');
         });
 
         testWidgets('failed host details with restart fit ($variant)', (
@@ -292,7 +247,7 @@ void main() {
             find.byKey(const Key('provider-badge-acp-tag')),
             size,
           );
-          await _capture(t, 'acp-details-$variant');
+          await capturePreview(t, 'acp-details-$variant');
           await t.ensureVisible(find.byKey(const Key('acp-restart')));
           await t.pumpAndSettle();
           _withinWidth(t, find.byKey(const Key('acp-restart')), size);
@@ -401,7 +356,7 @@ void main() {
             await t.ensureVisible(find.byKey(const Key('agent-config-model')));
             await _frames(t);
             _withinWidth(t, find.byKey(const Key('agent-config-model')), size);
-            await _capture(t, 'acp-session-$variant');
+            await capturePreview(t, 'acp-session-$variant');
             if (size.width <= 390) {
               api.pushEvent(
                 _acp,
@@ -427,7 +382,7 @@ void main() {
                   reason: '$key remains above the keyboard',
                 );
               }
-              await _capture(t, 'acp-keyboard-$variant');
+              await capturePreview(t, 'acp-keyboard-$variant');
             }
             // Every request stays answerable: the last one scrolls into view.
             final lastOption = find

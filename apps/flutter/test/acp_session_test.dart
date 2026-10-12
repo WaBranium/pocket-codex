@@ -279,6 +279,88 @@ void main() {
     expect(find.byKey(const Key('agent-permission-card')), findsNothing);
   });
 
+  test('malformed display details never hide a valid offered option', () {
+    const valid = '{"optionId":"opt:✓ 1","name":"Allow","kind":"allow_once"}';
+    AgentPermissionRequest parse(String tool, {String options = '[$valid]'}) =>
+        AgentPermissionRequest.parse(
+          AppEvent(
+            kind: agentPermissionKind,
+            title: 'Fallback',
+            raw: '{"toolCall":$tool,"options":$options}',
+          ),
+        );
+    for (final tool in [
+      '{"locations":7}',
+      '{"title":7}',
+      '{"locations":{"path":"/w"},"title":["x"],"rawInput":"text"}',
+      '{"locations":[7,null,{"path":7},{"line":1}]}',
+      '7',
+      '[]',
+      'null',
+    ]) {
+      final request = parse(tool);
+      expect(request.title, 'Fallback', reason: tool);
+      expect(request.detail, isEmpty, reason: tool);
+      expect(
+        [for (final o in request.options) (o.id, o.name, o.kind)],
+        [('opt:✓ 1', 'Allow', 'allow_once')],
+        reason: tool,
+      );
+    }
+    // Valid details are kept beside malformed siblings.
+    final mixed = parse(
+      '{"title":"Edit a.txt","locations":[7,{"path":"/w/a.txt"}],'
+      '"rawInput":{"path":"/w/a.txt"}}',
+    );
+    expect(mixed.title, 'Edit a.txt');
+    expect(mixed.detail, startsWith('/w/a.txt\n{'));
+    expect(mixed.detail, contains('"path": "/w/a.txt"'));
+    // Malformed option lists or entries are left out, never repaired.
+    for (final options in ['7', '{"optionId":"x"}', 'null']) {
+      expect(parse('{}', options: options).options, isEmpty, reason: options);
+    }
+    final kept = parse(
+      '{}',
+      options:
+          '[7,{"optionId":7,"name":"Bad","kind":"allow_once"},$valid,'
+          '{"optionId":"later","name":"Later","kind":"future_kind"}]',
+    );
+    expect(
+      [for (final o in kept.options) (o.id, o.kind)],
+      [('opt:✓ 1', 'allow_once'), ('later', 'future_kind')],
+    );
+  });
+
+  testWidgets('a request with malformed details still answers its option', (
+    t,
+  ) async {
+    final api = AcpApi()..acpCapabilities[acp] = negotiated;
+    await open(t, api, acp, thread: 'ses-1');
+    api.pushEvent(
+      acp,
+      const AppEvent(
+        kind: agentPermissionKind,
+        threadId: 'ses-1',
+        requestId: 'h-bad',
+        title: 'Run ls',
+        raw:
+            '{"threadId":"ses-1","toolCall":{"title":7,"locations":7},'
+            '"options":[{"optionId":"opt:1 ✓","name":"Allow once",'
+            '"kind":"allow_once"}]}',
+      ),
+    );
+    await frames(t);
+    expect(find.byKey(const Key('agent-permission-card')), findsOneWidget);
+    expect(find.text('Run ls'), findsWidgets);
+    expect(t.takeException(), isNull);
+    expect(api.lastApprovalDecision, isNull, reason: 'never auto-answered');
+    await t.tap(find.byKey(const Key('agent-permission-option-0')));
+    await frames(t);
+    expect(api.lastApprovalRequestId, 'h-bad');
+    expect(api.lastApprovalDecision, 'opt:1 ✓');
+    expect(find.byKey(const Key('agent-permission-card')), findsNothing);
+  });
+
   testWidgets('remembering choices asks first', (t) async {
     final api = AcpApi()..acpCapabilities[acp] = negotiated;
     await open(t, api, acp, thread: 'ses-1');

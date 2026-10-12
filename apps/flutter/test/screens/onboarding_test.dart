@@ -2,6 +2,8 @@
 /// self-host onboarding.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -20,6 +22,26 @@ import 'package:pocket_codex/src/widgets/loading.dart';
 
 import '../fake_bridge_api.dart';
 import '../support/screen_harness.dart';
+
+/// UI preferences in memory: [saved] is the "file", whose initial read
+/// waits for [gate] when given; [written] records every save. The app's
+/// real store, with its readiness and replay, runs on top.
+class _MemoryPrefs extends UiPrefsStore {
+  _MemoryPrefs([this.saved = const UiPrefs(), this.gate]);
+
+  final UiPrefs saved;
+  final Completer<void>? gate;
+  final List<UiPrefs> written = [];
+
+  @override
+  Future<UiPrefs> load() async {
+    await gate?.future;
+    return saved;
+  }
+
+  @override
+  Future<void> save(UiPrefs prefs) async => written.add(prefs);
+}
 
 void main() {
   // AppSessionScreen keeps per-thread plan/effort memory in process-wide static
@@ -218,16 +240,10 @@ void main() {
           stub('/', 'HOME-ROUTE'),
           stub('/welcome', 'WELCOME-ROUTE'),
         ],
+        overrides: [uiPrefsProvider.overrideWith(_MemoryPrefs.new)],
       ),
     );
     await t.pumpAndSettle(); // initial onboarding (no spinner yet)
-    // Warm the prefs snapshot so the post-sign-in routing decides
-    // synchronously (the real prefs file load never completes under the
-    // test's fake async, and waiting out its bounded timeout would also
-    // expire the success toast).
-    ProviderScope.containerOf(
-      t.element(find.byType(AccountOnboardingScreen)),
-    ).read(uiPrefsProvider.notifier).setLastService('seed');
     await t.tap(find.text('设备码登录')); // accountUseDeviceCode (zh): device flow
     // The polling spinner is a perpetual animation, so advance via bounded pumps
     // (pumpAndSettle would never settle while it spins).
@@ -340,6 +356,7 @@ void main() {
         // The browser hand-off returns a redirect whose state matches the fake
         // bridge's started flow ('fake-state'), carrying a one-time code.
         overrides: [
+          uiPrefsProvider.overrideWith(_MemoryPrefs.new),
           webAuthenticatorProvider.overrideWithValue(
             FakeWebAuthenticator(
               'pocketcodex://auth?exchange_code=xc1&state=fake-state',
@@ -349,11 +366,6 @@ void main() {
       ),
     );
     await t.pumpAndSettle();
-    // Warm the prefs snapshot so the post-sign-in routing decides
-    // synchronously (see the device-code test above).
-    ProviderScope.containerOf(
-      t.element(find.byType(AccountOnboardingScreen)),
-    ).read(uiPrefsProvider.notifier).setLastService('seed');
     // The PRIMARY button is the browser flow (the convenient default).
     await t.tap(find.text('使用 GitHub 登录'));
     // Flush the async chain (start → authenticate → exchange → toast + go) with
@@ -387,13 +399,15 @@ void main() {
           stub('/', 'HOME-ROUTE'),
           stub('/welcome', 'WELCOME-ROUTE'),
         ],
+        overrides: [
+          // The guide was already seen on this device (e.g. sign-out → sign-in).
+          uiPrefsProvider.overrideWith(
+            () => _MemoryPrefs(const UiPrefs(guideSeen: true)),
+          ),
+        ],
       ),
     );
     await t.pumpAndSettle();
-    // The guide was already seen on this device (e.g. sign-out → sign-in).
-    ProviderScope.containerOf(
-      t.element(find.byType(AccountOnboardingScreen)),
-    ).read(uiPrefsProvider.notifier).markGuideSeen();
     await t.tap(find.text('设备码登录'));
     await t.pump();
     await t.pump();
@@ -403,6 +417,95 @@ void main() {
     expect(find.text('HOME-ROUTE'), findsOneWidget); // straight to the chat
     expect(find.text('WELCOME-ROUTE'), findsNothing);
   });
+
+  group(
+    'onboarding: routing after sign-in waits for the saved preferences',
+    () {
+      /// Onboarding on a router, signed in through the device code once the
+      /// test signs in, over [prefs].
+      Future<void> mount(WidgetTester t, _MemoryPrefs prefs) async {
+        final api = FakeBridgeApi(
+          config: const ConfigInfo(relay: '', hasKey: false),
+        )..accountPollStatus = 'authorized';
+        await t.pumpWidget(
+          routerHost(
+            api,
+            initial: '/onboarding',
+            routes: [
+              GoRoute(
+                path: '/onboarding',
+                builder: (_, _) => const AccountOnboardingScreen(),
+              ),
+              stub('/', 'HOME-ROUTE'),
+              stub('/welcome', 'WELCOME-ROUTE'),
+            ],
+            overrides: [uiPrefsProvider.overrideWith(() => prefs)],
+          ),
+        );
+        await t.pumpAndSettle();
+      }
+
+      Future<void> signIn(WidgetTester t) async {
+        await t.tap(find.text('设备码登录'));
+        await t.pump();
+        await t.pump();
+        await t.pump(const Duration(seconds: 6)); // the 5 s poll: authorized
+        await t.pump();
+        await t.pump();
+      }
+
+      testWidgets('the saved guide state decides, not an interim change', (
+        t,
+      ) async {
+        final gate = Completer<void>();
+        final prefs = _MemoryPrefs(const UiPrefs(guideSeen: true), gate);
+        await mount(t, prefs);
+        final container = ProviderScope.containerOf(
+          t.element(find.byType(AccountOnboardingScreen)),
+        );
+        // A change made while the file is still being read lands on an
+        // interim snapshot, which knows nothing of the guide.
+        container.read(uiPrefsProvider.notifier).setLastService('pcx:d:app:x');
+        expect(container.read(uiPrefsProvider).valueOrNull?.guideSeen, isFalse);
+
+        await signIn(t);
+        expect(find.text('HOME-ROUTE'), findsNothing, reason: 'still waiting');
+        expect(find.text('WELCOME-ROUTE'), findsNothing, reason: 'not interim');
+        expect(find.byType(AccountOnboardingScreen), findsOneWidget);
+
+        gate.complete();
+        await t.pump();
+        await t.pump();
+        expect(find.text('HOME-ROUTE'), findsOneWidget);
+        expect(find.text('WELCOME-ROUTE'), findsNothing);
+        // The interim change was replayed onto the file, not over it.
+        expect(prefs.written.last.guideSeen, isTrue);
+        expect(prefs.written.last.lastServiceKey, 'pcx:d:app:x');
+      });
+
+      testWidgets('a screen gone while waiting routes nothing and reads '
+          'nothing', (t) async {
+        final gate = Completer<void>();
+        final prefs = _MemoryPrefs(const UiPrefs(), gate);
+        await mount(t, prefs);
+        await signIn(t);
+        expect(find.text('WELCOME-ROUTE'), findsNothing, reason: 'waiting');
+
+        // The whole scope goes while the bounded wait is open.
+        await t.pumpWidget(const SizedBox());
+        await t.pump(const Duration(seconds: 3)); // past the 2 s bound
+        expect(t.takeException(), isNull);
+        gate.complete();
+        await t.pump();
+        expect(t.takeException(), isNull);
+        expect(
+          prefs.written,
+          isEmpty,
+          reason: 'a disposed store writes nothing',
+        );
+      });
+    },
+  );
 
   testWidgets('onboarding: a cancelled browser sign-in guides to device code', (
     t,
@@ -541,13 +644,13 @@ void main() {
           // renders the identity only when the config says we're signed in.
           GoRoute(path: '/welcome', builder: (_, _) => const SettingsScreen()),
         ],
+        overrides: [uiPrefsProvider.overrideWith(_MemoryPrefs.new)],
       ),
     );
     await t.pumpAndSettle();
     final container = ProviderScope.containerOf(
       t.element(find.byType(AccountOnboardingScreen)),
     );
-    container.read(uiPrefsProvider.notifier).setLastService('seed');
 
     // Warm the config cache the way the real app does — reading it BEFORE the
     // login is what made the stale value stick.

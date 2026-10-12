@@ -34,9 +34,13 @@ class _AcpHostDetailsState extends ConsumerState<AcpHostDetails> {
       _restarting = true;
       _error = null;
     });
+    // The restart can finish after this view closed or its scope went away.
+    final container = ProviderScope.containerOf(context);
+    final api = container.read(bridgeApiProvider);
+    final life = container.read(scopeLifeProvider);
     try {
-      await ref.read(bridgeApiProvider).appServeRestartAcp(widget.host.name);
-      ref.invalidate(localServeListProvider);
+      await api.appServeRestartAcp(widget.host.name);
+      if (life.alive) container.invalidate(localServeListProvider);
     } catch (e) {
       if (mounted) setState(() => _error = friendlyError(e));
     } finally {
@@ -50,6 +54,102 @@ class _AcpHostDetailsState extends ConsumerState<AcpHostDetails> {
     'stopped' => l10n.acpPhaseStopped,
     _ => l10n.acpPhaseStarting,
   };
+
+  String _catalogReason(AppLocalizations l10n, String? reason) =>
+      switch (reason) {
+        'plugins-disabled' => l10n.acpCatalogReasonPluginsDisabled,
+        'config-env-taken' => l10n.acpCatalogReasonConfigTaken,
+        'install-failed' => l10n.acpCatalogReasonInstallFailed,
+        _ => reason ?? '',
+      };
+
+  /// The model catalog: one line per provider, so a full listing, a bounded
+  /// one and a failed one read differently.
+  Widget _catalog(
+    AppLocalizations l10n,
+    AcpCatalogStatus catalog,
+    TextStyle? style,
+    ColorScheme scheme,
+  ) {
+    final lines = <Widget>[
+      Text(
+        l10n.acpCatalog,
+        style: style?.copyWith(fontWeight: FontWeight.w600),
+      ),
+      const SizedBox(height: 4),
+    ];
+    if (catalog.state == 'waiting') {
+      lines.add(Text(l10n.acpCatalogWaiting, style: style));
+    } else if (catalog.state != 'reported') {
+      lines.add(
+        Text(
+          l10n.acpCatalogUnavailable(_catalogReason(l10n, catalog.reason)),
+          style: style?.copyWith(color: scheme.error),
+        ),
+      );
+    } else if (catalog.providers.isEmpty) {
+      lines.add(
+        Text(
+          l10n.acpCatalogNoProviders,
+          key: const Key('acp-catalog-none'),
+          style: style,
+        ),
+      );
+    }
+    for (final provider in catalog.providers) {
+      final reason = _catalogReason(l10n, provider.reason);
+      final text = switch (provider.status) {
+        'complete' => l10n.acpCatalogProviderComplete(
+          provider.id,
+          provider.listed,
+          provider.added,
+        ),
+        'partial' => l10n.acpCatalogProviderPartial(
+          provider.id,
+          provider.listed,
+          provider.added,
+          reason,
+        ),
+        'skipped' => l10n.acpCatalogProviderSkipped(provider.id, reason),
+        _ => l10n.acpCatalogProviderFailed(provider.id, reason),
+      };
+      lines.add(
+        Text(text, key: Key('acp-catalog-${provider.id}'), style: style),
+      );
+      if (provider.excluded > 0) {
+        lines.add(
+          Text(l10n.acpCatalogExcluded(provider.excluded), style: style),
+        );
+      }
+      if (provider.unsafeIds > 0) {
+        lines.add(
+          Text(l10n.acpCatalogUnsafe(provider.unsafeIds), style: style),
+        );
+      }
+      if (provider.keySource == 'none' && provider.status == 'failed') {
+        lines.add(
+          Text(
+            l10n.acpCatalogNoKey,
+            style: style?.copyWith(color: scheme.error),
+          ),
+        );
+      }
+    }
+    // The plugin location is only needed to add it by hand.
+    if (catalog.state == 'unavailable' && catalog.plugin != null) {
+      lines.add(
+        SelectableText(
+          '${l10n.acpCatalogPlugin}: ${catalog.plugin}',
+          style: style,
+        ),
+      );
+    }
+    return Column(
+      key: const Key('acp-catalog'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: lines,
+    );
+  }
 
   Widget _feature(String label, String value, TextStyle? style) => Padding(
     padding: const EdgeInsets.symmetric(vertical: 2),
@@ -100,7 +200,11 @@ class _AcpHostDetailsState extends ConsumerState<AcpHostDetails> {
           runSpacing: 6,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            ProviderBadge(provider: 'acp', name: host.providerName),
+            ProviderBadge(
+              provider: 'acp',
+              name: host.providerName,
+              profileId: host.profileId,
+            ),
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -182,6 +286,10 @@ class _AcpHostDetailsState extends ConsumerState<AcpHostDetails> {
             '${l10n.acpProgram}: ${host.codexBinary}',
             style: muted,
           ),
+        ],
+        if (host.catalog != null) ...[
+          const Divider(height: 24),
+          _catalog(l10n, host.catalog!, small, scheme),
         ],
         const Divider(height: 24),
         ProjectFoldersEditor(serviceKey: host.appServiceKey),

@@ -57,6 +57,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   AcpAgentSpecDto dco_decode_acp_agent_spec_dto(dynamic raw);
 
   @protected
+  AcpCatalogProviderDto dco_decode_acp_catalog_provider_dto(dynamic raw);
+
+  @protected
+  AcpCatalogStatusDto dco_decode_acp_catalog_status_dto(dynamic raw);
+
+  @protected
   AcpPresetDto dco_decode_acp_preset_dto(dynamic raw);
 
   @protected
@@ -82,6 +88,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   AcpAgentSpecDto dco_decode_box_autoadd_acp_agent_spec_dto(dynamic raw);
+
+  @protected
+  AcpCatalogStatusDto dco_decode_box_autoadd_acp_catalog_status_dto(
+    dynamic raw,
+  );
 
   @protected
   bool dco_decode_box_autoadd_bool(dynamic raw);
@@ -147,6 +158,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<AccountServiceDto> dco_decode_list_account_service_dto(dynamic raw);
+
+  @protected
+  List<AcpCatalogProviderDto> dco_decode_list_acp_catalog_provider_dto(
+    dynamic raw,
+  );
 
   @protected
   List<AcpPresetDto> dco_decode_list_acp_preset_dto(dynamic raw);
@@ -223,6 +239,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   AccountUserDto? dco_decode_opt_box_autoadd_account_user_dto(dynamic raw);
+
+  @protected
+  AcpCatalogStatusDto? dco_decode_opt_box_autoadd_acp_catalog_status_dto(
+    dynamic raw,
+  );
 
   @protected
   bool? dco_decode_opt_box_autoadd_bool(dynamic raw);
@@ -360,6 +381,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   AcpAgentSpecDto sse_decode_acp_agent_spec_dto(SseDeserializer deserializer);
 
   @protected
+  AcpCatalogProviderDto sse_decode_acp_catalog_provider_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  AcpCatalogStatusDto sse_decode_acp_catalog_status_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   AcpPresetDto sse_decode_acp_preset_dto(SseDeserializer deserializer);
 
   @protected
@@ -391,6 +422,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   AcpAgentSpecDto sse_decode_box_autoadd_acp_agent_spec_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  AcpCatalogStatusDto sse_decode_box_autoadd_acp_catalog_status_dto(
     SseDeserializer deserializer,
   );
 
@@ -474,6 +510,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<AccountServiceDto> sse_decode_list_account_service_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<AcpCatalogProviderDto> sse_decode_list_acp_catalog_provider_dto(
     SseDeserializer deserializer,
   );
 
@@ -576,6 +617,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   AccountUserDto? sse_decode_opt_box_autoadd_account_user_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  AcpCatalogStatusDto? sse_decode_opt_box_autoadd_acp_catalog_status_dto(
     SseDeserializer deserializer,
   );
 
@@ -748,6 +794,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_acp_catalog_provider_dto(
+    AcpCatalogProviderDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_acp_catalog_status_dto(
+    AcpCatalogStatusDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_acp_preset_dto(AcpPresetDto self, SseSerializer serializer);
 
   @protected
@@ -783,6 +841,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_acp_agent_spec_dto(
     AcpAgentSpecDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_acp_catalog_status_dto(
+    AcpCatalogStatusDto self,
     SseSerializer serializer,
   );
 
@@ -882,6 +946,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_account_service_dto(
     List<AccountServiceDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_acp_catalog_provider_dto(
+    List<AcpCatalogProviderDto> self,
     SseSerializer serializer,
   );
 
@@ -1011,6 +1081,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_opt_box_autoadd_account_user_dto(
     AccountUserDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_acp_catalog_status_dto(
+    AcpCatalogStatusDto? self,
     SseSerializer serializer,
   );
 

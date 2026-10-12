@@ -336,8 +336,24 @@ pub struct Transcript {
     replays: u64,
 }
 
+/// An `io::Write` that only counts the bytes written to it.
+struct ByteCount(usize);
+
+impl std::io::Write for ByteCount {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0 += bytes.len();
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Length of `value`'s compact JSON serialization, without building it.
 fn serialized_len(value: &Value) -> usize {
-    serde_json::to_vec(value).map_or(0, |bytes| bytes.len())
+    let mut count = ByteCount(0);
+    serde_json::to_writer(&mut count, value).map_or(0, |()| count.0)
 }
 
 /// Every retained byte of `item`, plus a fixed overhead.
@@ -895,6 +911,29 @@ mod tests {
 
     fn chunk(kind: &str, text: &str) -> Value {
         json!({"sessionUpdate": kind, "content": {"type": "text", "text": text}})
+    }
+
+    /// The counted length is the actual serialization's, including
+    /// multi-byte UTF-8, escapes and nesting.
+    #[test]
+    fn serialized_len_counts_the_actual_serialization() {
+        let values = [
+            json!(null),
+            json!(""),
+            json!("naïve ✓ \u{1F600} 漢字"),
+            json!("\"quoted\"\\ \n\t\r \u{0001} \u{001f} </script>"),
+            json!(-1.5e300),
+            json!(u64::MAX),
+            json!([[], {}, [{"a": [1, "b", {"c": null, "d": [true, false]}]}]]),
+            json!({"é": {"\u{2028}": "x".repeat(10_000), "k\"": ["\u{fffd}", "\u{7f}"]}}),
+        ];
+        for value in values {
+            assert_eq!(
+                serialized_len(&value),
+                serde_json::to_vec(&value).expect("serializes").len(),
+                "{value}"
+            );
+        }
     }
 
     fn exact_bytes(transcript: &Transcript) -> usize {

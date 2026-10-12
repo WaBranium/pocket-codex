@@ -12,18 +12,20 @@
 //!
 //! # Ownership and quitting
 //!
-//! One table ([`owners`]) holds every agent this process owns until its
-//! cleanup has finished: registered when its start begins (*before* the
-//! agent is launched), kept while it is hosted, and kept while an ordinary
-//! stop is still retiring it — an owner leaves the table only after its
-//! agent was stopped. [`stop_all`] (app quit) closes the table's barrier, so
-//! no start begins and none can enter the host table afterwards, and then
-//! stops every agent still in the table — starting, hosted or retiring.
-//! [`AgentHost::stop`] joins a stop already in progress, so every
-//! overlapping caller (a retirement, a second quit) returns only once that
-//! agent's process cleanup is done. Agent processes are stopped first, all at
-//! once and each within a bounded time; relay keys are withdrawn afterwards,
-//! within their own bound, so a slow relay never delays process cleanup.
+//! ```text
+//!            owners table (one entry per owned agent)
+//! start ──► [starting] ──► [hosted] ──stop──► [retiring] ──► cleaned up ──► removed
+//!   ▲ registered before launch                                 ▲
+//!   └ refused once stop_all closed the barrier                 │
+//! stop_all (app quit): close barrier, stop every entry ────────┘
+//! ```
+//!
+//! An owner leaves [`owners`] only after its agent was stopped.
+//! [`AgentHost::stop`] joins a stop already in progress, so every overlapping
+//! caller (a retirement, a second quit) returns only once that agent's process
+//! cleanup is done. Processes are stopped first, all at once and each within a
+//! bounded time; relay keys are withdrawn afterwards within their own bound,
+//! so a slow relay never delays process cleanup.
 //!
 //! # Publication
 //!
@@ -74,6 +76,9 @@ struct AcpServe {
     /// The transport context the services were published under: only a
     /// controller in the same context may reach them on loopback.
     context: transport::Context,
+    /// The OpenCode model catalog attached to this agent's launch; its
+    /// files are removed when this is dropped.
+    catalog: Option<acp::catalog::Launch>,
     /// This agent's entry in [`owners`]; released when this is dropped,
     /// which happens only after the agent was stopped.
     _owner: Owner,
@@ -308,6 +313,7 @@ pub fn start(name: Option<String>, spec: AgentSpec) -> Result<AcpServeReport> {
         .context("preparing the agent's session record")?;
     let store = SessionStore::open(&acp_root, &name, source);
     let uploads = state.join("acp-uploads");
+    let catalog = acp::catalog::launch(&spec, &state);
     let rt = runtime::runtime();
     let host = {
         let _runtime = rt.enter();
@@ -315,6 +321,10 @@ pub fn start(name: Option<String>, spec: AgentSpec) -> Result<AcpServeReport> {
             spec: spec.clone(),
             program: program.clone(),
             path: pocket_codex_codex::external_tool_path(),
+            env: catalog
+                .as_ref()
+                .map(acp::catalog::Launch::env)
+                .unwrap_or_default(),
             store,
         })
     };
@@ -331,7 +341,10 @@ pub fn start(name: Option<String>, spec: AgentSpec) -> Result<AcpServeReport> {
         return Err(anyhow!("{error}"));
     }
     let serving = match publish(&name, &host, &program, uploads, owner) {
-        Ok(serving) => serving,
+        Ok(mut serving) => {
+            serving.catalog = catalog;
+            serving
+        },
         Err((error, owner)) => {
             // Roll back: the agent stops and the reservation drops.
             rt.block_on(host.stop());
@@ -454,6 +467,7 @@ fn publish(
         host: host.clone(),
         program: program.display().to_string(),
         context: transport::Context::of(&transport),
+        catalog: None,
         _owner: owner,
     })
 }
@@ -521,6 +535,7 @@ pub(super) fn status() -> Vec<ServeStatus> {
                 agent_phase: Some(phase),
                 agent_error: info["phase"]["reason"].as_str().map(str::to_string),
                 auth_required: info["authRequired"] == true,
+                catalog: host.catalog.as_ref().map(acp::catalog::Launch::status),
             }
         })
         .collect()
@@ -826,6 +841,7 @@ mod tests {
             },
             program: program.clone(),
             path: None,
+            env: Vec::new(),
             store: SessionStore::memory(SourceId::with_key("fixture", &program, &[])),
         });
         let id = owners().begin(host.clone()).expect("the barrier is open");
@@ -844,6 +860,7 @@ mod tests {
             host,
             program: program.display().to_string(),
             context,
+            catalog: None,
             _owner: Owner(id),
         }
     }

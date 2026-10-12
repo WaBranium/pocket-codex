@@ -24,7 +24,10 @@ import 'package:window_manager/window_manager.dart';
 
 class _MemoryPrefs extends UiPrefsStore {
   @override
-  Future<UiPrefs> build() async => const UiPrefs();
+  Future<UiPrefs> load() async => const UiPrefs();
+
+  @override
+  Future<void> save(UiPrefs prefs) async {}
 
   @override
   void setComposerHeight(double height) {

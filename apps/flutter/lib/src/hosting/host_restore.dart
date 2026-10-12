@@ -4,34 +4,36 @@ import 'package:pocket_codex/src/ui_prefs.dart';
 /// Which saved hosting to bring back on a desktop cold start.
 class HostRestorePlan {
   /// Creates a plan.
-  const HostRestorePlan({this.codex, this.acp = const []});
+  const HostRestorePlan({this.codex = const [], this.acp = const []});
 
-  /// Codex hosting to restore.
-  final AutoHostPrefs? codex;
+  /// Codex hosts to restore, each under its own instance name.
+  final List<AutoHostPrefs> codex;
 
   /// ACP agents to restore, each under its own instance name.
   final List<AutoHostAcpPrefs> acp;
 
   /// Whether nothing needs restoring.
-  bool get isEmpty => codex == null && acp.isEmpty;
+  bool get isEmpty => codex.isEmpty && acp.isEmpty;
 }
 
 /// Plan the restore: each saved record at most once per run (callers track
-/// the attempts), and only what this device does not host already — a Codex
-/// record by provider (it has one default host), and ACP agents by instance
-/// name. Providers are compared by
-/// what hosts say they are, never inferred from what they are not.
+/// the attempts by instance name, per provider), and only names this device
+/// does not host already. Names are shared by every provider on a device,
+/// so a name taken by any running host is not restored over it.
 HostRestorePlan planHostRestore(
   UiPrefs prefs,
   List<AppServeStatus> local, {
-  required bool codexAttempted,
+  required Set<String> codexAttempted,
   required Set<String> acpAttempted,
   required bool acpSupported,
 }) {
-  final codex = codexAttempted || local.any((h) => h.isCodex)
-      ? null
-      : prefs.autoHost;
   final hostedNames = {for (final h in local) h.name};
+  final codex = [
+    for (final saved in prefs.autoHostCodex)
+      if (!codexAttempted.contains(saved.name) &&
+          !hostedNames.contains(saved.name))
+        saved,
+  ];
   final acp = !acpSupported
       ? const <AutoHostAcpPrefs>[]
       : [
@@ -47,8 +49,7 @@ HostRestorePlan planHostRestore(
 /// Returns whether anything was restored (discovery is then stale).
 Future<bool> runHostRestore(BridgeApi api, HostRestorePlan plan) async {
   var restored = false;
-  final codex = plan.codex;
-  if (codex != null) {
+  for (final codex in plan.codex) {
     try {
       await api.appServeStart(
         port: codex.port,

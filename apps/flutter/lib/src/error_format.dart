@@ -71,6 +71,21 @@ bool isHostNameConflict(String message) {
       lower.contains('already registered and online');
 }
 
+/// True when this device already hosts another provider (or another ACP
+/// agent) under the requested instance name. Matches
+/// `engine/hosting.rs::taken` and `engine/serve_acp.rs::reuse`.
+bool isLocalNameTaken(String message) {
+  final lower = message.toLowerCase();
+  return (lower.contains('is already hosting') &&
+          lower.contains('choose another name')) ||
+      lower.contains('already hosting a different agent');
+}
+
+/// True when another local host already listens on the requested port.
+/// Matches `engine/serve.rs::reuse_or_retire_host`.
+bool isLocalPortTaken(String message) =>
+    message.toLowerCase().contains('is already used by another local host');
+
 /// True when a reachability probe failed because the far end ANSWERED and
 /// refused the handshake over the relay — the tunnel carried bytes, but the
 /// relay rejected us (a missing or stale authentication code). This is not a

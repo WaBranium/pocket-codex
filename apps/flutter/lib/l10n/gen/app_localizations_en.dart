@@ -1172,11 +1172,11 @@ class AppLocalizationsEn extends AppLocalizations {
   String get hostProxyInherit => 'inherits the app\'s environment';
 
   @override
-  String get localHostDialogTitle => 'Host a local app-server';
+  String get localHostDialogTitle => 'Host on this device';
 
   @override
   String get localHostHint =>
-      'Runs codex on this machine and registers it to your account, so your other devices can drive it.';
+      'Runs codex on this machine and publishes it on your relay, so your other devices can drive it.';
 
   @override
   String localHostListening(String addr) {
@@ -1390,6 +1390,43 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get hostSwitchTitle => 'Switch host';
+
+  @override
+  String hostRestoreFull(int count) {
+    return 'Hosting started, but it will not be restored at launch: $count hosts are already remembered. To have it restored, stop one of those hosts, then start this one again.';
+  }
+
+  @override
+  String acpSavedAgentsFull(int count) {
+    return 'This agent was not saved to my agents: $count agents are already saved.';
+  }
+
+  @override
+  String get hostSwitchManage => 'Manage hosts…';
+
+  @override
+  String get agentChoiceNative => 'Native app-server';
+
+  @override
+  String get agentChoiceSaved => 'My agent · ACP';
+
+  @override
+  String get hostNameHelper =>
+      'Unique on this device; it names the host on your relay.';
+
+  @override
+  String get hostAdvanced => 'Advanced';
+
+  @override
+  String get localHostPortInvalid =>
+      'Enter a port from 0 to 65535 (0 picks a free port).';
+
+  @override
+  String get localHostPortHelper => '0 picks a free port automatically.';
+
+  @override
+  String get hostPortConflict =>
+      'Another host on this device already uses this port. Use 0 for a free port, or pick another.';
 
   @override
   String hostSwitchingTo(String host) {
@@ -2245,6 +2282,76 @@ class AppLocalizationsEn extends AppLocalizations {
   String get acpFeatures => 'Agent features';
 
   @override
+  String get acpCatalog => 'Model catalog';
+
+  @override
+  String get acpCatalogWaiting =>
+      'The agent\'s model catalog is listed when its first session opens.';
+
+  @override
+  String acpCatalogUnavailable(String reason) {
+    return 'The model catalog could not be added to the agent: $reason';
+  }
+
+  @override
+  String get acpCatalogReasonPluginsDisabled =>
+      'the agent\'s environment disables plugins (OPENCODE_PURE)';
+
+  @override
+  String get acpCatalogReasonConfigTaken =>
+      'the agent\'s environment sets both OPENCODE_CONFIG and OPENCODE_CONFIG_CONTENT; add the plugin below to your config';
+
+  @override
+  String get acpCatalogReasonInstallFailed =>
+      'the catalog plugin could not be written';
+
+  @override
+  String get acpCatalogPlugin => 'Plugin';
+
+  @override
+  String acpCatalogProviderComplete(String id, int listed, int added) {
+    return '$id: $listed models listed, $added added';
+  }
+
+  @override
+  String acpCatalogProviderPartial(
+    String id,
+    int listed,
+    int added,
+    String reason,
+  ) {
+    return '$id: $listed models listed, $added added; the listing is incomplete ($reason)';
+  }
+
+  @override
+  String get acpCatalogNoProviders =>
+      'No enabled provider with an explicit baseURL was found, so nothing was listed; only the configured models are offered.';
+
+  @override
+  String acpCatalogProviderFailed(String id, String reason) {
+    return '$id: the model list could not be read ($reason); the configured models are used';
+  }
+
+  @override
+  String acpCatalogProviderSkipped(String id, String reason) {
+    return '$id: not listed ($reason)';
+  }
+
+  @override
+  String acpCatalogExcluded(int count) {
+    return '$count non-chat entries left out';
+  }
+
+  @override
+  String acpCatalogUnsafe(int count) {
+    return '$count entries left out because the agent cannot hold their ids';
+  }
+
+  @override
+  String get acpCatalogNoKey =>
+      'no key was found in the provider\'s config or environment; a key saved through the agent\'s own sign-in is not visible here';
+
+  @override
   String get acpFeatureReopen => 'Reopen earlier sessions';
 
   @override
@@ -2289,6 +2396,21 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get agentMode => 'Mode';
+
+  @override
+  String agentOptionSearch(String option) {
+    return 'Search $option';
+  }
+
+  @override
+  String get agentOptionNoMatch => 'No matching values.';
+
+  @override
+  String get agentPrepareSession => 'Set up agent';
+
+  @override
+  String get agentPrepareHint =>
+      'Open the agent\'s session for this project now, to choose its model and effort before sending.';
 
   @override
   String get historyGapNotice =>

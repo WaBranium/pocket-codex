@@ -9,6 +9,7 @@ use pocket_codex_host_svc::acp::{
     fold::{ItemKind, Turn},
     Identity,
 };
+use serde::Deserialize as _;
 use serde_json::Value;
 
 use super::{block, conn, lock, translate, Link, Shared};
@@ -21,55 +22,14 @@ const WINDOW_TURNS: usize = 20;
 /// Most sessions listed (pages are followed up to this many).
 const MAX_SESSIONS: usize = 500;
 
-/// Unix seconds of an RFC 3339 / ISO 8601 UTC-offset timestamp, or `None`.
-/// Only the agent's own timestamp is used; nothing is fabricated.
+/// Unix seconds of an RFC 3339 timestamp (`T`, `t` or space separator,
+/// `Z`/`z` or a `±hh:mm` offset), or `None` when it is malformed or names an
+/// impossible date. Only the agent's own timestamp is used; nothing is
+/// fabricated.
 pub fn unix_seconds(text: &str) -> Option<i64> {
-    let bytes = text.as_bytes();
-    if bytes.len() < 19
-        || bytes[4] != b'-'
-        || bytes[7] != b'-'
-        || !matches!(bytes[10], b'T' | b't' | b' ')
-    {
-        return None;
-    }
-    let num = |range: std::ops::Range<usize>| text.get(range)?.parse::<i64>().ok();
-    let (year, month, day) = (num(0..4)?, num(5..7)?, num(8..10)?);
-    let (hour, minute, second) = (num(11..13)?, num(14..16)?, num(17..19)?);
-    if !(1..=12).contains(&month)
-        || !(1..=31).contains(&day)
-        || hour > 23
-        || minute > 59
-        || second > 60
-    {
-        return None;
-    }
-    let mut rest = &text[19..];
-    if let Some(fraction) = rest.strip_prefix('.') {
-        let digits = fraction.bytes().take_while(u8::is_ascii_digit).count();
-        rest = &fraction[digits..];
-    }
-    let offset = match rest {
-        "Z" | "z" => 0,
-        _ if rest.len() == 6
-            && matches!(rest.as_bytes()[0], b'+' | b'-')
-            && rest.as_bytes()[3] == b':' =>
-        {
-            let sign = if rest.starts_with('-') { -1 } else { 1 };
-            let hours = rest.get(1..3)?.parse::<i64>().ok()?;
-            let minutes = rest.get(4..6)?.parse::<i64>().ok()?;
-            sign * (hours * 3600 + minutes * 60)
-        },
-        _ => return None,
-    };
-    // Days from the civil date (Howard Hinnant's algorithm).
-    let y = if month <= 2 { year - 1 } else { year };
-    let era = y.div_euclid(400);
-    let yoe = y - era * 400;
-    let mp = (month + 9) % 12;
-    let doy = (153 * mp + 2) / 5 + day - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    let days = era * 146_097 + doe - 719_468;
-    Some(days * 86_400 + hour * 3600 + minute * 60 + second - offset)
+    chrono::DateTime::parse_from_rfc3339(text)
+        .ok()
+        .map(|instant| instant.timestamp())
 }
 
 fn meta_of(session: &Value) -> Option<ThreadMeta> {
@@ -179,7 +139,7 @@ fn window_turns(history: &Value) -> Vec<Turn> {
         .as_array()
         .into_iter()
         .flatten()
-        .filter_map(|turn| serde_json::from_value::<Turn>(turn.clone()).ok())
+        .filter_map(|turn| Turn::deserialize(turn).ok())
         .collect()
 }
 
@@ -471,5 +431,46 @@ mod tests {
         assert_eq!(unix_seconds("2026-10-01T08:00:00.123+08:00"), Some(1_790_812_800));
         assert_eq!(unix_seconds("yesterday"), None);
         assert_eq!(unix_seconds("2026-13-01T00:00:00Z"), None);
+    }
+
+    #[test]
+    fn timestamps_reject_impossible_dates_and_bad_grammar() {
+        for bad in [
+            "2026-02-31T00:00:00Z",
+            "2026-02-29T00:00:00Z",
+            "2026-04-31T00:00:00Z",
+            "2026-10-01T00:00:00+99:99",
+            "2026-10-01T00:00:00+05:60",
+            "2026-10-01T00x00x00Z",
+            "2026-10-01T00:00:00.Z",
+            "2026-10-01T-1:00:00Z",
+            "2026-10-01T24:00:00Z",
+            "2026-10-01T00:00:00",
+            "2026-10-01",
+            "2026-10-01T00:00:00Z trailing",
+            "",
+        ] {
+            assert_eq!(unix_seconds(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn timestamps_accept_leap_days_offsets_and_equivalent_forms() {
+        assert_eq!(unix_seconds("2024-02-29T00:00:00Z"), Some(1_709_164_800));
+        assert_eq!(unix_seconds("2000-02-29T00:00:00Z"), Some(951_782_400));
+        assert_eq!(unix_seconds("1900-02-29T00:00:00Z"), None, "1900 is not a leap year");
+        let instant = Some(1_790_812_800);
+        for same in [
+            "2026-10-01T00:00:00Z",
+            "2026-10-01t00:00:00z",
+            "2026-10-01 00:00:00Z",
+            "2026-10-01T00:00:00.999999999Z",
+            "2026-10-01T00:00:00+00:00",
+            "2026-10-01T00:00:00-00:00",
+            "2026-10-01T05:30:00+05:30",
+            "2026-09-30T14:00:00-10:00",
+        ] {
+            assert_eq!(unix_seconds(same), instant, "{same}");
+        }
     }
 }

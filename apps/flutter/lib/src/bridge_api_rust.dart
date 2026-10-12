@@ -206,6 +206,26 @@ class RustBridgeApi implements BridgeApi {
             agentPhase: s.agentPhase,
             agentError: s.agentError,
             authRequired: s.authRequired,
+            catalog: s.catalog == null
+                ? null
+                : AcpCatalogStatus(
+                    state: s.catalog!.state,
+                    reason: s.catalog!.reason,
+                    plugin: s.catalog!.plugin,
+                    providers: [
+                      for (final p in s.catalog!.providers)
+                        AcpCatalogProvider(
+                          id: p.id,
+                          status: p.status,
+                          reason: p.reason,
+                          listed: p.listed,
+                          added: p.added,
+                          excluded: p.excluded,
+                          unsafeIds: p.unsafeIds,
+                          keySource: p.keySource,
+                        ),
+                    ],
+                  ),
           ),
         )
         .toList();
@@ -250,6 +270,7 @@ class RustBridgeApi implements BridgeApi {
       planMode: c.planMode,
       protocol: c.protocol,
       providerName: c.providerName,
+      profileId: c.profileId,
       negotiated: c.negotiated,
       generation: c.generation.toInt(),
       voice: c.voice,

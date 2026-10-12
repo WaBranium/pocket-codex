@@ -245,16 +245,17 @@ class _AccountOnboardingState extends ConsumerState<AccountOnboardingScreen> {
     // Service discovery and reachability were resolved against the old
     // (tokenless) config too, so they'd report nothing available.
     ref.invalidate(servicesProvider);
-    var seen = ref.read(uiPrefsProvider).valueOrNull?.guideSeen;
-    if (seen == null) {
-      try {
-        final prefs = await ref
-            .read(uiPrefsProvider.future)
-            .timeout(const Duration(seconds: 2));
-        seen = prefs.guideSeen;
-      } catch (_) {
-        seen = false;
-      }
+    bool seen;
+    try {
+      final prefs = await ref
+          .read(uiPrefsProvider.notifier)
+          .ready
+          .timeout(const Duration(seconds: 2));
+      seen = prefs.guideSeen;
+    } on TimeoutException {
+      // The screen (and its scope) may be gone by now; nothing to route.
+      if (!mounted) return;
+      seen = ref.read(uiPrefsProvider).valueOrNull?.guideSeen ?? false;
     }
     if (mounted) context.go(seen ? '/' : '/welcome');
   }

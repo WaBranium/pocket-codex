@@ -188,6 +188,10 @@ cargo fmt --check \
   -p pocket-codex-auth -p pocket-codex-backend
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --locked
+# Node 18+ must be on PATH for the Rust tests: pocket-codex-host-svc's
+# tests/opencode_catalog.rs runs the OpenCode catalog plugin's `node --test`
+# suite. The plugin itself runs inside OpenCode, so the app needs no Node.
+# CI installs Node 20 in the rust test job (.github/workflows/ci.yml).
 
 # Flutter front-end (requires `fvm install 3.44.0 --setup` once)
 cd apps/flutter
@@ -594,8 +598,61 @@ this file's roadmap so the source of truth stays in sync.
       `acp_live_remote_control` test is ignored in ordinary CI; it requires
       explicit disposable fixtures and credentials. Two processes on one
       Mac do not establish acceptance on a second physical device or OS.
+    - A later plugin-enabled OpenCode run (one declared model) listed 83
+      chat models; ACP advertised exactly those 83, and each was set and
+      read back. It got two real replies. Its catalog had no `thought_level`,
+      so effort was not exercised. The opt-in, ignored
+      `engine::hosting_live_tests::hosting_live_coexistence` hosts two native
+      Codex and two ACP hosts in one process, with native handshakes only (no
+      native model prompt). Each stop, restart or recreation must leave every
+      other host unchanged. It runs on one Mac only.
 
     See `docs/acp-agents.md` and ADR-0003.
+
+24. **Hosting and agent controls (2026-10-11, PR #99).** New hosts are picked
+    from an agent icon grid (Codex, OpenCode, Claude adapter, saved, custom);
+    marks are bundled glyphs chosen by the explicit profile id
+    (`Capabilities.profile_id`), never by a host's instance name. Hosting is
+    platform-gated only (desktop), in self-host and account mode; the
+    manage page, home hero and host switcher always offer it, for zero, one
+    or many hosts. Several Codex and ACP hosts coexist with unique default
+    names and an automatic port beside another Codex host. Codex restore
+    records are per name (`autoHostCodex`, legacy `autoHost` still written as
+    its first entry); stopping a host forgets only its own record. At most 16 restore records per
+    kind and 50 saved agents; a host beyond that runs and a notice says it will
+    not be restored (a refused saved agent is reported, not shown as saved).
+    Preference changes made during the initial load are replayed onto the
+    loaded file; the store's `ready` and the per-record verdicts are decided
+    there, never on the interim state the provider's `future` may resolve to. An open option menu is bound to the conversation, load,
+    capability and connection generation it opened for. ACP config
+    options render model → effort (`thought_level`) → mode, searchable when
+    long, with full labels in tooltips/semantics and pending/failed states;
+    each answer's complete option set replaces the old one, a `mode` option
+    hides legacy modes, and value ids stay opaque (`provider/model/with/slashes`).
+    Before the first prompt an explicit **Set up agent** opens the ACP session
+    for the chosen project without sending; only a completion for the same
+    service, project, draft and conversation is adopted. Native Codex keeps
+    its own model/effort path and lazy thread creation. The OpenCode preset
+    launches with a config layer naming the model catalog plugin
+    (`host-svc/src/acp/catalog.rs`, `opencode_catalog.mjs`):
+    `OPENCODE_CONFIG_CONTENT`, or a generated `OPENCODE_CONFIG` file when the
+    environment already sets the first. Its `config` hook lists every chat
+    model a `baseURL` provider serves at `/models` and adds the undeclared
+    ids. Keys stay inside OpenCode (config and env only; an `opencode auth
+    login` key is not visible and a refused listing says so), declared
+    models, aliases and filters win, ids OpenCode cannot hold (any key an
+    ordinary object inherits, e.g. `__proto__`, `constructor`) and explicit
+    non-chat entries are left out and counted, nothing is cached and no
+    effort or limit is inferred. A bounded listing, or one with such ids, is
+    reported `partial`, a failed one adds nothing and is reported `failed`;
+    the host details show the per-provider report (listed and added counts
+    and reason codes; the report's credential-source class only decides the
+    no-key hint). The hook runs when a
+    running agent first loads a project's configuration; a changed URL or
+    key needs a host restart.
+    `OPENCODE_PURE`, or both config variables already set, is reported
+    `unavailable` with the plugin's file URL for adding it by hand. Its
+    boundary tests need Node 18+ (CI installs Node 20 for them).
 
 ### UI and history maintenance (2026-09-13)
 

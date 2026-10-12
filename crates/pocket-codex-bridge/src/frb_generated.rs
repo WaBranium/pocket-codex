@@ -4243,6 +4243,47 @@ impl SseDecode for crate::api::bridge::AcpAgentSpecDto {
     }
 }
 
+impl SseDecode for crate::api::bridge::AcpCatalogProviderDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_id = <String>::sse_decode(deserializer);
+        let mut var_status = <String>::sse_decode(deserializer);
+        let mut var_reason = <Option<String>>::sse_decode(deserializer);
+        let mut var_listed = <u32>::sse_decode(deserializer);
+        let mut var_added = <u32>::sse_decode(deserializer);
+        let mut var_excluded = <u32>::sse_decode(deserializer);
+        let mut var_unsafeIds = <u32>::sse_decode(deserializer);
+        let mut var_keySource = <String>::sse_decode(deserializer);
+        return crate::api::bridge::AcpCatalogProviderDto {
+            id: var_id,
+            status: var_status,
+            reason: var_reason,
+            listed: var_listed,
+            added: var_added,
+            excluded: var_excluded,
+            unsafe_ids: var_unsafeIds,
+            key_source: var_keySource,
+        };
+    }
+}
+
+impl SseDecode for crate::api::bridge::AcpCatalogStatusDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_state = <String>::sse_decode(deserializer);
+        let mut var_reason = <Option<String>>::sse_decode(deserializer);
+        let mut var_plugin = <Option<String>>::sse_decode(deserializer);
+        let mut var_providers =
+            <Vec<crate::api::bridge::AcpCatalogProviderDto>>::sse_decode(deserializer);
+        return crate::api::bridge::AcpCatalogStatusDto {
+            state: var_state,
+            reason: var_reason,
+            plugin: var_plugin,
+            providers: var_providers,
+        };
+    }
+}
+
 impl SseDecode for crate::api::bridge::AcpPresetDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -4297,6 +4338,7 @@ impl SseDecode for crate::api::bridge::AppCapabilitiesDto {
         let mut var_planMode = <bool>::sse_decode(deserializer);
         let mut var_protocol = <String>::sse_decode(deserializer);
         let mut var_providerName = <String>::sse_decode(deserializer);
+        let mut var_profileId = <String>::sse_decode(deserializer);
         let mut var_negotiated = <bool>::sse_decode(deserializer);
         let mut var_generation = <u64>::sse_decode(deserializer);
         let mut var_voice = <bool>::sse_decode(deserializer);
@@ -4327,6 +4369,7 @@ impl SseDecode for crate::api::bridge::AppCapabilitiesDto {
             plan_mode: var_planMode,
             protocol: var_protocol,
             provider_name: var_providerName,
+            profile_id: var_profileId,
             negotiated: var_negotiated,
             generation: var_generation,
             voice: var_voice,
@@ -4430,6 +4473,8 @@ impl SseDecode for crate::api::bridge::AppServeStatusDto {
         let mut var_agentPhase = <Option<String>>::sse_decode(deserializer);
         let mut var_agentError = <Option<String>>::sse_decode(deserializer);
         let mut var_authRequired = <bool>::sse_decode(deserializer);
+        let mut var_catalog =
+            <Option<crate::api::bridge::AcpCatalogStatusDto>>::sse_decode(deserializer);
         return crate::api::bridge::AppServeStatusDto {
             name: var_name,
             device: var_device,
@@ -4455,6 +4500,7 @@ impl SseDecode for crate::api::bridge::AppServeStatusDto {
             agent_phase: var_agentPhase,
             agent_error: var_agentError,
             auth_required: var_authRequired,
+            catalog: var_catalog,
         };
     }
 }
@@ -4670,6 +4716,18 @@ impl SseDecode for Vec<crate::api::bridge::AccountServiceDto> {
         let mut ans_ = Vec::with_capacity(len_ as usize);
         for idx_ in 0..len_ {
             ans_.push(<crate::api::bridge::AccountServiceDto>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::bridge::AcpCatalogProviderDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::bridge::AcpCatalogProviderDto>::sse_decode(deserializer));
         }
         return ans_;
     }
@@ -4979,6 +5037,17 @@ impl SseDecode for Option<crate::api::bridge::AccountUserDto> {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         if (<bool>::sse_decode(deserializer)) {
             return Some(<crate::api::bridge::AccountUserDto>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<crate::api::bridge::AcpCatalogStatusDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::bridge::AcpCatalogStatusDto>::sse_decode(deserializer));
         } else {
             return None;
         }
@@ -5776,6 +5845,56 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::bridge::AcpAgentSpecDto>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::bridge::AcpCatalogProviderDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.id.into_into_dart().into_dart(),
+            self.status.into_into_dart().into_dart(),
+            self.reason.into_into_dart().into_dart(),
+            self.listed.into_into_dart().into_dart(),
+            self.added.into_into_dart().into_dart(),
+            self.excluded.into_into_dart().into_dart(),
+            self.unsafe_ids.into_into_dart().into_dart(),
+            self.key_source.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::bridge::AcpCatalogProviderDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::bridge::AcpCatalogProviderDto>
+    for crate::api::bridge::AcpCatalogProviderDto
+{
+    fn into_into_dart(self) -> crate::api::bridge::AcpCatalogProviderDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::bridge::AcpCatalogStatusDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.state.into_into_dart().into_dart(),
+            self.reason.into_into_dart().into_dart(),
+            self.plugin.into_into_dart().into_dart(),
+            self.providers.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::bridge::AcpCatalogStatusDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::bridge::AcpCatalogStatusDto>
+    for crate::api::bridge::AcpCatalogStatusDto
+{
+    fn into_into_dart(self) -> crate::api::bridge::AcpCatalogStatusDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::bridge::AcpPresetDto {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -5840,6 +5959,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::bridge::AppCapabilitiesDto {
             self.plan_mode.into_into_dart().into_dart(),
             self.protocol.into_into_dart().into_dart(),
             self.provider_name.into_into_dart().into_dart(),
+            self.profile_id.into_into_dart().into_dart(),
             self.negotiated.into_into_dart().into_dart(),
             self.generation.into_into_dart().into_dart(),
             self.voice.into_into_dart().into_dart(),
@@ -5958,6 +6078,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::bridge::AppServeStatusDto {
             self.agent_phase.into_into_dart().into_dart(),
             self.agent_error.into_into_dart().into_dart(),
             self.auth_required.into_into_dart().into_dart(),
+            self.catalog.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -6847,6 +6968,30 @@ impl SseEncode for crate::api::bridge::AcpAgentSpecDto {
     }
 }
 
+impl SseEncode for crate::api::bridge::AcpCatalogProviderDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.id, serializer);
+        <String>::sse_encode(self.status, serializer);
+        <Option<String>>::sse_encode(self.reason, serializer);
+        <u32>::sse_encode(self.listed, serializer);
+        <u32>::sse_encode(self.added, serializer);
+        <u32>::sse_encode(self.excluded, serializer);
+        <u32>::sse_encode(self.unsafe_ids, serializer);
+        <String>::sse_encode(self.key_source, serializer);
+    }
+}
+
+impl SseEncode for crate::api::bridge::AcpCatalogStatusDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.state, serializer);
+        <Option<String>>::sse_encode(self.reason, serializer);
+        <Option<String>>::sse_encode(self.plugin, serializer);
+        <Vec<crate::api::bridge::AcpCatalogProviderDto>>::sse_encode(self.providers, serializer);
+    }
+}
+
 impl SseEncode for crate::api::bridge::AcpPresetDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -6885,6 +7030,7 @@ impl SseEncode for crate::api::bridge::AppCapabilitiesDto {
         <bool>::sse_encode(self.plan_mode, serializer);
         <String>::sse_encode(self.protocol, serializer);
         <String>::sse_encode(self.provider_name, serializer);
+        <String>::sse_encode(self.profile_id, serializer);
         <bool>::sse_encode(self.negotiated, serializer);
         <u64>::sse_encode(self.generation, serializer);
         <bool>::sse_encode(self.voice, serializer);
@@ -6964,6 +7110,7 @@ impl SseEncode for crate::api::bridge::AppServeStatusDto {
         <Option<String>>::sse_encode(self.agent_phase, serializer);
         <Option<String>>::sse_encode(self.agent_error, serializer);
         <bool>::sse_encode(self.auth_required, serializer);
+        <Option<crate::api::bridge::AcpCatalogStatusDto>>::sse_encode(self.catalog, serializer);
     }
 }
 
@@ -7108,6 +7255,16 @@ impl SseEncode for Vec<crate::api::bridge::AccountServiceDto> {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <crate::api::bridge::AccountServiceDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::bridge::AcpCatalogProviderDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::bridge::AcpCatalogProviderDto>::sse_encode(item, serializer);
         }
     }
 }
@@ -7348,6 +7505,16 @@ impl SseEncode for Option<crate::api::bridge::AccountUserDto> {
         <bool>::sse_encode(self.is_some(), serializer);
         if let Some(value) = self {
             <crate::api::bridge::AccountUserDto>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<crate::api::bridge::AcpCatalogStatusDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::bridge::AcpCatalogStatusDto>::sse_encode(value, serializer);
         }
     }
 }

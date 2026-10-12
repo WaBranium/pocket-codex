@@ -25,6 +25,13 @@ class FakeBridgeApi implements BridgeApi {
   /// Make [discoverServices] throw, to exercise error states.
   Object? discoverError;
 
+  /// When set, [discoverServices] waits for it (it stays set, so every
+  /// discovery is held until it completes).
+  Completer<void>? discoverGate;
+
+  /// Number of [discoverServices] calls.
+  int discoverCalls = 0;
+
   /// Mutable view of the discovery list, so a test can make a service appear
   /// (or vanish) after construction — e.g. the home screen's auto-retry.
   List<ServiceEntry> get services => _services;
@@ -81,6 +88,9 @@ class FakeBridgeApi implements BridgeApi {
 
   @override
   Future<List<ServiceEntry>> discoverServices() async {
+    discoverCalls++;
+    final gate = discoverGate;
+    if (gate != null) await gate.future;
     if (discoverError != null) throw discoverError!;
     return _services;
   }
@@ -319,6 +329,12 @@ class FakeBridgeApi implements BridgeApi {
   /// Path returned by [codexLocate] (set null to simulate "codex not found").
   String? codexPath = '/usr/local/bin/codex';
 
+  /// When set, [codexLocate] waits for it (then clears it).
+  Completer<void>? codexLocateGate;
+
+  /// When set, [appServeStart] waits for it (then clears it).
+  Completer<void>? serveStartGate;
+
   @override
   Future<AppServeResult> appServeStart({
     required int port,
@@ -327,6 +343,11 @@ class FakeBridgeApi implements BridgeApi {
     String? proxy,
     required bool embedded,
   }) async {
+    final gate = serveStartGate;
+    if (gate != null) {
+      serveStartGate = null;
+      await gate.future;
+    }
     lastServePort = port;
     lastServeBinary = binaryOverride;
     lastServeName = name;
@@ -405,9 +426,14 @@ class FakeBridgeApi implements BridgeApi {
         providerVersion: h.providerVersion,
       );
 
+  /// How many times [appServeStatus] was read.
+  int serveStatusCalls = 0;
+
   @override
-  Future<List<AppServeStatus>> appServeStatus() async =>
-      List.unmodifiable(serveHosts);
+  Future<List<AppServeStatus>> appServeStatus() async {
+    serveStatusCalls++;
+    return List.unmodifiable(serveHosts);
+  }
 
   /// Seedable value returned by [embeddedCodexVersion] (default: a fake commit).
   String embeddedCodexCommit = 'deadbeef1234';
@@ -435,15 +461,31 @@ class FakeBridgeApi implements BridgeApi {
     serveHosts[i] = _withTunnel(serveHosts[i], kind, true);
   }
 
+  /// When set, [appServeStop] waits for it (then clears it).
+  Completer<void>? serveStopGate;
+
   @override
-  Future<void> appServeStop(String name) async =>
-      serveHosts.removeWhere((h) => h.name == name);
+  Future<void> appServeStop(String name) async {
+    final gate = serveStopGate;
+    if (gate != null) {
+      serveStopGate = null;
+      await gate.future;
+    }
+    serveHosts.removeWhere((h) => h.name == name);
+  }
 
   @override
   Future<void> appServeStopAll() async => serveHosts.clear();
 
   @override
-  Future<String?> codexLocate() async => codexPath;
+  Future<String?> codexLocate() async {
+    final gate = codexLocateGate;
+    if (gate != null) {
+      codexLocateGate = null;
+      await gate.future;
+    }
+    return codexPath;
+  }
 
   /// Negotiated capabilities per ACP service key; unset keys report the
   /// conservative, not-yet-negotiated [AppCapabilities.acp].
@@ -484,20 +526,45 @@ class FakeBridgeApi implements BridgeApi {
   /// Whether this fake device can host ACP agents.
   bool acpHosting = true;
 
+  /// How many times [acpHostingSupported] was asked.
+  int acpHostingSupportedCalls = 0;
+
   @override
-  bool acpHostingSupported() => acpHosting;
+  bool acpHostingSupported() {
+    acpHostingSupportedCalls++;
+    return acpHosting;
+  }
 
   /// Programs [acpLocate] resolves, by program text.
   final Map<String, String> acpPrograms = {
     'opencode': '/Users/me/.opencode/bin/opencode',
   };
 
+  /// Holds lookups of a program until its completer completes.
+  final Map<String, Completer<void>> acpLocateGates = {};
+
+  /// Programs whose next lookup throws (then cleared).
+  final Set<String> acpLocateFailures = {};
+
+  /// Every [acpLocate] call's program.
+  final List<String> acpLocateCalls = [];
+
   @override
-  Future<String?> acpLocate(String program, {String? profileId}) async =>
-      program.startsWith('/') ? program : acpPrograms[program];
+  Future<String?> acpLocate(String program, {String? profileId}) async {
+    acpLocateCalls.add(program);
+    final gate = acpLocateGates[program];
+    if (gate != null) await gate.future;
+    if (acpLocateFailures.remove(program)) {
+      throw StateError('lookup of $program failed');
+    }
+    return program.startsWith('/') ? program : acpPrograms[program];
+  }
 
   /// Every [appServeStartAcp] call as `(name, spec)`.
   final List<(String?, AcpAgentSpec)> acpServeCalls = [];
+
+  /// When set, [appServeStartAcp] waits for it (then clears it).
+  Completer<void>? serveStartAcpGate;
 
   /// Thrown by the next [appServeStartAcp] (then cleared).
   Object? acpServeError;
@@ -507,6 +574,11 @@ class FakeBridgeApi implements BridgeApi {
     String? name,
     required AcpAgentSpec spec,
   }) async {
+    final gate = serveStartAcpGate;
+    if (gate != null) {
+      serveStartAcpGate = null;
+      await gate.future;
+    }
     acpServeCalls.add((name, spec));
     final err = acpServeError;
     if (err != null) {
@@ -561,9 +633,26 @@ class FakeBridgeApi implements BridgeApi {
   /// Every [appServeRestartAcp] call.
   final List<String> acpRestartCalls = [];
 
+  /// When set, [appServeRestartAcp] waits for it (then clears it).
+  Completer<void>? acpRestartGate;
+
+  /// Thrown (once) by the next [appServeRestartAcp], after its gate.
+  Object? acpRestartError;
+
   @override
-  Future<void> appServeRestartAcp(String name) async =>
-      acpRestartCalls.add(name);
+  Future<void> appServeRestartAcp(String name) async {
+    acpRestartCalls.add(name);
+    final gate = acpRestartGate;
+    if (gate != null) {
+      acpRestartGate = null;
+      await gate.future;
+    }
+    final error = acpRestartError;
+    if (error != null) {
+      acpRestartError = null;
+      throw error;
+    }
+  }
 
   /// Per-session ACP settings, keyed `'$serviceKey|$threadId'`.
   final Map<String, SessionSettings> sessionSettings = {};
@@ -575,13 +664,39 @@ class FakeBridgeApi implements BridgeApi {
   SessionSettings? appSessionSettings(String serviceKey, String threadId) =>
       sessionSettings['$serviceKey|$threadId'];
 
+  /// The complete option set an agent answers a change with, as ACP's
+  /// `session/set_config_option` does; null keeps the current settings.
+  /// Called with (configId, value, current settings).
+  SessionSettings? Function(String, String, SessionSettings?)? onSessionConfig;
+
+  /// Holds the next [appSetSessionConfig] until completed.
+  Completer<void>? sessionConfigGate;
+
+  /// Thrown (once) by the next [appSetSessionConfig].
+  Object? sessionConfigError;
+
   @override
   Future<void> appSetSessionConfig(
     String serviceKey,
     String threadId,
     String configId,
     String value,
-  ) async => sessionConfigCalls.add((threadId, configId, value));
+  ) async {
+    sessionConfigCalls.add((threadId, configId, value));
+    final gate = sessionConfigGate;
+    if (gate != null) {
+      sessionConfigGate = null;
+      await gate.future;
+    }
+    final err = sessionConfigError;
+    if (err != null) {
+      sessionConfigError = null;
+      throw err;
+    }
+    final key = '$serviceKey|$threadId';
+    final next = onSessionConfig?.call(configId, value, sessionSettings[key]);
+    if (next != null) sessionSettings[key] = next;
+  }
 
   @override
   Future<void> appSetSessionMode(
@@ -851,6 +966,15 @@ class FakeBridgeApi implements BridgeApi {
   String? lastModel, lastCwd, lastApproval, lastSandbox;
   String? lastApprovalsReviewer, lastServiceTier;
 
+  /// Holds the next [appThreadStart] until completed.
+  Completer<void>? threadStartGate;
+
+  /// Every [appThreadStart] call's service key.
+  final List<String> threadStartCalls = [];
+
+  /// Settings a new ACP session reports (seeded for every started thread).
+  SessionSettings? newSessionSettings;
+
   @override
   Future<String> appThreadStart(
     String serviceKey, {
@@ -867,7 +991,15 @@ class FakeBridgeApi implements BridgeApi {
     lastApprovalsReviewer = approvalsReviewer;
     lastServiceTier = serviceTier;
     lastSandbox = sandbox;
+    threadStartCalls.add(serviceKey);
+    final gate = threadStartGate;
+    if (gate != null) {
+      threadStartGate = null;
+      await gate.future;
+    }
     final id = 'thread-${_threadSeq++}';
+    final seeded = newSessionSettings;
+    if (seeded != null) sessionSettings['$serviceKey|$id'] = seeded;
     appThreads.insert(
       0,
       ThreadMeta(id: id, preview: '', cwd: cwd ?? '', updatedAt: 0),
@@ -1022,6 +1154,9 @@ class FakeBridgeApi implements BridgeApi {
   /// Used to exercise the Esc state machine + message queue.
   bool autoCompleteTurn = true;
 
+  /// Thread id of the last [appTurnStart].
+  String? lastTurnThread;
+
   /// Echoes a streamed agent reply so widget tests can assert rendering.
   @override
   Future<void> appTurnStart(
@@ -1038,6 +1173,7 @@ class FakeBridgeApi implements BridgeApi {
     String? reasoningEffort,
   }) async {
     turnStartCount++;
+    lastTurnThread = threadId;
     lastTurnModel = model;
     lastTurnText = text;
     lastTurnImages = images;
@@ -1107,12 +1243,18 @@ class FakeBridgeApi implements BridgeApi {
   /// Records the last approval decision for assertions.
   String? lastApprovalDecision;
 
+  /// Records the request id the last approval decision answered.
+  String? lastApprovalRequestId;
+
   @override
   Future<void> appRespondApproval(
     String serviceKey,
     String requestId,
     String decision,
-  ) async => lastApprovalDecision = decision;
+  ) async {
+    lastApprovalRequestId = requestId;
+    lastApprovalDecision = decision;
+  }
 
   /// Records the last answers JSON passed to [appRespondUserInput].
   String? lastUserInputAnswers;

@@ -31,7 +31,10 @@ const _legacy = String.fromEnvironment('PCX_SECOND_THREAD');
 
 class _MemoryPrefs extends UiPrefsStore {
   @override
-  Future<UiPrefs> build() async => const UiPrefs();
+  Future<UiPrefs> load() async => const UiPrefs();
+
+  @override
+  Future<void> save(UiPrefs prefs) async {}
 }
 
 class _ObservedBridge extends RustBridgeApi {

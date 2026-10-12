@@ -2207,13 +2207,13 @@ abstract class AppLocalizations {
   /// No description provided for @localHostDialogTitle.
   ///
   /// In en, this message translates to:
-  /// **'Host a local app-server'**
+  /// **'Host on this device'**
   String get localHostDialogTitle;
 
   /// No description provided for @localHostHint.
   ///
   /// In en, this message translates to:
-  /// **'Runs codex on this machine and registers it to your account, so your other devices can drive it.'**
+  /// **'Runs codex on this machine and publishes it on your relay, so your other devices can drive it.'**
   String get localHostHint;
 
   /// No description provided for @localHostListening.
@@ -2587,6 +2587,66 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Switch host'**
   String get hostSwitchTitle;
+
+  /// No description provided for @hostRestoreFull.
+  ///
+  /// In en, this message translates to:
+  /// **'Hosting started, but it will not be restored at launch: {count} hosts are already remembered. To have it restored, stop one of those hosts, then start this one again.'**
+  String hostRestoreFull(int count);
+
+  /// No description provided for @acpSavedAgentsFull.
+  ///
+  /// In en, this message translates to:
+  /// **'This agent was not saved to my agents: {count} agents are already saved.'**
+  String acpSavedAgentsFull(int count);
+
+  /// No description provided for @hostSwitchManage.
+  ///
+  /// In en, this message translates to:
+  /// **'Manage hosts…'**
+  String get hostSwitchManage;
+
+  /// No description provided for @agentChoiceNative.
+  ///
+  /// In en, this message translates to:
+  /// **'Native app-server'**
+  String get agentChoiceNative;
+
+  /// No description provided for @agentChoiceSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'My agent · ACP'**
+  String get agentChoiceSaved;
+
+  /// No description provided for @hostNameHelper.
+  ///
+  /// In en, this message translates to:
+  /// **'Unique on this device; it names the host on your relay.'**
+  String get hostNameHelper;
+
+  /// No description provided for @hostAdvanced.
+  ///
+  /// In en, this message translates to:
+  /// **'Advanced'**
+  String get hostAdvanced;
+
+  /// No description provided for @localHostPortInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a port from 0 to 65535 (0 picks a free port).'**
+  String get localHostPortInvalid;
+
+  /// No description provided for @localHostPortHelper.
+  ///
+  /// In en, this message translates to:
+  /// **'0 picks a free port automatically.'**
+  String get localHostPortHelper;
+
+  /// No description provided for @hostPortConflict.
+  ///
+  /// In en, this message translates to:
+  /// **'Another host on this device already uses this port. Use 0 for a free port, or pick another.'**
+  String get hostPortConflict;
 
   /// No description provided for @hostSwitchingTo.
   ///
@@ -4106,6 +4166,101 @@ abstract class AppLocalizations {
   /// **'Agent features'**
   String get acpFeatures;
 
+  /// No description provided for @acpCatalog.
+  ///
+  /// In en, this message translates to:
+  /// **'Model catalog'**
+  String get acpCatalog;
+
+  /// No description provided for @acpCatalogWaiting.
+  ///
+  /// In en, this message translates to:
+  /// **'The agent\'s model catalog is listed when its first session opens.'**
+  String get acpCatalogWaiting;
+
+  /// No description provided for @acpCatalogUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'The model catalog could not be added to the agent: {reason}'**
+  String acpCatalogUnavailable(String reason);
+
+  /// No description provided for @acpCatalogReasonPluginsDisabled.
+  ///
+  /// In en, this message translates to:
+  /// **'the agent\'s environment disables plugins (OPENCODE_PURE)'**
+  String get acpCatalogReasonPluginsDisabled;
+
+  /// No description provided for @acpCatalogReasonConfigTaken.
+  ///
+  /// In en, this message translates to:
+  /// **'the agent\'s environment sets both OPENCODE_CONFIG and OPENCODE_CONFIG_CONTENT; add the plugin below to your config'**
+  String get acpCatalogReasonConfigTaken;
+
+  /// No description provided for @acpCatalogReasonInstallFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'the catalog plugin could not be written'**
+  String get acpCatalogReasonInstallFailed;
+
+  /// No description provided for @acpCatalogPlugin.
+  ///
+  /// In en, this message translates to:
+  /// **'Plugin'**
+  String get acpCatalogPlugin;
+
+  /// No description provided for @acpCatalogProviderComplete.
+  ///
+  /// In en, this message translates to:
+  /// **'{id}: {listed} models listed, {added} added'**
+  String acpCatalogProviderComplete(String id, int listed, int added);
+
+  /// No description provided for @acpCatalogProviderPartial.
+  ///
+  /// In en, this message translates to:
+  /// **'{id}: {listed} models listed, {added} added; the listing is incomplete ({reason})'**
+  String acpCatalogProviderPartial(
+    String id,
+    int listed,
+    int added,
+    String reason,
+  );
+
+  /// No description provided for @acpCatalogNoProviders.
+  ///
+  /// In en, this message translates to:
+  /// **'No enabled provider with an explicit baseURL was found, so nothing was listed; only the configured models are offered.'**
+  String get acpCatalogNoProviders;
+
+  /// No description provided for @acpCatalogProviderFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'{id}: the model list could not be read ({reason}); the configured models are used'**
+  String acpCatalogProviderFailed(String id, String reason);
+
+  /// No description provided for @acpCatalogProviderSkipped.
+  ///
+  /// In en, this message translates to:
+  /// **'{id}: not listed ({reason})'**
+  String acpCatalogProviderSkipped(String id, String reason);
+
+  /// No description provided for @acpCatalogExcluded.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} non-chat entries left out'**
+  String acpCatalogExcluded(int count);
+
+  /// No description provided for @acpCatalogUnsafe.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} entries left out because the agent cannot hold their ids'**
+  String acpCatalogUnsafe(int count);
+
+  /// No description provided for @acpCatalogNoKey.
+  ///
+  /// In en, this message translates to:
+  /// **'no key was found in the provider\'s config or environment; a key saved through the agent\'s own sign-in is not visible here'**
+  String get acpCatalogNoKey;
+
   /// No description provided for @acpFeatureReopen.
   ///
   /// In en, this message translates to:
@@ -4189,6 +4344,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Mode'**
   String get agentMode;
+
+  /// No description provided for @agentOptionSearch.
+  ///
+  /// In en, this message translates to:
+  /// **'Search {option}'**
+  String agentOptionSearch(String option);
+
+  /// No description provided for @agentOptionNoMatch.
+  ///
+  /// In en, this message translates to:
+  /// **'No matching values.'**
+  String get agentOptionNoMatch;
+
+  /// No description provided for @agentPrepareSession.
+  ///
+  /// In en, this message translates to:
+  /// **'Set up agent'**
+  String get agentPrepareSession;
+
+  /// No description provided for @agentPrepareHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Open the agent\'s session for this project now, to choose its model and effort before sending.'**
+  String get agentPrepareHint;
 
   /// No description provided for @historyGapNotice.
   ///

@@ -30,7 +30,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use pocket_codex_host_svc::acp::fold::{Change, Item, ItemKind, Turn};
+use pocket_codex_host_svc::acp::fold::{Change, Item, ItemKind, Tool, Turn};
+use serde::Deserialize as _;
 use serde_json::{json, Value};
 
 use super::Shared;
@@ -114,8 +115,18 @@ pub fn app_item(item: &Item, turn: &str) -> ThreadItem {
     }
 }
 
+/// The `dynamicToolCall` detail, serialized from borrows. Fields are in the
+/// key order of the sorted JSON object this text has always had.
+#[derive(serde::Serialize)]
+struct ToolDetail<'a> {
+    input: Option<&'a Value>,
+    output: &'a str,
+    tool: &'a str,
+}
+
 fn tool_parts(item: &Item) -> (&'static str, String, String) {
-    let tool = item.tool.clone().unwrap_or_default();
+    let missing = Tool::default();
+    let tool = item.tool.as_ref().unwrap_or(&missing);
     let mut text = item.text.clone();
     if tool.terminals > 0 {
         if !text.is_empty() {
@@ -146,9 +157,14 @@ fn tool_parts(item: &Item) -> (&'static str, String, String) {
         },
         "search" | "fetch" => ("webSearch", item.title.clone(), text),
         _ => {
-            let name = tool.name.clone().unwrap_or_else(|| tool.kind.clone());
-            let detail = json!({"tool": name, "input": tool.raw_input, "output": text});
-            ("dynamicToolCall", item.title.clone(), detail.to_string())
+            let detail = ToolDetail {
+                input: tool.raw_input.as_ref(),
+                output: &text,
+                tool: tool.name.as_deref().unwrap_or(&tool.kind),
+            };
+            // reason: a struct of strings and a JSON value always serializes.
+            let detail = serde_json::to_string(&detail).expect("serializable");
+            ("dynamicToolCall", item.title.clone(), detail)
         },
     }
 }
@@ -415,7 +431,7 @@ pub fn finished(
         .and_then(|history| history["window"].as_array())
         .into_iter()
         .flatten()
-        .filter_map(|turn| serde_json::from_value::<Turn>(turn.clone()).ok())
+        .filter_map(|turn| Turn::deserialize(turn).ok())
         .find(|turn| turn.id == turn_id);
     let mut out = completion(thread, turn_id, turn.as_ref(), outcome);
     // Updates missed while away may have cleared notices shown before.
@@ -1018,6 +1034,44 @@ mod tests {
         let fold = shared.live.turn("s", "t").expect("fold").clone();
         let types: Vec<String> = turn_items(&fold).into_iter().map(|i| i.item_type).collect();
         assert_eq!(types, vec!["userMessage", "agentMessage", CONTENT_OMITTED]);
+    }
+
+    /// The borrowed detail is byte-for-byte the JSON object it replaced,
+    /// for named, unnamed and missing tool state.
+    #[test]
+    fn generic_tool_detail_text_is_unchanged() {
+        let input = json!({"q": "naïve \"quote\" \u{1F600}", "n": [1, {"deep": null}]});
+        let tool = |name: Option<&str>, raw_input: Option<Value>| Tool {
+            call_id: "c".into(),
+            kind: "think".into(),
+            status: "completed".into(),
+            name: name.map(str::to_string),
+            raw_input,
+            ..Tool::default()
+        };
+        let item = |tool: Option<Tool>| Item {
+            id: "tool:c".into(),
+            kind: ItemKind::ToolCall,
+            title: "Think".into(),
+            text: "out\tput ✓".into(),
+            images: Vec::new(),
+            tool,
+            plan: None,
+            message_id: None,
+            truncated: false,
+            text_full: false,
+            omitted: Vec::new(),
+        };
+        for (item, name, raw) in [
+            (item(Some(tool(Some("grep"), Some(input.clone())))), "grep", input.clone()),
+            (item(Some(tool(None, None))), "think", Value::Null),
+            (item(None), "", Value::Null),
+        ] {
+            let (kind, title, text) = tool_parts(&item);
+            assert_eq!((kind, title.as_str()), ("dynamicToolCall", "Think"));
+            let old = json!({"tool": name, "input": raw, "output": "out\tput ✓"});
+            assert_eq!(text, old.to_string());
+        }
     }
 
     /// Tool `x` drops an oversized diff while another tool is legally named

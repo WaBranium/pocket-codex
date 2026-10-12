@@ -6,6 +6,8 @@ pub mod app_session;
 pub mod config;
 pub mod discovery;
 pub mod hosting;
+#[cfg(test)]
+mod hosting_live_tests;
 pub mod logging;
 pub mod meta;
 pub mod runtime;

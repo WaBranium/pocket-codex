@@ -7,6 +7,7 @@ import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `forward_app_events`, `forward_retained_requests`, `history_dto`, `holder_dto`, `item_dto`, `meta_follow_update_dto`, `meta_holder_dto`, `meta_liveness_dto`, `meta_thread_item_dto`, `opt_str`, `project_config_dto`, `settings_dto`, `thread_config_dto`, `thread_config_from_dto`, `to_log_dto`, `turn_page_dto`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `from`
 
 /// Initialise the engine with the platform app-support dir (from Dart's
 /// path_provider). Must be called once after `RustLib.init()`.
@@ -237,8 +238,10 @@ Future<TurnItemsPageDto> appThreadTurnPage({
   deltaOnly: deltaOnly,
 );
 
-/// Connect to an app-server service: subscribe on `127.0.0.1:<local_port>`,
-/// open the JSON-RPC websocket and run the `initialize` handshake. Idempotent.
+/// Connect to a session service, dispatched by its key's protocol: a Codex
+/// app-server (subscribe on `127.0.0.1:<local_port>`, open the JSON-RPC
+/// websocket, run `initialize`) or an ACP gateway (`/acp/v1` snapshot, then
+/// its event stream). Idempotent.
 Future<void> appConnect({required String serviceKey, required int localPort}) =>
     RustLib.instance.api.crateApiBridgeAppConnect(
       serviceKey: serviceKey,
@@ -254,12 +257,13 @@ bool appIsConnected({required String serviceKey}) =>
 Future<void> appDisconnect({required String serviceKey}) =>
     RustLib.instance.api.crateApiBridgeAppDisconnect(serviceKey: serviceKey);
 
-/// Probe whether an app-server is actually REACHABLE — its backend responds to
-/// a handshake — rather than merely registered on the relay. The services list
-/// uses this so a registered-but-dead app-server (a live relay registrant
-/// forwarding to a codex app-server that has died) shows as unreachable instead
-/// of a false "online". Opens a transient tunnel + `initialize` with a timeout,
-/// then tears it down; a live session short-circuits to `true`.
+/// Probe whether a session service is actually REACHABLE — its backend
+/// answers — rather than merely registered on the relay, so a
+/// registered-but-dead host shows as unreachable instead of a false "online".
+/// Dispatched by the key's protocol: a Codex app-server gets a transient
+/// tunnel + `initialize` with a timeout; an ACP gateway answers `/acp/v1`
+/// info with a ready agent.
+/// A live session short-circuits to `true`.
 Future<bool> appProbe({required String serviceKey}) =>
     RustLib.instance.api.crateApiBridgeAppProbe(serviceKey: serviceKey);
 
@@ -959,8 +963,8 @@ Future<List<AccountServiceDto>> accountServices() =>
     RustLib.instance.api.crateApiBridgeAccountServices();
 
 /// Deregister one of the account's services from the relay (best-effort; a
-/// still-running host re-registers shortly after). `kind` is `"app"` or
-/// `"api"`.
+/// still-running host re-registers shortly after). `kind` is the service's
+/// key segment (`"app"`, `"acp"`, `"api"` or `"meta"`).
 Future<void> accountDeregisterService({
   required String device,
   required String kind,
@@ -1043,7 +1047,7 @@ class AccountServiceDto {
   /// Device id segment.
   final String device;
 
-  /// `app` or `api`.
+  /// `app`, `acp`, `api` or `meta` (see [`ServiceIdDto::kind`]).
   final String kind;
 
   /// Instance name segment.
@@ -1090,7 +1094,8 @@ class AccountUserDto {
           accountId == other.accountId;
 }
 
-/// An ACP agent executable and argument vector, passed verbatim without a shell.
+/// An ACP agent executable and argument vector, passed verbatim without a
+/// shell.
 class AcpAgentSpecDto {
   /// Profile id (`opencode` for the preset, or a custom id).
   final String profileId;
@@ -1127,6 +1132,111 @@ class AcpAgentSpecDto {
           displayName == other.displayName &&
           program == other.program &&
           args == other.args;
+}
+
+/// One provider's model listing.
+class AcpCatalogProviderDto {
+  /// Provider id from the OpenCode config.
+  final String id;
+
+  /// `complete`, `partial` (bounded), `failed` (nothing added) or
+  /// `skipped`.
+  final String status;
+
+  /// Reason code (`http-401`, `timeout`, `model-limit`, …).
+  final String? reason;
+
+  /// Chat models listed.
+  final int listed;
+
+  /// Models added beyond the configured ones.
+  final int added;
+
+  /// Entries left out for an explicit non-chat type.
+  final int excluded;
+
+  /// Ids OpenCode cannot hold, left out.
+  final int unsafeIds;
+
+  /// Where the credential came from: `config`, `env`, `headers`
+  /// (configured request headers) or `none`.
+  final String keySource;
+
+  const AcpCatalogProviderDto({
+    required this.id,
+    required this.status,
+    this.reason,
+    required this.listed,
+    required this.added,
+    required this.excluded,
+    required this.unsafeIds,
+    required this.keySource,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      status.hashCode ^
+      reason.hashCode ^
+      listed.hashCode ^
+      added.hashCode ^
+      excluded.hashCode ^
+      unsafeIds.hashCode ^
+      keySource.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AcpCatalogProviderDto &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          status == other.status &&
+          reason == other.reason &&
+          listed == other.listed &&
+          added == other.added &&
+          excluded == other.excluded &&
+          unsafeIds == other.unsafeIds &&
+          keySource == other.keySource;
+}
+
+/// What the OpenCode model catalog plugin found for one host. Holds provider
+/// ids, counts and fixed reason codes, plus the plugin's own local file URL;
+/// never a provider endpoint, key or header.
+class AcpCatalogStatusDto {
+  /// `waiting` (no session opened yet), `reported` or `unavailable`.
+  final String state;
+
+  /// Why it is unavailable: `plugins-disabled`, `config-env-taken` or
+  /// `install-failed`.
+  final String? reason;
+
+  /// The plugin's local `file://` URL, shown when it is unavailable so it
+  /// can be added to an OpenCode config by hand.
+  final String? plugin;
+
+  /// One entry per listed provider.
+  final List<AcpCatalogProviderDto> providers;
+
+  const AcpCatalogStatusDto({
+    required this.state,
+    this.reason,
+    this.plugin,
+    required this.providers,
+  });
+
+  @override
+  int get hashCode =>
+      state.hashCode ^ reason.hashCode ^ plugin.hashCode ^ providers.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AcpCatalogStatusDto &&
+          runtimeType == other.runtimeType &&
+          state == other.state &&
+          reason == other.reason &&
+          plugin == other.plugin &&
+          providers == other.providers;
 }
 
 /// A built-in ACP agent preset.
@@ -1265,6 +1375,9 @@ class AppCapabilitiesDto {
   /// Human-readable agent name (ACP: the host's profile name).
   final String providerName;
 
+  /// ACP agent profile id from the host; empty for Codex or when unknown.
+  final String profileId;
+
   /// Whether the values come from a live ACP negotiation.
   final bool negotiated;
 
@@ -1333,6 +1446,7 @@ class AppCapabilitiesDto {
     required this.planMode,
     required this.protocol,
     required this.providerName,
+    required this.profileId,
     required this.negotiated,
     required this.generation,
     required this.voice,
@@ -1366,6 +1480,7 @@ class AppCapabilitiesDto {
       planMode.hashCode ^
       protocol.hashCode ^
       providerName.hashCode ^
+      profileId.hashCode ^
       negotiated.hashCode ^
       generation.hashCode ^
       voice.hashCode ^
@@ -1401,6 +1516,7 @@ class AppCapabilitiesDto {
           planMode == other.planMode &&
           protocol == other.protocol &&
           providerName == other.providerName &&
+          profileId == other.profileId &&
           negotiated == other.negotiated &&
           generation == other.generation &&
           voice == other.voice &&
@@ -1570,8 +1686,9 @@ class AppServeDto {
           reused == other.reused;
 }
 
-/// Status of one local host, mirrored for Dart. Each host carries both tunnels'
-/// publish state so the UI can offer per-tunnel 注销 / 重新注册.
+/// Status of one local host (a Codex app-server or an ACP agent gateway),
+/// mirrored for Dart. Each host carries its tunnels' publish state so the UI
+/// can offer per-tunnel 注销 / 重新注册.
 class AppServeStatusDto {
   /// Service instance name.
   final String name;
@@ -1579,16 +1696,16 @@ class AppServeStatusDto {
   /// Device id.
   final String device;
 
-  /// codex process id.
+  /// codex process id; `None` for ACP hosts.
   final int? pid;
 
-  /// codex is accepting on its listen port.
+  /// codex is accepting on its listen port; for ACP, the agent is ready.
   final bool alive;
 
-  /// Loopback `host:port` codex listens on.
+  /// Loopback `host:port` codex (or the ACP gateway) listens on.
   final String appListenAddr;
 
-  /// `pcx:<device>:app:<name>` key.
+  /// `pcx:<device>:app:<name>` key, or `pcx:<device>:acp:<name>` for ACP.
   final String appServiceKey;
 
   /// The app tunnel is currently published.
@@ -1648,6 +1765,9 @@ class AppServeStatusDto {
   /// The ACP agent reported that authentication is required.
   final bool authRequired;
 
+  /// The OpenCode model catalog (ACP hosts of the `opencode` profile).
+  final AcpCatalogStatusDto? catalog;
+
   const AppServeStatusDto({
     required this.name,
     required this.device,
@@ -1673,6 +1793,7 @@ class AppServeStatusDto {
     this.agentPhase,
     this.agentError,
     required this.authRequired,
+    this.catalog,
   });
 
   @override
@@ -1700,7 +1821,8 @@ class AppServeStatusDto {
       profileId.hashCode ^
       agentPhase.hashCode ^
       agentError.hashCode ^
-      authRequired.hashCode;
+      authRequired.hashCode ^
+      catalog.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -1730,7 +1852,8 @@ class AppServeStatusDto {
           profileId == other.profileId &&
           agentPhase == other.agentPhase &&
           agentError == other.agentError &&
-          authRequired == other.authRequired;
+          authRequired == other.authRequired &&
+          catalog == other.catalog;
 }
 
 /// codex auth status for the app-server behind `service_key`, mirrored for
@@ -2420,7 +2543,8 @@ class ServiceIdDto {
   /// Device id segment.
   final String device;
 
-  /// `app` or `api`.
+  /// `app` (Codex app-server), `acp` (ACP agent gateway), `api`
+  /// (Responses proxy) or `meta` (host meta service).
   final String kind;
 
   /// Instance name segment.

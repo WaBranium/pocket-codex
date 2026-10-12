@@ -61,7 +61,8 @@ class ToastMessenger {
 
   void _raise(String message, _Tone tone) {
     final messenger = _messenger;
-    if (messenger == null) return;
+    // A late completion may outlive the captured messenger.
+    if (messenger == null || !messenger.mounted) return;
     messenger.hideCurrentSnackBar();
     messenger.showSnackBar(
       _bar(
