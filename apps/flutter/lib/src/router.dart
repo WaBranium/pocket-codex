@@ -95,7 +95,9 @@ GoRouter buildRouter({
         final svc = s.uri.queryParameters['svc'];
         return LocalSessionsScreen(
           source: (svc == null || svc.isEmpty)
-              ? const SessionSource.local()
+              ? SessionSource.local(
+                  provider: s.uri.queryParameters['provider'] ?? 'codex',
+                )
               : SessionSource.remote(svc),
         );
       },
@@ -104,6 +106,7 @@ GoRouter buildRouter({
       path: '/sessions/view',
       builder: (c, s) => LocalSessionViewScreen(
         threadId: s.uri.queryParameters['tid']!,
+        provider: s.uri.queryParameters['provider'] ?? 'codex',
         cwd: s.uri.queryParameters['cwd'],
         preview: s.uri.queryParameters['preview'],
         serviceKey: s.uri.queryParameters['svc'],

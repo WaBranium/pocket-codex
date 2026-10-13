@@ -639,9 +639,10 @@ this file's roadmap so the source of truth stays in sync.
     long, with full labels in tooltips/semantics and pending/failed states;
     each answer's complete option set replaces the old one, a `mode` option
     hides legacy modes, and value ids stay opaque (`provider/model/with/slashes`).
-    Before the first prompt an explicit **Set up agent** opens the ACP session
-    for the chosen project without sending; only a completion for the same
-    service, project, draft and conversation is adopted. Native Codex keeps
+    A new ACP conversation automatically opens its session for the chosen
+    project without sending; the first send waits for that same attempt.
+    Only a completion for the same service, project, draft and conversation
+    is adopted. Native Codex keeps
     its own model/effort path and lazy thread creation. The OpenCode preset
     launches with a config layer naming the model catalog plugin
     (`host-svc/src/acp/catalog.rs`, `opencode_catalog.mjs`):
@@ -834,6 +835,23 @@ this file's roadmap so the source of truth stays in sync.
     keyboard/RTL semantics and 44px touch targets. Narrow sidebars and large
     text put metadata below titles. Paint-only animation respects TickerMode
     and releases its controllers on disposal.
+
+28. **Provider-native history and ACP first use (2026-10-14, PR #99).**
+    Desktop Local sessions selects Codex, Claude or OpenCode without starting
+    an ACP connection. Provider-native history reuses the read-only viewer,
+    bounded pages, source generations and foreground revision polling.
+    Claude uses the installed official SDK's read-only exports; OpenCode
+    uses a desktop-only, read-only SQLite reader for known v2/legacy schemas.
+    Native history navigation never calls session/load, resumes a writer or
+    downloads a runtime. Claude owners require matching native session ID,
+    PID, start time, executable and cwd; unavailable evidence stays unknown.
+    An owner report is not an exclusive lease: neither provider currently
+    offers verified safe takeover, so these views cannot send or take over.
+    Keep remote host roots separate from the controller's filesystem.
+    ACP new conversations prepare automatically, with one attempt per draft
+    and no extra setup click. The directory picker supports a typed host path
+    even with no saved projects; native selection is limited to the host
+    computer. See [provider-native history](docs/native-agent-history.md).
 
 ### UI and history maintenance (2026-09-13)
 

@@ -10,6 +10,9 @@ use std::{net::TcpStream, time::Duration};
 use sysinfo::{Pid, ProcessRefreshKind, ProcessStatus, ProcessesToUpdate, System, UpdateKind};
 use tracing::warn;
 
+mod identity;
+pub use identity::{process_identity, ProcessIdentity};
+
 /// Refresh and return the status of a single process, `None` when no such
 /// process exists. Shared lookup behind [`pid_alive`] / [`pid_running`] so
 /// the sysinfo refresh incantation lives in one place.
@@ -604,25 +607,52 @@ mod tests {
         );
     }
 
-    /// A process named `codex` serving `url` (a copy of bash looping), as
-    /// the child of `/bin/sh` (a shim staying in front of it) or directly.
+    #[cfg(unix)]
+    fn copy_fake_codex(path: &std::path::Path) {
+        // A copied system shell can be killed by macOS launch constraints.
+        std::fs::copy(std::env::current_exe().expect("test binary"), path)
+            .expect("a process named codex");
+    }
+
+    #[test]
+    #[ignore = "an idle fixture process the attribution tests start"]
+    fn idle_fixture() {
+        if std::env::var_os("PCX_TEST_IDLE").is_some() {
+            std::thread::sleep(Duration::from_secs(60));
+        }
+    }
+
+    /// An idle test process named `codex`, directly or behind a live shim.
     #[cfg(unix)]
     fn fake_codex(codex: &std::path::Path, url: &str, shim: bool) -> std::process::Child {
-        let serve = format!(
-            "'{}' -c 'while :; do sleep 1; done' app-server --listen {url}",
-            codex.display()
-        );
+        // After `--`, libtest treats the server arguments as extra filters.
+        // The exact fixture filter still selects only this one idle test.
+        let args = [
+            "--exact",
+            "process::tests::idle_fixture",
+            "--ignored",
+            "--test-threads=1",
+            "--",
+            "app-server",
+            "--listen",
+            url,
+        ];
         let mut command = if shim {
             let mut sh = std::process::Command::new("/bin/sh");
             // The trailing `:` keeps the shell in front instead of exec'ing.
-            sh.args(["-c", &format!("{serve}; :")]);
+            sh.args(["-c", "\"$0\" \"$@\"; :"]).arg(codex).args(args);
             sh
         } else {
             let mut direct = std::process::Command::new(codex);
-            direct.args(["-c", "while :; do sleep 1; done", "app-server", "--listen", url]);
+            direct.args(args);
             direct
         };
-        command.spawn().expect("spawn")
+        command
+            .env("PCX_TEST_IDLE", "1")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("spawn fixture")
     }
 
     /// Only a server descending from the process a launch spawned is
@@ -634,7 +664,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("pcx-attribution-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("dir");
         let codex = dir.join("codex");
-        std::fs::copy("/bin/bash", &codex).expect("a process named codex");
+        copy_fake_codex(&codex);
         let url = "ws://127.0.0.1:9";
         let mut foreign = fake_codex(&codex, url, false);
         let mut shim = fake_codex(&codex, url, true);
@@ -748,7 +778,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("pcx-endpoint-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("dir");
         let codex = dir.join("codex");
-        std::fs::copy("/bin/bash", &codex).expect("a process named codex");
+        copy_fake_codex(&codex);
         let port = free_port();
         let url = format!("ws://127.0.0.1:{port}");
         // Someone else's server: this test process, not in the child's tree.

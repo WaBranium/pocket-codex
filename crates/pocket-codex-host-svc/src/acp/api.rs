@@ -41,6 +41,8 @@ use super::{
     state::LogEntry,
 };
 
+mod native;
+
 /// Most concurrent event streams per host.
 pub const MAX_STREAMS: usize = 16;
 /// Largest prompt request body (text plus inline images).
@@ -66,6 +68,7 @@ impl IntoResponse for ApiError {
             | HostError::AlreadyResolved
             | HostError::NotReopenable
             | HostError::Stale => StatusCode::CONFLICT,
+            HostError::ReadOnly => StatusCode::CONFLICT,
             HostError::Capacity => StatusCode::TOO_MANY_REQUESTS,
             HostError::InvalidOption | HostError::Unsupported(_) => {
                 StatusCode::UNPROCESSABLE_ENTITY
@@ -97,6 +100,8 @@ pub fn router(host: AgentHost) -> Router {
         .route("/acp/v1/sessions/new", post(new_session))
         .route("/acp/v1/sessions/open", post(open_session))
         .route("/acp/v1/sessions/history", get(history))
+        .route("/acp/v1/sessions/native-events", get(native::follow))
+        .route("/acp/v1/sessions/native-status", get(native::status))
         .route(
             "/acp/v1/sessions/prompt",
             post(prompt).layer(DefaultBodyLimit::max(PROMPT_BODY_LIMIT)),
@@ -270,7 +275,13 @@ struct HistoryQuery {
 async fn history(State(state): State<ApiState>, Query(query): Query<HistoryQuery>) -> ApiResult {
     state
         .host
-        .history(&query.session_id, query.before.as_deref(), query.turn.as_deref(), query.limit)
+        .read_history(
+            &query.session_id,
+            query.before.as_deref(),
+            query.turn.as_deref(),
+            query.limit,
+        )
+        .await
         .map(Json)
         .map_err(ApiError)
 }

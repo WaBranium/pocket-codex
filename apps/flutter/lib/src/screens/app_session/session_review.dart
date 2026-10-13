@@ -483,8 +483,23 @@ extension _SessionReview on _AppSessionState {
     );
   }
 
+  /// What to check after the ACP agent itself refused or could not run a
+  /// request: its host's model service and environment (credentials come
+  /// from there — never from a sign-in here). Null for other failures.
+  String? _agentErrorHint(AppLocalizations l10n, String error) {
+    final caps = _caps;
+    if (!caps.isAcp) return null;
+    if (caps.authRequired) return l10n.agentAuthHint;
+    final m = error.toLowerCase();
+    return m.startsWith('the agent rejected the request') ||
+            m.startsWith('the agent is not running')
+        ? l10n.agentErrorHint
+        : null;
+  }
+
   Widget _errorBanner(AppLocalizations l10n) {
     final scheme = Theme.of(context).colorScheme;
+    final agentHint = _agentErrorHint(l10n, _error!);
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
@@ -492,31 +507,73 @@ extension _SessionReview on _AppSessionState {
         borderRadius: BorderRadius.circular(kPanelRadius),
       ),
       padding: const EdgeInsets.fromLTRB(16, 6, 8, 6),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Expanded(
-            child: KeyedSubtree(
-              key: const Key('session-error'),
-              child: linkifyText(
-                context,
-                _error!,
-                style: TextStyle(color: scheme.onErrorContainer),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    KeyedSubtree(
+                      key: const Key('session-error'),
+                      child: linkifyText(
+                        context,
+                        _error!,
+                        style: TextStyle(color: scheme.onErrorContainer),
+                      ),
+                    ),
+                    if (agentHint != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          agentHint,
+                          key: const Key('session-error-agent-hint'),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: scheme.onErrorContainer.withValues(
+                              alpha: 0.85,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
-            ),
+              IconButton(
+                key: const Key('session-error-dismiss'),
+                icon: const Icon(Icons.close, size: 18),
+                tooltip: MaterialLocalizations.of(context).closeButtonTooltip,
+                onPressed: () => _updateState(() {
+                  _error = null;
+                  // Dismissing a held notice ends it.
+                  _heldNotice = null;
+                }),
+              ),
+            ],
           ),
-          if (_connectionLost)
-            TextButton(onPressed: _autoReconnect, child: Text(l10n.reconnect))
-          else if (_retry != null)
-            TextButton(onPressed: _retry, child: Text(l10n.retry)),
-          IconButton(
-            key: const Key('session-error-dismiss'),
-            icon: const Icon(Icons.close, size: 18),
-            tooltip: MaterialLocalizations.of(context).closeButtonTooltip,
-            onPressed: () => _updateState(() {
-              _error = null;
-              // Dismissing a held notice ends it.
-              _heldNotice = null;
-            }),
+          Wrap(
+            alignment: WrapAlignment.end,
+            spacing: 4,
+            children: [
+              if (agentHint != null && _canOpenAgentHost(watch: true))
+                TextButton(
+                  key: const Key('session-error-host-settings'),
+                  onPressed: _openAgentHostSettings,
+                  child: Text(l10n.agentHostSettings),
+                ),
+              if (_connectionLost)
+                TextButton(
+                  onPressed: _autoReconnect,
+                  child: Text(l10n.reconnect),
+                )
+              else if (_retry != null)
+                TextButton(onPressed: _retry, child: Text(l10n.retry)),
+            ],
           ),
         ],
       ),

@@ -66,6 +66,15 @@ extension _SessionLoading on _AppSessionState {
                 )
               : t,
       ];
+      // A session opened ahead for an unsent draft is that draft's: it is
+      // listed once the draft's first message adopts it.
+      final ahead = _drafts.preparedIds;
+      if (ahead.isNotEmpty) {
+        mine = [
+          for (final t in mine)
+            if (!ahead.contains(t.id) || t.id == _threadId) t,
+        ];
+      }
       if (mounted) _updateState(() => _threads = mine);
       _openLoadDone(_kThreadsLoad);
       // Reaching here proves the service answers, which the subscribe-time
@@ -257,7 +266,12 @@ extension _SessionLoading on _AppSessionState {
       // existing one is restored from the server by _resumeAndLoad below.
       if (tid == null) _seedDefaults();
     });
-    if (tid != null) _resumeAndLoad();
+    if (tid != null) {
+      _resumeAndLoad();
+    } else if (_caps.sessionConfig) {
+      // A draft shown again keeps the session opened ahead for it.
+      _refreshAgentSettings();
+    }
   }
 
   /// Leave a pushed conversation for the list it came from — the session

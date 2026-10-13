@@ -44,7 +44,8 @@ extension _SessionCapabilities on _AppSessionState {
   /// menu opened and refused if any part moved (conversation, its load,
   /// capabilities/host generation, event connection).
   _AgentTarget? _agentTarget() {
-    final tid = _threadId;
+    // The open conversation, or the session opened ahead for its draft.
+    final tid = _agentSessionThread;
     if (tid == null) return null;
     return (
       service: widget.serviceKey,
@@ -60,7 +61,7 @@ extension _SessionCapabilities on _AppSessionState {
   bool get _agentControlsEnabled =>
       _caps.sessionConfig &&
       !_sending &&
-      !_preparingSession &&
+      _draft.preparing == null &&
       !_streaming &&
       !(_agentSettings?.running ?? false) &&
       !_externalWriterMode &&
@@ -78,7 +79,7 @@ extension _SessionCapabilities on _AppSessionState {
       _agentControlsEnabled;
 
   void _refreshAgentSettings() {
-    final tid = _threadId;
+    final tid = _agentSessionThread;
     final next = tid == null || !_caps.sessionConfig
         ? null
         : ref
@@ -123,82 +124,6 @@ extension _SessionCapabilities on _AppSessionState {
         context,
         AppLocalizations.of(context).permissionAnswerFailed,
       );
-    }
-  }
-
-  /// Open the ACP agent's session for the chosen project without sending, so
-  /// its model, effort and mode can be chosen before the first prompt (the
-  /// agent's catalog is per session and project). The current draft — text,
-  /// attachments, queue — is adopted by the new session as is; nothing is
-  /// sent. Only a completion for the same service, project, draft and
-  /// conversation state is applied: if the user switched project or
-  /// conversation meanwhile, the new session stays an empty entry in the
-  /// host's list and this view is left alone.
-  Future<void> _prepareAgentSession() async {
-    final cwd = _cwd;
-    if (_threadId != null ||
-        cwd == null ||
-        _preparingSession ||
-        _sending ||
-        !_caps.sessionConfig ||
-        _externalWriterMode ||
-        _guardianReadOnly ||
-        _reconnecting ||
-        _connectionLost ||
-        _showingCachedHistory) {
-      return;
-    }
-    final serviceKey = widget.serviceKey;
-    final generation = _threadLoadGeneration;
-    final selection = _projectSelectionGeneration;
-    final caps = _capsEpoch;
-    final link = _subscriptionEpoch;
-    _saveDraft();
-    final draft = _draft;
-    // The same view, project, draft and connection, still editable and
-    // still offering per-session options.
-    bool current() =>
-        mounted &&
-        widget.serviceKey == serviceKey &&
-        generation == _threadLoadGeneration &&
-        selection == _projectSelectionGeneration &&
-        caps == _capsEpoch &&
-        link == _subscriptionEpoch &&
-        identical(_draft, draft) &&
-        _threadId == null &&
-        _cwd == cwd &&
-        !_sending &&
-        !_externalWriterMode &&
-        !_guardianReadOnly &&
-        !_reconnecting &&
-        !_connectionLost &&
-        _caps.sessionConfig;
-    _updateState(() {
-      _preparingSession = true;
-      _error = null;
-    });
-    try {
-      final id = await ref
-          .read(bridgeApiProvider)
-          .appThreadStart(serviceKey, cwd: cwd);
-      if (!current()) return;
-      _drafts.adoptThread(draft, id);
-      _threadId = id;
-      ref.read(uiPrefsProvider.notifier).setLastThread(serviceKey, id);
-      _updateState(() {
-        if (!_threads.any((t) => t.id == id)) {
-          _threads = [
-            ThreadMeta(id: id, preview: '', cwd: cwd, updatedAt: 0),
-            ..._threads,
-          ];
-        }
-      });
-      _refreshAgentSettings();
-      unawaited(_loadThreads());
-    } catch (e) {
-      if (current()) _updateState(() => _error = friendlyError(e));
-    } finally {
-      if (mounted) _updateState(() => _preparingSession = false);
     }
   }
 

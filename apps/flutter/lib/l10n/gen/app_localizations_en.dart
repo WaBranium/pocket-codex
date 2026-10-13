@@ -2693,13 +2693,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get agentOptionNoMatch => 'No matching values.';
 
   @override
-  String get agentPrepareSession => 'Set up agent';
-
-  @override
-  String get agentPrepareHint =>
-      'Open the agent\'s session for this project now, to choose its model and effort before sending.';
-
-  @override
   String get historyGapNotice =>
       'Earlier history is not available from this agent host.';
 
@@ -3175,4 +3168,126 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get claudeEnvEditDormant => 'Edit inactive overrides';
+
+  @override
+  String get nativeHistoryReadOnly => 'Local history · Read-only';
+
+  @override
+  String get nativeHistoryTakeoverUnavailable =>
+      'Live history is read-only. This agent cannot guarantee an exclusive handover, so takeover is unavailable. Start a new conversation to send messages.';
+
+  @override
+  String agentWelcomeTitle(String agent) {
+    return 'Start with $agent';
+  }
+
+  @override
+  String agentWelcomeOpening(String agent) {
+    return 'Opening a $agent session in this folder…';
+  }
+
+  @override
+  String get agentWelcomeReady => 'Ready. Type your first message.';
+
+  @override
+  String agentWelcomeReadyModel(String model) {
+    return 'Ready · $model';
+  }
+
+  @override
+  String agentWelcomeFailed(String reason) {
+    return 'Couldn\'t open a session: $reason';
+  }
+
+  @override
+  String agentWelcomeNeedsProject(String agent) {
+    return 'Choose a folder for $agent to work in.';
+  }
+
+  @override
+  String get agentWelcomeLater => 'The session opens with your first message.';
+
+  @override
+  String get agentWelcomeConnecting => 'Waiting for the host connection…';
+
+  @override
+  String get chooseFolder => 'Choose a folder…';
+
+  @override
+  String get recentProjects => 'Recent projects';
+
+  @override
+  String get agentHostSettings => 'Host settings';
+
+  @override
+  String agentOpening(String agent) {
+    return 'Opening $agent…';
+  }
+
+  @override
+  String get agentOpeningHint =>
+      'The agent\'s model and options appear once its session is open. Anything you type stays here.';
+
+  @override
+  String get agentOptionsUnavailable => 'Options unavailable';
+
+  @override
+  String get agentOptionsRetry =>
+      'Couldn\'t load the agent\'s options. Select to try again.';
+
+  @override
+  String get agentErrorHint =>
+      'Check this host\'s model service and environment, then retry.';
+
+  @override
+  String get agentAuthHint =>
+      'The agent reports that it needs credentials. Provide them through this host\'s environment, then retry.';
+
+  @override
+  String get folderOnThisComputer => 'Choose on this computer…';
+
+  @override
+  String get folderTypePath => 'Enter a path';
+
+  @override
+  String get folderPathFieldLabel => 'Folder path on the host';
+
+  @override
+  String get folderOutsideRootsNote =>
+      'This path is outside the project folders, so it can\'t be browsed here. The host checks it when the conversation starts.';
+
+  @override
+  String get folderPickerNoRootsHint =>
+      'You can still enter any folder path on the host.';
+
+  @override
+  String get folderNoSubfolders =>
+      'No subfolders here. You can use this folder as it is.';
+
+  @override
+  String get folderWillUse => 'Will use';
+
+  @override
+  String get folderPathAbsolute =>
+      'Enter a full path, starting at the root of the host\'s file system.';
+
+  @override
+  String get folderBreadcrumbTop => 'Start';
+
+  @override
+  String get noProjectsYet => 'No projects yet. Choose a folder to start one.';
+
+  @override
+  String get nativeLocalHistoryHint =>
+      'Browse saved sessions on this computer without connecting to an agent. Native history stays read-only.';
+
+  @override
+  String get nativeHistoryLoadMore => 'Load more sessions';
+
+  @override
+  String get nativeHistoryLoadOlder => 'Load older messages';
+
+  @override
+  String get nativeHistoryWindowHint =>
+      'A bounded history window is shown. Some content is omitted or outside this window.';
 }

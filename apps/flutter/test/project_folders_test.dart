@@ -171,6 +171,78 @@ void main() {
       await t.tap(find.byKey(const Key(r'folder-row-D:\a')));
       await t.pumpAndSettle();
       expect(find.byKey(const Key(r'folder-row-D:\a\sub')), findsOneWidget);
+      // Every crumb jumps back; the start crumb returns to the roots.
+      await t.tap(find.byKey(const Key('folder-crumb-top')));
+      await t.pumpAndSettle();
+      expect(find.byKey(const Key(r'folder-row-D:\b')), findsOneWidget);
+    });
+
+    testWidgets('recent projects are offered with or without roots', (t) async {
+      final api = FakeBridgeApi();
+      api.projectConfigs[_svc] = const ProjectConfig();
+      String? picked;
+      await t.pumpWidget(
+        _host(
+          Builder(
+            builder: (c) => Scaffold(
+              body: Center(
+                child: ElevatedButton(
+                  onPressed: () async {
+                    picked = await showFolderPicker(
+                      c,
+                      serviceKey: _svc,
+                      recent: const ['/home/me/app'],
+                    );
+                  },
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+          api,
+        ),
+      );
+      await t.tap(find.text('open'));
+      await t.pumpAndSettle();
+      expect(find.byKey(const Key('folder-picker-no-roots')), findsOneWidget);
+      await t.tap(find.byKey(const Key('folder-recent-/home/me/app')));
+      await t.pumpAndSettle();
+      expect(picked, '/home/me/app');
+    });
+
+    testWidgets('a typed path inside a root is browsed, not guessed', (
+      t,
+    ) async {
+      final api = FakeBridgeApi();
+      api.projectConfigs[_svc] = const ProjectConfig(projectRoots: ['/w']);
+      api.dirTree['/w/app'] = const [
+        HostDirEntry(name: 'lib', path: '/w/app/lib'),
+      ];
+      await t.pumpWidget(
+        _host(
+          Builder(
+            builder: (c) => Scaffold(
+              body: Center(
+                child: ElevatedButton(
+                  onPressed: () => showFolderPicker(c, serviceKey: _svc),
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+          api,
+        ),
+      );
+      await t.tap(find.text('open'));
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const Key('folder-edit-path')));
+      await t.pumpAndSettle();
+      await t.enterText(find.byKey(const Key('folder-path-field')), '/w/app');
+      await t.tap(find.byKey(const Key('folder-path-go')));
+      await t.pumpAndSettle();
+      expect(find.byKey(const Key('folder-row-/w/app/lib')), findsOneWidget);
+      expect(find.byKey(const Key('folder-crumb-1')), findsOneWidget);
+      expect(find.byKey(const Key('folder-outside-note')), findsNothing);
     });
   });
 

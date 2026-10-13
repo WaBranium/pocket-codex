@@ -1,4 +1,8 @@
+import 'package:file_selector/file_selector.dart' show getDirectoryPath;
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as paths;
+import 'package:pocket_codex/src/desktop_theme.dart';
+import 'package:pocket_codex/src/fonts.dart';
 import 'package:pocket_codex/src/widgets/error_retry.dart';
 import 'package:pocket_codex/src/widgets/adaptive_sheet.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,14 +11,21 @@ import 'package:pocket_codex/src/bridge_api.dart';
 import 'package:pocket_codex/src/error_format.dart';
 import 'package:pocket_codex/src/providers.dart';
 
-/// Show the host project-folder browser and return the absolute host path the
-/// user picks, or null if they cancel. Confined to the host's configured
-/// project roots (a phone can't free-roam the host filesystem). Rendered as a
-/// bottom sheet — thumb-reachable on a phone, fine on desktop.
+/// Show the host folder chooser and return the absolute host path the user
+/// picks, or null if they cancel.
+///
+/// What it offers is only what the host really supports: [recent] projects
+/// (from the host's own session list), browsing inside the configured
+/// project roots (the host refuses any other listing), a typed absolute path
+/// (checked by the host when a conversation starts there), and — only when
+/// this desktop is the host — the native folder dialog. Each opened folder is
+/// one bounded listing; nothing walks the disk. Rendered as a bottom sheet on
+/// a phone and a dialog on desktop.
 Future<String?> showFolderPicker(
   BuildContext context, {
   required String serviceKey,
   String? initialPath,
+  List<String> recent = const [],
 }) => showAdaptivePanel<String>(
   context: context,
   // The body brings its own scrollable list.
@@ -22,16 +33,30 @@ Future<String?> showFolderPicker(
   // And its own header row, which is its top edge.
   insetTop: false,
   maxWidth: 640,
-  builder: (_) =>
-      _FolderTreePicker(serviceKey: serviceKey, initialPath: initialPath),
+  builder: (_) => _FolderTreePicker(
+    serviceKey: serviceKey,
+    initialPath: initialPath,
+    recent: recent,
+  ),
 );
 
-/// The browser body: drill the host's project tree from the configured roots.
+/// Whether [path] is absolute on either a Unix or a Windows host.
+bool isAbsoluteHostPath(String path) =>
+    path.startsWith('/') ||
+    path.startsWith(r'\\') ||
+    RegExp(r'^[A-Za-z]:[\\/]').hasMatch(path);
+
+/// The chooser body.
 class _FolderTreePicker extends ConsumerStatefulWidget {
-  const _FolderTreePicker({required this.serviceKey, this.initialPath});
+  const _FolderTreePicker({
+    required this.serviceKey,
+    required this.recent,
+    this.initialPath,
+  });
 
   final String serviceKey;
   final String? initialPath;
+  final List<String> recent;
 
   @override
   ConsumerState<_FolderTreePicker> createState() => _FolderTreePickerState();
@@ -40,22 +65,58 @@ class _FolderTreePicker extends ConsumerStatefulWidget {
 class _FolderTreePickerState extends ConsumerState<_FolderTreePicker> {
   // Configured roots (fetched once). Empty until loaded / when none configured.
   List<String> _roots = const [];
-  // Browse stack: the chain of folders drilled into. Empty = at the roots list.
+  // Browse stack: the chain of folders drilled into. Empty = the start page.
   final List<String> _stack = [];
   List<HostDirEntry> _entries = const [];
   bool _loading = true;
   String? _error;
+  // Only the newest listing may land: a quick second click wins.
+  int _listing = 0;
+  // This desktop is the host, so its native folder dialog shows host paths.
+  bool _local = false;
+  bool _pickingLocal = false;
+  String? _pickerError;
+  // The location bar is a path field.
+  bool _editing = false;
+  final TextEditingController _path = TextEditingController();
+  final FocusNode _pathFocus = FocusNode();
+  // A typed absolute path outside the roots, chosen as it is.
+  String? _typed;
+  String? _pathError;
 
-  /// The folder currently shown (null while at the roots list).
+  /// The folder currently shown (null on the start page).
   String? get _current => _stack.isEmpty ? null : _stack.last;
+
+  /// The folder "Use this folder" returns.
+  String? get _target => _typed ?? _current;
 
   @override
   void initState() {
     super.initState();
     _loadRoots();
+    _probeLocal();
+  }
+
+  @override
+  void dispose() {
+    _path.dispose();
+    _pathFocus.dispose();
+    super.dispose();
+  }
+
+  /// Best-effort: an unreachable answer means "not this device".
+  Future<void> _probeLocal() async {
+    if (!isDesktop) return;
+    try {
+      final local = await ref
+          .read(bridgeApiProvider)
+          .metaHostIsLocal(widget.serviceKey);
+      if (mounted && local) setState(() => _local = true);
+    } catch (_) {}
   }
 
   Future<void> _loadRoots() async {
+    final listing = ++_listing;
     setState(() {
       _loading = true;
       _error = null;
@@ -64,27 +125,25 @@ class _FolderTreePickerState extends ConsumerState<_FolderTreePicker> {
       final cfg = await ref
           .read(bridgeApiProvider)
           .metaProjectConfig(widget.serviceKey);
-      if (!mounted) return;
+      if (!mounted || listing != _listing) return;
       _roots = cfg.projectRoots;
-      // Open where the caller pointed us (the conversation's current folder),
-      // when it sits inside a configured root — build the browse stack down to
-      // it so it opens there and "up" walks back out. Falls through to the
-      // default entry points when there's no usable initial path.
-      if (_openAtInitialPath()) {
+      // Open where the caller pointed us (the conversation's current folder)
+      // when it sits inside a configured root, so "up" walks back out.
+      final start = widget.initialPath?.trim();
+      if (start != null && _seedStack(start)) {
         await _loadDir(_stack.last);
-      } else if (_roots.length == 1) {
-        // A single root is a needless tap — drop straight into it.
+      } else if (_roots.length == 1 && widget.recent.isEmpty) {
+        // A single root and nothing else to offer: drop straight into it.
         _stack.add(_roots.first);
         await _loadDir(_roots.first);
       } else {
-        // Multiple roots (or none) start at the roots list.
         setState(() {
           _entries = const [];
           _loading = false;
         });
       }
     } catch (e) {
-      if (mounted) {
+      if (mounted && listing == _listing) {
         setState(() {
           _error = friendlyError(e);
           _loading = false;
@@ -93,37 +152,32 @@ class _FolderTreePickerState extends ConsumerState<_FolderTreePicker> {
     }
   }
 
-  /// Seed [_stack] from [widget.initialPath] when it is a configured root or a
-  /// folder inside one, so the browser opens at the conversation's current
-  /// folder. Returns whether it seeded anything.
-  bool _openAtInitialPath() {
-    final start = widget.initialPath?.trim();
-    if (start == null || start.isEmpty) return false;
-    // Which root contains it? Match the root itself or a child (either
-    // separator style, since the host may be Windows or Unix).
-    final root = _roots.where(
-      (r) => start == r || start.startsWith('$r/') || start.startsWith('$r\\'),
-    );
-    if (root.isEmpty) return false;
-    final base = root.first;
-    _stack.add(base);
-    // Push each intermediate folder down to the initial path, rebuilding the
-    // absolute path with the root's own separator so it round-trips as a real
-    // host path.
-    final sep = base.contains('\\') ? '\\' : '/';
-    var cur = base;
-    for (final seg
-        in start
-            .substring(base.length)
-            .split(RegExp(r'[\\/]'))
-            .where((s) => s.isNotEmpty)) {
-      cur = '$cur$sep$seg';
-      _stack.add(cur);
+  /// Rebuild [_stack] down to [path] when it is a configured root or a
+  /// folder inside one. Returns whether it did.
+  bool _seedStack(String path) {
+    for (final root in _roots) {
+      final windows =
+          root.startsWith(r'\\') || RegExp(r'^[A-Za-z]:').hasMatch(root);
+      final host = paths.Context(
+        style: windows ? paths.Style.windows : paths.Style.posix,
+      );
+      final base = host.normalize(root);
+      final target = host.normalize(path);
+      if (!host.equals(base, target) && !host.isWithin(base, target)) continue;
+      final ancestors = <String>[target];
+      while (!host.equals(ancestors.last, base)) {
+        ancestors.add(host.dirname(ancestors.last));
+      }
+      _stack
+        ..clear()
+        ..addAll(ancestors.reversed);
+      return true;
     }
-    return true;
+    return false;
   }
 
   Future<void> _loadDir(String path) async {
+    final listing = ++_listing;
     setState(() {
       _loading = true;
       _error = null;
@@ -132,13 +186,13 @@ class _FolderTreePickerState extends ConsumerState<_FolderTreePicker> {
       final entries = await ref
           .read(bridgeApiProvider)
           .metaListDir(widget.serviceKey, path);
-      if (!mounted) return;
+      if (!mounted || listing != _listing) return;
       setState(() {
         _entries = entries;
         _loading = false;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || listing != _listing) return;
       setState(() {
         _error = friendlyError(e);
         _loading = false;
@@ -147,19 +201,89 @@ class _FolderTreePickerState extends ConsumerState<_FolderTreePicker> {
   }
 
   void _enter(String path) {
-    setState(() => _stack.add(path));
+    setState(() {
+      _typed = null;
+      _stack.add(path);
+    });
     _loadDir(path);
   }
 
-  /// Go up one level: to the parent folder, or back to the roots list.
-  Future<void> _up() async {
-    if (_stack.isEmpty) return;
-    setState(() => _stack.removeLast());
-    final parent = _current;
-    if (parent == null) {
-      setState(() => _entries = const []);
+  /// Show crumb [index] of the stack, or the start page for -1.
+  Future<void> _jumpTo(int index) async {
+    if (index >= _stack.length - 1 && index >= 0) return;
+    ++_listing; // whatever was being listed no longer lands
+    setState(() {
+      _typed = null;
+      _stack.removeRange(index + 1, _stack.length);
+      if (_stack.isEmpty) {
+        _entries = const [];
+        _loading = false;
+        _error = null;
+      }
+    });
+    if (_stack.isNotEmpty) await _loadDir(_stack.last);
+  }
+
+  /// Go up one level: to the parent folder, or back to the start page.
+  Future<void> _up() => _jumpTo(_stack.length - 2);
+
+  void _toggleEditing() {
+    setState(() {
+      _editing = !_editing;
+      _pathError = null;
+      if (_editing) _path.text = _target ?? '';
+    });
+    if (_editing) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _pathFocus.requestFocus();
+      });
+    }
+  }
+
+  /// A typed path: browsed when it lies inside a project root, otherwise
+  /// chosen as it is (the host checks it when the conversation starts).
+  void _submitPath(String raw) {
+    final path = raw.trim();
+    if (path.isEmpty) return;
+    if (!isAbsoluteHostPath(path)) {
+      setState(
+        () => _pathError = AppLocalizations.of(context).folderPathAbsolute,
+      );
+      return;
+    }
+    setState(() {
+      _pathError = null;
+      _editing = false;
+    });
+    if (_seedStack(path)) {
+      setState(() => _typed = null);
+      _loadDir(_stack.last);
     } else {
-      await _loadDir(parent);
+      ++_listing;
+      setState(() {
+        _stack.clear();
+        _entries = const [];
+        _loading = false;
+        _error = null;
+        _typed = path;
+      });
+    }
+  }
+
+  /// This desktop is the host: its own folder dialog reaches any folder.
+  Future<void> _pickLocal() async {
+    if (_pickingLocal) return;
+    setState(() {
+      _pickingLocal = true;
+      _pickerError = null;
+    });
+    try {
+      final dir = await getDirectoryPath();
+      if (dir != null && mounted) Navigator.of(context).pop(dir);
+    } catch (e) {
+      if (mounted) setState(() => _pickerError = friendlyError(e));
+    } finally {
+      if (mounted) setState(() => _pickingLocal = false);
     }
   }
 
@@ -173,31 +297,23 @@ class _FolderTreePickerState extends ConsumerState<_FolderTreePicker> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
-    final atRoots = _stack.isEmpty;
-    // At the roots list the "entries" are the configured roots themselves.
-    final rows = atRoots
-        ? [
-            for (final r in _roots)
-              HostDirEntry(name: _leaf(r), path: r, isGitRepo: false),
-          ]
-        : _entries;
-
     // A plain bounded column, so this body works in BOTH forms the adaptive
     // panel opens: a centred dialog on desktop and a bottom sheet on a phone.
-    // `DraggableScrollableSheet` only works inside a sheet route.
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 10, 8, 4),
+          padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
           child: Row(
             children: [
-              if (!atRoots)
+              if (_stack.isNotEmpty)
                 IconButton(
                   key: const Key('folder-up-btn'),
                   icon: const Icon(Icons.arrow_back),
                   tooltip: l10n.folderUp,
                   onPressed: _loading ? null : _up,
-                ),
+                )
+              else
+                const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   _current == null ? l10n.pickFolderTitle : _leaf(_current!),
@@ -206,61 +322,164 @@ class _FolderTreePickerState extends ConsumerState<_FolderTreePicker> {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
+              if (_local)
+                IconButton(
+                  key: const Key('folder-local-btn'),
+                  tooltip: l10n.folderOnThisComputer,
+                  icon: const Icon(Icons.computer_outlined),
+                  onPressed: _pickingLocal ? null : _pickLocal,
+                ),
+              IconButton(
+                key: const Key('folder-edit-path'),
+                tooltip: l10n.folderTypePath,
+                isSelected: _editing,
+                icon: const Icon(Icons.edit_location_alt_outlined),
+                onPressed: _toggleEditing,
+              ),
             ],
           ),
         ),
-        // Current absolute path (so the user always knows where they are).
-        if (_current != null)
+        _locationBar(l10n, scheme),
+        if (_pickerError != null)
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                _current!,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
+            padding: const EdgeInsets.all(12),
+            child: Text(
+              _pickerError!,
+              key: const Key('folder-local-error'),
+              style: TextStyle(color: scheme.error),
             ),
           ),
         const Divider(height: 1),
-        Expanded(child: _body(l10n, scheme, rows, null)),
-        // "Use this folder" — only meaningful once inside a folder.
-        SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-            child: Row(
-              children: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: Text(l10n.cancel),
-                ),
-                const Spacer(),
-                FilledButton.icon(
-                  key: const Key('folder-use-btn'),
-                  onPressed: _current == null
-                      ? null
-                      : () => Navigator.of(context).pop(_current),
-                  icon: const Icon(Icons.check, size: 18),
-                  label: Text(l10n.useThisFolder),
-                ),
-              ],
-            ),
-          ),
-        ),
+        Expanded(child: _body(l10n, scheme)),
+        _footer(l10n, scheme),
       ],
     );
   }
 
-  Widget _body(
-    AppLocalizations l10n,
-    ColorScheme scheme,
-    List<HostDirEntry> rows,
-    ScrollController? scrollController,
-  ) {
+  /// Where the user is: a breadcrumb whose every crumb jumps back there, or
+  /// — while editing — a path field.
+  Widget _locationBar(AppLocalizations l10n, ColorScheme scheme) {
+    if (_editing) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+        child: TextField(
+          key: const Key('folder-path-field'),
+          controller: _path,
+          focusNode: _pathFocus,
+          autocorrect: false,
+          enableSuggestions: false,
+          textInputAction: TextInputAction.go,
+          onSubmitted: _submitPath,
+          style: const TextStyle(fontFamily: monoFontFamily, fontSize: 13),
+          decoration: InputDecoration(
+            isDense: true,
+            labelText: l10n.folderPathFieldLabel,
+            hintText: l10n.remotePathHint,
+            errorText: _pathError,
+            errorMaxLines: 3,
+            suffixIcon: IconButton(
+              key: const Key('folder-path-go'),
+              tooltip: l10n.folderTypePath,
+              icon: const Icon(Icons.arrow_forward),
+              onPressed: () => _submitPath(_path.text),
+            ),
+          ),
+        ),
+      );
+    }
+    final crumbs = <Widget>[
+      _crumb(
+        const Key('folder-crumb-top'),
+        l10n.folderBreadcrumbTop,
+        current: _stack.isEmpty && _typed == null,
+        onTap: () => _jumpTo(-1),
+        scheme: scheme,
+      ),
+      for (var i = 0; i < _stack.length; i++)
+        _crumb(
+          Key('folder-crumb-$i'),
+          i == 0 ? _stack[i] : _leaf(_stack[i]),
+          current: i == _stack.length - 1,
+          onTap: () => _jumpTo(i),
+          scheme: scheme,
+        ),
+      if (_typed != null)
+        _crumb(
+          const Key('folder-crumb-typed'),
+          _typed!,
+          current: true,
+          onTap: null,
+          scheme: scheme,
+        ),
+    ];
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+      child: Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: SingleChildScrollView(
+          key: const Key('folder-breadcrumb'),
+          scrollDirection: Axis.horizontal,
+          reverse: true,
+          child: Row(
+            children: [
+              for (var i = 0; i < crumbs.length; i++) ...[
+                if (i > 0)
+                  Icon(
+                    Icons.chevron_right,
+                    size: 16,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                crumbs[i],
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _crumb(
+    Key key,
+    String label, {
+    required bool current,
+    required VoidCallback? onTap,
+    required ColorScheme scheme,
+  }) {
+    final text = ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 220),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: 12.5,
+          fontWeight: current ? FontWeight.w600 : FontWeight.w400,
+          color: current ? scheme.onSurface : scheme.onSurfaceVariant,
+        ),
+      ),
+    );
+    final padded = ConstrainedBox(
+      constraints: BoxConstraints(minHeight: isDesktop ? 30 : 44),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+        child: Center(widthFactor: 1, child: text),
+      ),
+    );
+    return Tooltip(
+      message: label,
+      child: current || onTap == null || _loading
+          ? Semantics(key: key, selected: current, child: padded)
+          : InkWell(
+              key: key,
+              mouseCursor: clickable,
+              borderRadius: BorderRadius.circular(kRowRadius),
+              onTap: onTap,
+              child: padded,
+            ),
+    );
+  }
+
+  Widget _body(AppLocalizations l10n, ColorScheme scheme) {
     if (_loading) {
       // Not a bare spinner: retries happen HERE, and the progress stream is
       // live-only, so something has to be watching while they run.
@@ -273,50 +492,224 @@ class _FolderTreePickerState extends ConsumerState<_FolderTreePicker> {
         onRetry: () => _current == null ? _loadRoots() : _loadDir(_current!),
       );
     }
-    if (_stack.isEmpty && _roots.isEmpty) {
-      // No roots configured on the host yet — tell the user where to set them.
-      return Center(
+    final muted = TextStyle(color: scheme.onSurfaceVariant);
+    if (_typed != null) {
+      return _notice(
+        const Key('folder-outside-note'),
+        Icons.info_outline,
+        l10n.folderOutsideRootsNote,
+        muted,
+      );
+    }
+    if (_stack.isNotEmpty) {
+      if (_entries.isEmpty) {
+        return _notice(
+          const Key('folder-picker-empty'),
+          Icons.folder_open_outlined,
+          l10n.folderNoSubfolders,
+          muted,
+        );
+      }
+      return ListView.builder(
+        itemCount: _entries.length,
+        itemBuilder: (context, i) => _folderRow(l10n, scheme, _entries[i]),
+      );
+    }
+    return ListView(children: _startPage(l10n, scheme, muted));
+  }
+
+  Widget _notice(Key key, IconData icon, String text, TextStyle style) =>
+      Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Text(
-            l10n.folderPickerNoRoots,
-            key: const Key('folder-picker-no-roots'),
-            textAlign: TextAlign.center,
-            style: TextStyle(color: scheme.onSurfaceVariant),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 28, color: style.color),
+              const SizedBox(height: 10),
+              Text(text, key: key, textAlign: TextAlign.center, style: style),
+            ],
           ),
         ),
       );
-    }
-    if (rows.isEmpty) {
-      return Center(
-        child: Text(
-          l10n.folderPickerEmpty,
-          style: TextStyle(color: scheme.onSurfaceVariant),
-        ),
-      );
-    }
-    return ListView.builder(
-      controller: scrollController,
-      itemCount: rows.length,
-      itemBuilder: (context, i) {
-        final e = rows[i];
-        return ListTile(
-          key: Key('folder-row-${e.path}'),
-          leading: Icon(
-            e.isGitRepo ? Icons.source_outlined : Icons.folder_outlined,
-            color: e.isGitRepo ? scheme.primary : scheme.onSurfaceVariant,
+
+  /// The start page: recent projects (one tap uses one), the configured
+  /// project folders (browse), or — with none — the ways that still work.
+  List<Widget> _startPage(
+    AppLocalizations l10n,
+    ColorScheme scheme,
+    TextStyle muted,
+  ) => [
+    if (widget.recent.isNotEmpty) ...[
+      _section(l10n.recentProjects, scheme),
+      for (final p in widget.recent)
+        ListTile(
+          key: Key('folder-recent-$p'),
+          dense: isDesktop,
+          leading: Icon(Icons.history, color: scheme.onSurfaceVariant),
+          title: Text(_leaf(p), maxLines: 1, overflow: TextOverflow.ellipsis),
+          subtitle: Text(
+            p,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontFamily: monoFontFamily, fontSize: 11),
           ),
-          title: Text(e.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-          subtitle: e.isGitRepo
-              ? Text(
-                  l10n.gitRepoLabel,
-                  style: TextStyle(fontSize: 11, color: scheme.primary),
-                )
-              : null,
-          trailing: const Icon(Icons.chevron_right, size: 20),
-          onTap: _loading ? null : () => _enter(e.path),
-        );
-      },
+          onTap: () => Navigator.of(context).pop(p),
+        ),
+    ],
+    if (_roots.isNotEmpty) ...[
+      _section(l10n.projectFolders, scheme),
+      for (final r in _roots)
+        _folderRow(
+          l10n,
+          scheme,
+          HostDirEntry(name: _leaf(r), path: r),
+          subtitle: r,
+        ),
+    ] else
+      Padding(
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
+        child: Column(
+          children: [
+            Text(
+              l10n.folderPickerNoRoots,
+              key: const Key('folder-picker-no-roots'),
+              textAlign: TextAlign.center,
+              style: muted,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              l10n.folderPickerNoRootsHint,
+              textAlign: TextAlign.center,
+              style: muted,
+            ),
+            const SizedBox(height: 14),
+            _startActions(l10n),
+          ],
+        ),
+      ),
+  ];
+
+  Widget _startActions(AppLocalizations l10n) => Wrap(
+    alignment: WrapAlignment.center,
+    spacing: 8,
+    runSpacing: 8,
+    children: [
+      if (_local)
+        FilledButton.tonalIcon(
+          key: const Key('folder-local-start'),
+          onPressed: _pickingLocal ? null : _pickLocal,
+          icon: const Icon(Icons.computer_outlined, size: 18),
+          label: Text(l10n.folderOnThisComputer),
+        ),
+      OutlinedButton.icon(
+        key: const Key('folder-type-start'),
+        onPressed: _editing ? null : _toggleEditing,
+        icon: const Icon(Icons.edit_location_alt_outlined, size: 18),
+        label: Text(l10n.folderTypePath),
+      ),
+    ],
+  );
+
+  Widget _section(String label, ColorScheme scheme) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+    child: Text(
+      label,
+      style: TextStyle(
+        fontSize: 11.5,
+        fontWeight: FontWeight.w600,
+        color: scheme.onSurfaceVariant,
+      ),
+    ),
+  );
+
+  Widget _folderRow(
+    AppLocalizations l10n,
+    ColorScheme scheme,
+    HostDirEntry e, {
+    String? subtitle,
+  }) => ListTile(
+    key: Key('folder-row-${e.path}'),
+    dense: isDesktop,
+    leading: Icon(
+      e.isGitRepo ? Icons.source_outlined : Icons.folder_outlined,
+      color: e.isGitRepo ? scheme.primary : scheme.onSurfaceVariant,
+    ),
+    title: Text(e.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+    subtitle: e.isGitRepo
+        ? Text(
+            l10n.gitRepoLabel,
+            style: TextStyle(fontSize: 11, color: scheme.primary),
+          )
+        : subtitle == null
+        ? null
+        : Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
+    trailing: const Icon(Icons.chevron_right, size: 20),
+    onTap: _loading ? null : () => _enter(e.path),
+  );
+
+  /// The confirmation: which folder will be used, and the two exits.
+  Widget _footer(AppLocalizations l10n, ColorScheme scheme) {
+    final target = _target;
+    return SafeArea(
+      top: false,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border(top: BorderSide(color: scheme.outlineVariant)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (target != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text.rich(
+                    TextSpan(
+                      text: '${l10n.folderWillUse}  ',
+                      children: [
+                        TextSpan(
+                          text: target,
+                          style: TextStyle(
+                            fontFamily: monoFontFamily,
+                            fontFamilyFallback: monoCjkFallback,
+                            color: scheme.onSurface,
+                          ),
+                        ),
+                      ],
+                    ),
+                    key: const Key('folder-target'),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              Row(
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: Text(l10n.cancel),
+                  ),
+                  const Spacer(),
+                  FilledButton.icon(
+                    key: const Key('folder-use-btn'),
+                    onPressed: target == null || _loading
+                        ? null
+                        : () => Navigator.of(context).pop(target),
+                    icon: const Icon(Icons.check, size: 18),
+                    label: Text(l10n.useThisFolder),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

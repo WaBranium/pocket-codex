@@ -119,12 +119,20 @@ mixin _FakeThreads on _FakeBridgeState {
     lastServiceTier = serviceTier;
     lastSandbox = sandbox;
     threadStartCalls.add(serviceKey);
+    final resultIndex = threadStartResults.length;
+    threadStartResults.add(null);
     final gate = threadStartGate;
     if (gate != null) {
       threadStartGate = null;
       await gate.future;
     }
+    final error = threadStartError;
+    if (error != null) {
+      threadStartError = null;
+      throw error;
+    }
     final id = 'thread-${_threadSeq++}';
+    threadStartResults[resultIndex] = id;
     final seeded = newSessionSettings;
     if (seeded != null) sessionSettings['$serviceKey|$id'] = seeded;
     appThreads.insert(

@@ -25,7 +25,11 @@ use reqwest::{Client, Method, Url};
 use serde::{de::DeserializeOwned, Deserialize};
 use tokio::sync::broadcast;
 
-use crate::engine::{runtime, serve, transport};
+use crate::engine::{
+    acp, runtime, serve,
+    session_engine::{protocol_of, Protocol},
+    transport,
+};
 
 #[path = "meta_files.rs"]
 mod files;
@@ -361,12 +365,18 @@ pub fn sessions(service_key: &str, running_only: bool) -> Result<Vec<LocalSessio
 
 /// Inspect one remote session's liveness + would-be takeover targets.
 pub fn session_liveness(service_key: &str, thread_id: &str) -> Result<SessionLiveness> {
+    if protocol_of(service_key) == Protocol::Acp {
+        return acp::native_liveness(service_key, thread_id);
+    }
     let url = endpoint(service_key, &["sessions", thread_id, "liveness"])?;
     runtime::runtime().block_on(get_json(url))
 }
 
 /// Read a remote session's transcript for read-only viewing.
 pub fn transcript(service_key: &str, thread_id: &str) -> Result<Vec<TranscriptItem>> {
+    if protocol_of(service_key) == Protocol::Acp {
+        return Err(anyhow!("use the paginated native history of the selected ACP host"));
+    }
     let url = endpoint(service_key, &["sessions", thread_id, "transcript"])?;
     let resp: TranscriptResponse = runtime::runtime().block_on(get_json(url))?;
     Ok(resp.items)
@@ -381,6 +391,9 @@ pub async fn follow_session<F>(service_key: &str, thread_id: &str, mut on_update
 where
     F: FnMut(SessionFollowUpdate) -> bool,
 {
+    if protocol_of(service_key) == Protocol::Acp {
+        return acp::follow_native_session(service_key, thread_id, on_update).await;
+    }
     // Transport resolution and tunnel readiness use the synchronous FRB path.
     // Keep their block_on calls off the async worker that consumes the SSE body.
     let key = service_key.to_owned();
@@ -454,6 +467,11 @@ fn decode_follow_event(event: &[u8]) -> Result<Option<SessionFollowUpdate>> {
 
 /// Force-resume a remote session into its host's colocated app-server.
 pub fn force_resume(service_key: &str, thread_id: &str) -> Result<ForceResumeOutcome> {
+    if protocol_of(service_key) == Protocol::Acp {
+        return Err(anyhow!(
+            "this provider has no verified safe takeover operation; continue viewing read-only"
+        ));
+    }
     let url = endpoint(service_key, &["sessions", thread_id, "resume"])?;
     runtime::runtime().block_on(async move {
         let resp = client()

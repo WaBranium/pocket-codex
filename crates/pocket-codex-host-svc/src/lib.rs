@@ -19,6 +19,7 @@ pub mod file_links;
 pub mod fs;
 pub mod history_sync;
 mod history_sync_revision;
+pub mod native_history;
 pub mod resume;
 pub mod sessions;
 pub mod store;

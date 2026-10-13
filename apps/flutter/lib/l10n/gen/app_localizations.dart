@@ -4801,18 +4801,6 @@ abstract class AppLocalizations {
   /// **'No matching values.'**
   String get agentOptionNoMatch;
 
-  /// No description provided for @agentPrepareSession.
-  ///
-  /// In en, this message translates to:
-  /// **'Set up agent'**
-  String get agentPrepareSession;
-
-  /// No description provided for @agentPrepareHint.
-  ///
-  /// In en, this message translates to:
-  /// **'Open the agent\'s session for this project now, to choose its model and effort before sending.'**
-  String get agentPrepareHint;
-
   /// No description provided for @historyGapNotice.
   ///
   /// In en, this message translates to:
@@ -5592,6 +5580,204 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Edit inactive overrides'**
   String get claudeEnvEditDormant;
+
+  /// No description provided for @nativeHistoryReadOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Local history · Read-only'**
+  String get nativeHistoryReadOnly;
+
+  /// No description provided for @nativeHistoryTakeoverUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Live history is read-only. This agent cannot guarantee an exclusive handover, so takeover is unavailable. Start a new conversation to send messages.'**
+  String get nativeHistoryTakeoverUnavailable;
+
+  /// No description provided for @agentWelcomeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Start with {agent}'**
+  String agentWelcomeTitle(String agent);
+
+  /// No description provided for @agentWelcomeOpening.
+  ///
+  /// In en, this message translates to:
+  /// **'Opening a {agent} session in this folder…'**
+  String agentWelcomeOpening(String agent);
+
+  /// No description provided for @agentWelcomeReady.
+  ///
+  /// In en, this message translates to:
+  /// **'Ready. Type your first message.'**
+  String get agentWelcomeReady;
+
+  /// No description provided for @agentWelcomeReadyModel.
+  ///
+  /// In en, this message translates to:
+  /// **'Ready · {model}'**
+  String agentWelcomeReadyModel(String model);
+
+  /// No description provided for @agentWelcomeFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t open a session: {reason}'**
+  String agentWelcomeFailed(String reason);
+
+  /// No description provided for @agentWelcomeNeedsProject.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a folder for {agent} to work in.'**
+  String agentWelcomeNeedsProject(String agent);
+
+  /// No description provided for @agentWelcomeLater.
+  ///
+  /// In en, this message translates to:
+  /// **'The session opens with your first message.'**
+  String get agentWelcomeLater;
+
+  /// No description provided for @agentWelcomeConnecting.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for the host connection…'**
+  String get agentWelcomeConnecting;
+
+  /// No description provided for @chooseFolder.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a folder…'**
+  String get chooseFolder;
+
+  /// No description provided for @recentProjects.
+  ///
+  /// In en, this message translates to:
+  /// **'Recent projects'**
+  String get recentProjects;
+
+  /// No description provided for @agentHostSettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Host settings'**
+  String get agentHostSettings;
+
+  /// No description provided for @agentOpening.
+  ///
+  /// In en, this message translates to:
+  /// **'Opening {agent}…'**
+  String agentOpening(String agent);
+
+  /// No description provided for @agentOpeningHint.
+  ///
+  /// In en, this message translates to:
+  /// **'The agent\'s model and options appear once its session is open. Anything you type stays here.'**
+  String get agentOpeningHint;
+
+  /// No description provided for @agentOptionsUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Options unavailable'**
+  String get agentOptionsUnavailable;
+
+  /// No description provided for @agentOptionsRetry.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t load the agent\'s options. Select to try again.'**
+  String get agentOptionsRetry;
+
+  /// No description provided for @agentErrorHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Check this host\'s model service and environment, then retry.'**
+  String get agentErrorHint;
+
+  /// No description provided for @agentAuthHint.
+  ///
+  /// In en, this message translates to:
+  /// **'The agent reports that it needs credentials. Provide them through this host\'s environment, then retry.'**
+  String get agentAuthHint;
+
+  /// No description provided for @folderOnThisComputer.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose on this computer…'**
+  String get folderOnThisComputer;
+
+  /// No description provided for @folderTypePath.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a path'**
+  String get folderTypePath;
+
+  /// No description provided for @folderPathFieldLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Folder path on the host'**
+  String get folderPathFieldLabel;
+
+  /// No description provided for @folderOutsideRootsNote.
+  ///
+  /// In en, this message translates to:
+  /// **'This path is outside the project folders, so it can\'t be browsed here. The host checks it when the conversation starts.'**
+  String get folderOutsideRootsNote;
+
+  /// No description provided for @folderPickerNoRootsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'You can still enter any folder path on the host.'**
+  String get folderPickerNoRootsHint;
+
+  /// No description provided for @folderNoSubfolders.
+  ///
+  /// In en, this message translates to:
+  /// **'No subfolders here. You can use this folder as it is.'**
+  String get folderNoSubfolders;
+
+  /// No description provided for @folderWillUse.
+  ///
+  /// In en, this message translates to:
+  /// **'Will use'**
+  String get folderWillUse;
+
+  /// No description provided for @folderPathAbsolute.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a full path, starting at the root of the host\'s file system.'**
+  String get folderPathAbsolute;
+
+  /// No description provided for @folderBreadcrumbTop.
+  ///
+  /// In en, this message translates to:
+  /// **'Start'**
+  String get folderBreadcrumbTop;
+
+  /// No description provided for @noProjectsYet.
+  ///
+  /// In en, this message translates to:
+  /// **'No projects yet. Choose a folder to start one.'**
+  String get noProjectsYet;
+
+  /// No description provided for @nativeLocalHistoryHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Browse saved sessions on this computer without connecting to an agent. Native history stays read-only.'**
+  String get nativeLocalHistoryHint;
+
+  /// No description provided for @nativeHistoryLoadMore.
+  ///
+  /// In en, this message translates to:
+  /// **'Load more sessions'**
+  String get nativeHistoryLoadMore;
+
+  /// No description provided for @nativeHistoryLoadOlder.
+  ///
+  /// In en, this message translates to:
+  /// **'Load older messages'**
+  String get nativeHistoryLoadOlder;
+
+  /// No description provided for @nativeHistoryWindowHint.
+  ///
+  /// In en, this message translates to:
+  /// **'A bounded history window is shown. Some content is omitted or outside this window.'**
+  String get nativeHistoryWindowHint;
 }
 
 class _AppLocalizationsDelegate

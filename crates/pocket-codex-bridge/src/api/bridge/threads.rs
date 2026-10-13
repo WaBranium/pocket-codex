@@ -392,7 +392,7 @@ pub fn app_thread_resume(service_key: String, thread_id: String) -> Result<()> {
     engine(&service_key).thread_resume(&service_key, &thread_id)
 }
 
-fn item_dto(i: app_session::ThreadItem) -> ThreadItemDto {
+pub(super) fn item_dto(i: app_session::ThreadItem) -> ThreadItemDto {
     ThreadItemDto {
         id: i.id,
         item_type: i.item_type,

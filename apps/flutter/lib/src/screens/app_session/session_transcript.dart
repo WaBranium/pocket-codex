@@ -213,7 +213,9 @@ extension _SessionTranscript on _AppSessionState {
                                   // guidance view with tappable starter prompts; an empty
                                   // resumed thread keeps the plain hint.
                                   ? (_threadId == null
-                                        ? _newSessionGuidance(l10n)
+                                        ? (_caps.isAcp
+                                              ? _agentWelcome(l10n)
+                                              : _newSessionGuidance(l10n))
                                         : Center(
                                             child: Text(
                                               l10n.emptyConversation,

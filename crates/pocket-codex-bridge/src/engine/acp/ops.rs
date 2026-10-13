@@ -119,6 +119,7 @@ pub fn thread_resume(service_key: &str, thread_id: &str) -> Result<()> {
         .commit(&identity, |view| {
             view.sessions.insert(thread_id.to_string(), opened.clone());
             view.oldest.remove(thread_id);
+            view.history_epochs.remove(thread_id);
             view.permissions
                 .values()
                 .filter(|p| p["sessionId"] == thread_id)
@@ -161,7 +162,7 @@ fn gap_item(thread: &str) -> ThreadItem {
 /// must still be the registered connection showing `identity`, checked
 /// when `commit` (cursor bookkeeping, possibly nothing) is applied. Only
 /// then may the answer be shown.
-fn accept_history<T>(
+pub(super) fn accept_history<T>(
     link: &Link,
     identity: &Identity,
     history: &Value,
@@ -220,13 +221,24 @@ pub(super) fn read_window(link: &Link, thread_id: &str) -> Result<ThreadHistory>
     // Another host or generation answered, or this connection is gone:
     // its history is not this view's (the stream resynchronizes and the
     // screen reloads) — even when it is empty.
-    accept_history(link, &identity, &history, |view| match turns.first() {
-        Some(first) => {
-            view.oldest.insert(thread_id.to_string(), first.id.clone());
-        },
-        None => {
-            view.oldest.remove(thread_id);
-        },
+    accept_history(link, &identity, &history, |view| {
+        match history["historyEpoch"].as_str() {
+            Some(epoch) => {
+                view.history_epochs
+                    .insert(thread_id.to_owned(), epoch.to_owned());
+            },
+            None => {
+                view.history_epochs.remove(thread_id);
+            },
+        }
+        match turns.first() {
+            Some(first) => {
+                view.oldest.insert(thread_id.to_string(), first.id.clone());
+            },
+            None => {
+                view.oldest.remove(thread_id);
+            },
+        }
     })?;
     let truncated = history["truncated"] == true || history["available"] != true;
     let has_older = history["hasOlder"] == true;
@@ -235,11 +247,11 @@ pub(super) fn read_window(link: &Link, thread_id: &str) -> Result<ThreadHistory>
         items.insert(0, gap_item(thread_id));
     }
     let running = session["runningTurnId"].as_str().map(str::to_string);
-    let first_turn_id = (!truncated)
+    let first_turn_id = (!truncated && !has_older)
         .then(|| history["turns"][0]["turnId"].as_str().map(str::to_string))
         .flatten();
     Ok(ThreadHistory {
-        history_epoch: None,
+        history_epoch: history["historyEpoch"].as_str().map(str::to_string),
         turns: summaries(&history, &turns),
         first_turn_id,
         has_older,
@@ -270,7 +282,11 @@ pub fn thread_older_page(service_key: &str, thread_id: &str) -> Result<OlderPage
 
 pub(super) fn older_page(link: &Link, thread_id: &str) -> Result<OlderPage> {
     let identity = link.identity();
-    let Some(before) = lock(&link.shared).oldest.get(thread_id).cloned() else {
+    let (before, epoch) = {
+        let view = lock(&link.shared);
+        (view.oldest.get(thread_id).cloned(), view.history_epochs.get(thread_id).cloned())
+    };
+    let Some(before) = before else {
         return Ok(OlderPage {
             items: Vec::new(),
             has_older: false,
@@ -284,7 +300,10 @@ pub(super) fn older_page(link: &Link, thread_id: &str) -> Result<OlderPage> {
     // The cursor moves only for an answer of this view's host, and only
     // if it still is the cursor this page was asked for.
     accept_history(link, &identity, &history, |view| {
-        if view.oldest.get(thread_id) != Some(&before) {
+        if view.oldest.get(thread_id) != Some(&before)
+            || view.history_epochs.get(thread_id) != epoch.as_ref()
+            || history["historyEpoch"].as_str() != epoch.as_deref()
+        {
             return Err(superseded());
         }
         match turns.first() {
@@ -325,8 +344,16 @@ pub fn thread_turn_page(
     }
     let link = conn(service_key)?;
     let identity = link.identity();
+    let epoch = lock(&link.shared).history_epochs.get(thread_id).cloned();
     let history = block(link.client.history(thread_id, None, Some(turn_id), None))?;
-    accept_history(&link, &identity, &history, |_| ())?;
+    accept_history(&link, &identity, &history, |view| {
+        if view.history_epochs.get(thread_id) != epoch.as_ref()
+            || history["historyEpoch"].as_str() != epoch.as_deref()
+        {
+            return Err(superseded());
+        }
+        Ok(())
+    })??;
     let turns = window_turns(&history);
     if turns.is_empty() {
         return Err(anyhow!("this turn is no longer retained by the agent host"));

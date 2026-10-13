@@ -32,6 +32,11 @@ import 'package:pocket_codex/src/widgets/session_file_links.dart';
 import 'package:pocket_codex/src/widgets/utility_page.dart';
 import 'package:super_sliver_list/super_sliver_list.dart';
 
+import 'local_session_view/native_window.dart';
+
+part 'local_session_view/transcript_row.dart';
+part 'local_session_view/native_follow.dart';
+
 /// Read-only viewer for a local codex session's transcript, parsed straight from
 /// the on-disk rollout (no app-server, no resume, no write) — so a session that
 /// another codex client (the desktop app / CLI / VS Code) is actively driving
@@ -49,12 +54,16 @@ class LocalSessionViewScreen extends ConsumerStatefulWidget {
     this.cwd,
     this.preview,
     this.serviceKey,
+    this.provider = 'codex',
     this.guardian = false,
     this.parentThreadId,
   });
 
   /// The session/thread to view.
   final String threadId;
+
+  /// Provider for local files only; remote sources never use this selection.
+  final String provider;
 
   /// Working directory the session controls, carried to the live session on
   /// resume.
@@ -74,7 +83,8 @@ class LocalSessionViewScreen extends ConsumerStatefulWidget {
       _LocalSessionViewState();
 }
 
-class _LocalSessionViewState extends ConsumerState<LocalSessionViewScreen> {
+class _LocalSessionViewState extends ConsumerState<LocalSessionViewScreen>
+    with WidgetsBindingObserver {
   /// How often to re-read the rollout + re-probe liveness while viewing, so a
   /// session another client is driving updates live and flips to resumable the
   /// moment its turn finishes.
@@ -82,6 +92,8 @@ class _LocalSessionViewState extends ConsumerState<LocalSessionViewScreen> {
 
   List<ThreadItem> _items = const [];
   SessionLiveness? _live;
+  void _update(VoidCallback change) => setState(change);
+
   bool _loading = true;
   String? _error;
   Timer? _poll;
@@ -89,6 +101,10 @@ class _LocalSessionViewState extends ConsumerState<LocalSessionViewScreen> {
   late HostImageLoader _imageLoader;
   int _loadEpoch = 0;
   bool _reading = false;
+  final _native = NativeHistoryWindow();
+  bool _loadingOlder = false;
+  bool _resuming = false;
+  bool _foreground = true;
 
   // Resolved (base64-decoded) attachments cached by item id: rows rebuild on
   // every 3s poll, and re-decoding each image every tick would churn CPU and
@@ -103,7 +119,10 @@ class _LocalSessionViewState extends ConsumerState<LocalSessionViewScreen> {
     // reused State showing a different thread must drop the previous thread's
     // cache or its images would render under the new thread's ids.
     if (oldWidget.threadId != widget.threadId ||
-        oldWidget.serviceKey != widget.serviceKey) {
+        oldWidget.serviceKey != widget.serviceKey ||
+        oldWidget.provider != widget.provider) {
+      _native.clear();
+      _loadingOlder = false;
       _imageCache.clear();
       _items = const [];
       _live = null;
@@ -125,14 +144,16 @@ class _LocalSessionViewState extends ConsumerState<LocalSessionViewScreen> {
 
   /// Where this viewer reads from (local machine vs the host's meta tunnel).
   SessionSource get _source => widget.serviceKey == null
-      ? const SessionSource.local()
+      ? SessionSource.local(provider: widget.provider)
       : SessionSource.remote(widget.serviceKey!);
 
   void _setImageLoader() {
     final service = widget.serviceKey;
     final thread = widget.threadId;
     final api = ref.read(bridgeApiProvider);
-    _imageLoader = service == null
+    _imageLoader = _source.isNative
+        ? (_) async => null
+        : service == null
         ? readLocalImage
         : (path) async {
             Uint8List bytes;
@@ -154,6 +175,10 @@ class _LocalSessionViewState extends ConsumerState<LocalSessionViewScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _foreground =
+        WidgetsBinding.instance.lifecycleState == null ||
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
     _setImageLoader();
     _load(initial: true);
     _poll = Timer.periodic(_pollInterval, (_) => _load());
@@ -161,12 +186,26 @@ class _LocalSessionViewState extends ConsumerState<LocalSessionViewScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _poll?.cancel();
     _scroll.dispose();
     super.dispose();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _foreground = state == AppLifecycleState.resumed;
+    if (_foreground && _source.isNative) _load();
+  }
+
   Future<void> _load({bool initial = false}) async {
+    if (_source.isNative) {
+      if (!initial &&
+          (!_foreground || !(ModalRoute.of(context)?.isCurrent ?? true))) {
+        return;
+      }
+      return _loadNative(initial: initial);
+    }
     if (_reading && !initial) return;
     _reading = true;
     final epoch = ++_loadEpoch;
@@ -229,19 +268,32 @@ class _LocalSessionViewState extends ConsumerState<LocalSessionViewScreen> {
 
   Future<void> _resume() async {
     final live = _live;
-    if (widget.guardian || live == null || !live.allowsResume) return;
+    if (_resuming ||
+        _source.isNative ||
+        widget.guardian ||
+        live == null ||
+        !live.allowsResume) {
+      return;
+    }
     // Pause polling while the takeover runs so a mid-flight re-probe can't race
     // the eviction; resumeLocalSession navigates away on success.
     _poll?.cancel();
-    await resumeLocalSession(
-      context,
-      ref,
-      threadId: widget.threadId,
-      cwd: widget.cwd,
-      requiresTakeover: live.requiresTakeover,
-      holders: live.holders,
-      source: _source,
-    );
+    final epoch = _loadEpoch;
+    _resuming = true;
+    try {
+      await resumeLocalSession(
+        context,
+        ref,
+        threadId: widget.threadId,
+        cwd: widget.cwd,
+        requiresTakeover: live.requiresTakeover,
+        holders: live.holders,
+        source: _source,
+        isCurrent: () => mounted && epoch == _loadEpoch,
+      );
+    } finally {
+      _resuming = false;
+    }
     // Only re-arm the poll when this viewer is still the visible route. On a
     // successful resume it pushed the live conversation on top of us, and
     // polling a backgrounded screen every 3s is wasted work.
@@ -272,7 +324,13 @@ class _LocalSessionViewState extends ConsumerState<LocalSessionViewScreen> {
         title: title,
         parent: UtilityParent(
           title: l10n.localSessionsTitle,
-          route: '/sessions',
+          route: Uri(
+            path: '/sessions',
+            queryParameters: {
+              if (widget.serviceKey != null) 'svc': widget.serviceKey!,
+              if (widget.serviceKey == null) 'provider': widget.provider,
+            },
+          ).toString(),
         ),
         actions: [
           if (widget.parentThreadId case final parent?)
@@ -284,6 +342,7 @@ class _LocalSessionViewState extends ConsumerState<LocalSessionViewScreen> {
                   path: '/sessions/view',
                   queryParameters: {
                     'tid': parent,
+                    if (widget.serviceKey == null) 'provider': widget.provider,
                     if (widget.serviceKey != null) 'svc': widget.serviceKey!,
                     if (widget.cwd != null) 'cwd': widget.cwd!,
                   },
@@ -300,6 +359,7 @@ class _LocalSessionViewState extends ConsumerState<LocalSessionViewScreen> {
         body: Column(
           children: [
             _banner(l10n),
+            if (_source.isNative) _nativeControls(l10n),
             Expanded(child: _body(l10n)),
           ],
         ),
@@ -313,7 +373,8 @@ class _LocalSessionViewState extends ConsumerState<LocalSessionViewScreen> {
     final live = _live;
     if (live == null || !live.heldOpen) return const SizedBox.shrink();
     final scheme = Theme.of(context).colorScheme;
-    final running = live.safety == 'ownedRunning';
+    final running =
+        live.safety == 'ownedRunning' || live.safety == 'nativeOwnedRunning';
     final color = running ? scheme.error : cautionColor(scheme);
     final text = running
         ? '${l10n.sessionRunningElsewhere} · ${l10n.sessionReadOnly}'
@@ -342,7 +403,7 @@ class _LocalSessionViewState extends ConsumerState<LocalSessionViewScreen> {
     if (_loading) {
       return const ListLoadingSkeleton(key: ValueKey('view-loading'));
     }
-    if (_error != null) {
+    if (_error != null && (!_source.isNative || _items.isEmpty)) {
       return Center(
         key: const ValueKey('view-error'),
         child: Padding(
@@ -390,7 +451,12 @@ class _LocalSessionViewState extends ConsumerState<LocalSessionViewScreen> {
               item: _items[i],
               images: _imagesFor(_items[i]),
               hostImageLoader: _imageLoader,
-              imageCacheScope: (widget.serviceKey, widget.threadId),
+              imageCacheScope: (
+                widget.serviceKey,
+                widget.provider,
+                _native.sourceId,
+                widget.threadId,
+              ),
             ),
           );
         },
@@ -408,7 +474,7 @@ class _LocalSessionViewState extends ConsumerState<LocalSessionViewScreen> {
       top: false,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-        child: live.allowsResume && !widget.guardian
+        child: !_source.isNative && live.allowsResume && !widget.guardian
             ? FilledButton.icon(
                 key: const Key('view-resume'),
                 onPressed: _resume,
@@ -434,296 +500,14 @@ class _LocalSessionViewState extends ConsumerState<LocalSessionViewScreen> {
                   const SizedBox(width: 8),
                   Flexible(
                     child: Text(
-                      l10n.readOnlyViewing,
+                      _source.isNative
+                          ? l10n.nativeHistoryTakeoverUnavailable
+                          : l10n.readOnlyViewing,
                       style: TextStyle(color: scheme.onSurfaceVariant),
                     ),
                   ),
                 ],
               ),
-      ),
-    );
-  }
-}
-
-/// One read-only transcript row: user bubble, agent markdown, a reasoning note,
-/// or a command + output block.
-class _TranscriptRow extends StatelessWidget {
-  const _TranscriptRow({
-    super.key,
-    required this.item,
-    this.images = const [],
-    required this.hostImageLoader,
-    required this.imageCacheScope,
-  });
-
-  final ThreadItem item;
-
-  /// The item's attachments, resolved once by the screen (cached across the
-  /// 3s transcript polls).
-  final List<ResolvedImage> images;
-  final HostImageLoader hostImageLoader;
-  final Object imageCacheScope;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    if (item.itemType == 'autoApprovalReview') {
-      return activityRow(
-        TranscriptItem(
-          id: item.id,
-          type: item.itemType,
-          title: item.title,
-          text: item.text,
-        ),
-      );
-    }
-    final request = item.itemType == 'userMessage'
-        ? ApprovalReviewRequest.parse(item.text)
-        : null;
-    final result = item.itemType == 'agentMessage'
-        ? ApprovalReviewResult.parse(item.text)
-        : null;
-    if (request != null || result != null) {
-      return ApprovalReviewCard(
-        raw: item.text,
-        request: request,
-        result: result,
-      );
-    }
-    switch (item.itemType) {
-      case 'userMessage' when parseRealtimeDelegation(item.text) != null:
-        // A Live voice handoff: spoken turns, not a typed message.
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          child: RealtimeHandoffCard(
-            handoff: parseRealtimeDelegation(item.text)!,
-          ),
-        );
-      case 'userMessage':
-        // Document attachments ride the text as a trailing path-reference
-        // block, and a client with editor context serializes that context
-        // ahead of the request; show both as chips/thumbnails and only the
-        // typed text (display-only — the rollout on disk is untouched).
-        final ide = splitIdeContext(item.text);
-        final refs = splitFileRefs(ide.text);
-        final shown = [
-          ...images,
-          for (final f in ide.files)
-            if (looksLikeImagePath(f.path)) ResolvedImage.hostFile(f.path),
-        ];
-        final paths = [
-          for (final f in ide.files)
-            if (!looksLikeImagePath(f.path)) f.path,
-          ...refs.paths,
-        ];
-        // Cap the bubble to a fraction of the *content* width (the centred
-        // column), not the whole screen — otherwise it stretches too wide on a
-        // desktop window.
-        return LayoutBuilder(
-          builder: (context, c) => Align(
-            alignment: Alignment.centerRight,
-            child: Container(
-              margin: const EdgeInsets.symmetric(vertical: 6),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              constraints: BoxConstraints(maxWidth: c.maxWidth * 0.82),
-              decoration: BoxDecoration(
-                color: scheme.primaryContainer,
-                borderRadius: BorderRadius.circular(kPanelRadius),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  if (shown.isNotEmpty)
-                    MessageImagesView(
-                      images: shown,
-                      hostImageLoader: hostImageLoader,
-                      cacheScope: imageCacheScope,
-                    ),
-                  if (shown.isNotEmpty &&
-                      (refs.text.isNotEmpty || paths.isNotEmpty))
-                    const SizedBox(height: 8),
-                  if (paths.isNotEmpty) FileRefChips(paths: paths),
-                  if (paths.isNotEmpty && refs.text.isNotEmpty)
-                    const SizedBox(height: 8),
-                  if (refs.text.isNotEmpty)
-                    MessageActions(
-                      text: refs.text,
-                      isUser: true,
-                      child: Text(refs.text),
-                    ),
-                ],
-              ),
-            ),
-          ),
-        );
-      case 'agentMessage':
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          child: MessageActions(
-            text: item.text,
-            isUser: false,
-            child: MarkdownView(data: item.text),
-          ),
-        );
-      case 'reasoning':
-        // Reasoning summaries are Markdown prose (they open with a `**bold**`
-        // header), so they render as Markdown in a secondary tint rather than
-        // as literal text with the asterisks showing.
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          child: MarkdownView(data: item.text, muted: true),
-        );
-      case 'turnContext':
-        return _TurnContextCaption(item: item);
-      case 'imageGeneration':
-        return GeneratedImageCard(
-          item: TranscriptItem(
-            id: item.id,
-            type: item.itemType,
-            title: item.title,
-            text: item.text,
-            images: images,
-            imageUrls: item.images,
-          ),
-          hostImageLoader: hostImageLoader,
-          imageCacheScope: imageCacheScope,
-        );
-      default: // commandExecution / tool activity
-        return _CommandBlock(title: item.title, output: item.text);
-    }
-  }
-}
-
-/// A subtle per-turn caption synthesized from the rollout's `turn_context`
-/// record: which model (and effort / plan mode) actually handled the turn
-/// that follows — the read-only analogue of the live conversation's per-turn
-/// model stamp. The tooltip carries the recorded permissions. `title` is the
-/// model id; `text` is a compact JSON object of the remaining settings
-/// (parsed defensively — a caption is never worth an error row).
-class _TurnContextCaption extends StatelessWidget {
-  const _TurnContextCaption({required this.item});
-
-  final ThreadItem item;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
-    Map<String, dynamic> details = const {};
-    try {
-      final decoded = jsonDecode(item.text);
-      if (decoded is Map<String, dynamic>) details = decoded;
-    } catch (_) {
-      // Not JSON (e.g. a future host packing something else) — model-only.
-    }
-    String? str(String key) {
-      final v = details[key];
-      return (v is String && v.isNotEmpty) ? v : null;
-    }
-
-    final effort = ReasoningEffort.fromWire(str('effort'));
-    final plan = str('collaborationMode') == 'plan';
-    final caption = [
-      item.title,
-      if (effort != null) effort.label(l10n),
-      if (plan) l10n.statePlanMode,
-    ].join(' · ');
-    // Permissions for the tooltip: the app's preset label when the recorded
-    // approval+sandbox pair maps onto one, else the raw wire tokens.
-    final approval = str('approvalPolicy');
-    final sandbox = str('sandboxMode');
-    final preset = PermissionMode.values
-        .where((m) => m.approval == approval && m.sandbox == sandbox)
-        .firstOrNull;
-    final permText = preset?.label(l10n) ?? [?approval, ?sandbox].join(' · ');
-    final tooltip = [
-      l10n.turnHandledBy(item.title),
-      if (permText.isNotEmpty) '${l10n.permissionLabel} · $permText',
-    ].join('\n');
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Tooltip(
-        message: tooltip,
-        child: Padding(
-          // Attach visually to the turn BELOW (the record precedes its turn).
-          padding: const EdgeInsets.only(left: 2, top: 10, bottom: 2),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.auto_awesome, size: 11, color: muted),
-              const SizedBox(width: 4),
-              Flexible(
-                child: Text(
-                  caption,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 11.5, color: muted),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// A monospace command line + its (optional) captured output.
-class _CommandBlock extends StatelessWidget {
-  const _CommandBlock({required this.title, required this.output});
-
-  final String title;
-  final String output;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final mono = TextStyle(
-      fontFamily: monoFontFamily,
-      fontFamilyFallback: monoCjkFallback,
-      fontSize: 12.5,
-      color: scheme.onSurface,
-    );
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 6),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(kPanelRadius),
-        border: Border.all(color: scheme.outlineVariant, width: 0.5),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: EdgeInsets.fromLTRB(12, 10, 12, output.isEmpty ? 10 : 6),
-            child: Row(
-              children: [
-                Icon(Icons.terminal, size: 15, color: scheme.onSurfaceVariant),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    title.isEmpty ? '—' : title,
-                    style: mono,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (output.isNotEmpty)
-            Container(
-              width: double.infinity,
-              constraints: const BoxConstraints(maxHeight: 220),
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-              child: SingleChildScrollView(
-                child: Text(
-                  output,
-                  style: mono.copyWith(color: scheme.onSurfaceVariant),
-                ),
-              ),
-            ),
-        ],
       ),
     );
   }

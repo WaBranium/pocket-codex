@@ -96,6 +96,7 @@ use super::{
 
 mod inbound;
 mod lifecycle;
+mod native_history;
 mod persist;
 mod sessions;
 mod steer;
@@ -174,6 +175,9 @@ pub enum HostError {
     /// The session is not known to this host.
     #[error("unknown session")]
     UnknownSession,
+    /// Browsing native history does not acquire another session's writer.
+    #[error("native history is read-only; explicitly acquire the session before sending")]
+    ReadOnly,
     /// A turn is running in the session.
     #[error("a turn is already running in this session")]
     Busy,
@@ -230,6 +234,7 @@ impl HostError {
             Self::NotReady => "not_ready",
             Self::Stale => "stale_host",
             Self::UnknownSession => "unknown_session",
+            Self::ReadOnly => "native_read_only",
             Self::Busy => "busy",
             Self::TurnChanged => "turn_changed",
             Self::Loading => "loading",
@@ -300,6 +305,7 @@ struct Inner {
     path: Option<OsString>,
     env: Vec<(OsString, OsString)>,
     store: Arc<SessionStore>,
+    native_history: Option<crate::native_history::NativeHistory>,
     persist: Persist,
     state: Mutex<State>,
     lifecycle: tokio::sync::Mutex<Option<Running>>,
@@ -470,13 +476,19 @@ impl AgentHost {
     /// Public description: incarnation, phase, profile, negotiated agent
     /// and features.
     pub fn info(&self) -> Value {
-        info_of(&self.inner.host_id, &self.inner.spec, &self.state())
+        self.info_with_state(&self.state())
     }
 
     /// Atomic snapshot plus sequence watermark.
     pub fn snapshot(&self) -> Value {
         let state = self.state();
-        state.snapshot(info_of(&self.inner.host_id, &self.inner.spec, &state))
+        state.snapshot(self.info_with_state(&state))
+    }
+
+    fn info_with_state(&self, state: &State) -> Value {
+        let mut info = info_of(&self.inner.host_id, &self.inner.spec, state);
+        info["nativeHistory"] = json!(self.inner.native_history.is_some());
+        info
     }
 
     /// Events after `after` in `generation`, and a receiver for later ones;

@@ -613,16 +613,14 @@ void main() {
   });
 
   group('prepared session', () {
-    testWidgets('a prepare finishing after the host dropped is not adopted', (
+    testWidgets('an opening finishing after the host dropped is not adopted', (
       t,
     ) async {
       final api = _api()..newSessionSettings = _settings();
-      await _open(t, api, cwd: '/work/alpha');
-      await t.enterText(find.byKey(const Key('composer-input')), 'draft');
-      await t.pump();
       final gate = Completer<void>();
       api.threadStartGate = gate;
-      await t.tap(find.byKey(const Key('agent-prepare-session')));
+      await _open(t, api, cwd: '/work/alpha');
+      await t.enterText(find.byKey(const Key('composer-input')), 'draft');
       await t.pump();
       api.pushEvent(
         _acp,
@@ -630,20 +628,31 @@ void main() {
       );
       await t.pump();
       gate.complete();
+      await t.pump();
+      // Invocation order stays stable even if a fresh opening finishes too.
+      final dropped = api.threadStartResults.first;
+      expect(dropped, isNotNull);
       await _frames(t);
-      expect(find.byKey(const Key('agent-config-model')), findsNothing);
       expect(api.turnStartCount, 0);
+      expect(api.sessionConfigCalls, isEmpty);
       expect(find.text('draft'), findsOneWidget);
+      // Once the view is back, its message never goes to that session.
+      for (var i = 0; i < 4; i++) {
+        await t.pump(const Duration(seconds: 1));
+      }
+      await _frames(t);
+      await t.tap(find.byKey(const Key('send-btn')));
+      await _frames(t);
+      expect(api.lastTurnThread, isNot(dropped));
     });
 
-    testWidgets('a prepare finishing after the capability set changed is not '
-        'adopted', (t) async {
+    testWidgets('an opening finishing after the host generation changed is '
+        'not adopted; the view opens a fresh one', (t) async {
       final api = _api()..newSessionSettings = _settings();
-      await _open(t, api, cwd: '/work/alpha');
       final gate = Completer<void>();
       api.threadStartGate = gate;
-      await t.tap(find.byKey(const Key('agent-prepare-session')));
-      await t.pump();
+      await _open(t, api, cwd: '/work/alpha');
+      expect(find.byKey(const Key('agent-session-opening')), findsOneWidget);
       api.pushEvent(
         _acp,
         const AppEvent(
@@ -653,42 +662,57 @@ void main() {
       );
       await t.pump();
       gate.complete();
-      await _frames(t);
-      expect(find.byKey(const Key('agent-config-model')), findsNothing);
-      expect(api.turnStartCount, 0);
-    });
-
-    testWidgets('a prepare keeps staged attachments and sends nothing', (
-      t,
-    ) async {
-      final selector = FakeFileSelector();
-      final previous = fsel.FileSelectorPlatform.instance;
-      fsel.FileSelectorPlatform.instance = selector;
-      addTearDown(() => fsel.FileSelectorPlatform.instance = previous);
-      selector.files = [
-        MemXFile(Uint8List.fromList(utf8.encode('x')), 'notes.txt'),
-      ];
-      final api = _api()..newSessionSettings = _settings();
-      await _open(t, api, cwd: '/work/alpha');
-      await attachMenu(t, 'attach-file-btn');
-      await t.pumpAndSettle();
-      expect(find.byKey(const Key('attachment-0')), findsOneWidget);
-      await t.enterText(find.byKey(const Key('composer-input')), 'look');
       await t.pump();
-      await t.tap(find.byKey(const Key('agent-prepare-session')));
+      final stale = api.threadStartResults.first;
+      expect(stale, isNotNull);
       await _frames(t);
+      // The answering host opened a session of its own for the draft.
+      expect(api.threadStartCalls, hasLength(2));
       expect(api.turnStartCount, 0);
-      expect(find.byKey(const Key('attachment-0')), findsOneWidget);
-      expect(find.text('notes.txt'), findsOneWidget);
-      expect(find.text('look'), findsOneWidget);
-      // The first send carries both, on the prepared session.
+      expect(find.byKey(const Key('agent-config-model')), findsOneWidget);
+      await _openChip(t, 'model');
+      await _choose(t, 'p/vendor/m1');
+      expect(api.sessionConfigCalls.single.$1, isNot(stale));
+      await t.enterText(find.byKey(const Key('composer-input')), 'go');
+      await t.pump();
       await t.tap(find.byKey(const Key('send-btn')));
       await _frames(t);
-      expect(api.threadStartCalls, hasLength(1));
-      expect(api.lastTurnThread, api.appThreads.first.id);
-      expect(api.lastTurnText, contains('look'));
-      expect(api.lastTurnText, contains('notes.txt'));
+      expect(api.threadStartCalls, hasLength(2));
+      expect(api.lastTurnThread, api.sessionConfigCalls.single.$1);
     });
+
+    testWidgets(
+      'an opened session keeps staged attachments and sends nothing',
+      (t) async {
+        final selector = FakeFileSelector();
+        final previous = fsel.FileSelectorPlatform.instance;
+        fsel.FileSelectorPlatform.instance = selector;
+        addTearDown(() => fsel.FileSelectorPlatform.instance = previous);
+        selector.files = [
+          MemXFile(Uint8List.fromList(utf8.encode('x')), 'notes.txt'),
+        ];
+        final api = _api()..newSessionSettings = _settings();
+        await _open(t, api, cwd: '/work/alpha');
+        await attachMenu(t, 'attach-file-btn');
+        await t.pumpAndSettle();
+        expect(find.byKey(const Key('attachment-0')), findsOneWidget);
+        await t.enterText(find.byKey(const Key('composer-input')), 'look');
+        await t.pump();
+        await _frames(t);
+        expect(api.threadStartCalls, hasLength(1));
+        expect(api.turnStartCount, 0);
+        expect(find.byKey(const Key('attachment-0')), findsOneWidget);
+        expect(find.text('notes.txt'), findsOneWidget);
+        expect(find.text('look'), findsOneWidget);
+        // The first send carries both, on the prepared session.
+        await t.tap(find.byKey(const Key('send-btn')));
+        await _frames(t);
+        expect(api.threadStartCalls, hasLength(1));
+        expect(api.lastTurnThread, api.appThreads.first.id);
+        expect(api.lastTurnText, contains('look'));
+        expect(api.lastTurnText, contains('notes.txt'));
+      },
+    );
   });
 
   testWidgets('a short option list stays a menu under the limit', (t) async {

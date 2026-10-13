@@ -2,6 +2,30 @@ part of '../../fake_bridge_api.dart';
 
 mixin _FakeHostSessions on _FakeBridgeState {
   @override
+  Future<NativeSessionList> appNativeSessions(
+    String provider, {
+    String? cursor,
+    String? sourceId,
+  }) async => NativeSessionList(
+    sourceId: provider,
+    location: '/fixture/$provider',
+    sessions: const [],
+  );
+  @override
+  Future<NativeSessionPage> appNativeSessionPage(
+    String provider,
+    String threadId, {
+    String? before,
+    String? sourceId,
+  }) => throw UnimplementedError('Native fixture required');
+  @override
+  Future<NativeSessionRevision> appNativeSessionRevision(
+    String provider,
+    String threadId, {
+    String? sourceId,
+  }) => throw UnimplementedError('Native fixture required');
+
+  @override
   Future<ForceResumeReport> appForceResume(
     String serviceKey,
     String threadId,

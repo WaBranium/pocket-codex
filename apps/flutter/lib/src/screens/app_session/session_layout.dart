@@ -8,6 +8,8 @@ extension _SessionLayout on _AppSessionState {
     final scheme = Theme.of(context).colorScheme;
     final width = MediaQuery.of(context).size.width;
     final needsCodexSetup = _codexNeedsSetup(watch: true);
+    // A new ACP conversation opens its agent session by itself.
+    if (_threadId == null && _caps.isAcp) _scheduleAgentSessionCheck();
 
     // Phones: classic Scaffold — the sessions list is a slide-in drawer, the
     // bar is a plain AppBar naming the conversation.

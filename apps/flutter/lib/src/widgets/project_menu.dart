@@ -216,8 +216,13 @@ class _ProjectMenuState extends State<ProjectMenu> {
               else
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
+                  // A host without any project yet is a first run, not a
+                  // failed search: point at the folder chooser below.
                   child: Text(
-                    l10n.noMatchingProjects,
+                    widget.projects.isEmpty
+                        ? l10n.noProjectsYet
+                        : l10n.noMatchingProjects,
+                    key: const Key('project-menu-empty'),
                     style: TextStyle(
                       fontSize: 12.5,
                       color: scheme.onSurfaceVariant,

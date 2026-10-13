@@ -320,10 +320,50 @@ impl GatewayClient {
         if let Some(host) = host {
             query.push(("host", host));
         }
+        self.event_stream("acp/v1/events", &query).await
+    }
+
+    /// Read source revision and ownership without ACP admission.
+    pub async fn native_status(
+        &self,
+        session: &str,
+        host: &str,
+        generation: u64,
+    ) -> Result<Value, ClientError> {
+        let generation = generation.to_string();
+        self.get("acp/v1/sessions/native-status", &[
+            ("sessionId", session),
+            ("hostId", host),
+            ("generation", &generation),
+        ])
+        .await
+    }
+
+    /// Follow a native transcript without opening it in the ACP agent.
+    pub async fn native_events(
+        &self,
+        session: &str,
+        host: &str,
+        generation: u64,
+    ) -> Result<EventStream, ClientError> {
+        let generation = generation.to_string();
+        self.event_stream("acp/v1/sessions/native-events", &[
+            ("sessionId", session),
+            ("hostId", host),
+            ("generation", &generation),
+        ])
+        .await
+    }
+
+    async fn event_stream(
+        &self,
+        path: &str,
+        query: &[(&str, &str)],
+    ) -> Result<EventStream, ClientError> {
         let response = self
             .stream_http
-            .get(self.url("acp/v1/events")?)
-            .query(&query)
+            .get(self.url(path)?)
+            .query(query)
             .send()
             .await
             .map_err(|_| ClientError::Transport)?;

@@ -18,6 +18,7 @@ pub mod hosting;
 mod hosting_live_tests;
 pub mod logging;
 pub mod meta;
+pub mod native_sessions;
 mod owned_child;
 pub mod runtime;
 pub mod serve;

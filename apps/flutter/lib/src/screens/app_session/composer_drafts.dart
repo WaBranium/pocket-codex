@@ -23,6 +23,22 @@ class _ComposerDraft {
   /// editable view of the same host — it turned read-only, its host
   /// connection was lost or replaced, or image support changed.
   int admission = 0;
+
+  /// An ACP session being opened for this unsent draft ahead of its first
+  /// message (see `_ensureAgentSession`). Completes when that attempt ended,
+  /// whatever its outcome; only the attempt that set it clears it.
+  Future<void>? preparing;
+
+  /// The session opened for this draft and not used yet, valid only for the
+  /// host generation [preparedGeneration] it was opened on. The draft keeps
+  /// its new-conversation key until its first send adopts the session.
+  String? preparedThread;
+  int preparedGeneration = 0;
+
+  /// Why the last automatic opening failed, and for which host generation:
+  /// it is not retried by itself on that generation.
+  ({String message, int generation})? prepareFailure;
+
   (String?, String?) get key => (threadId, threadId == null ? project : null);
   TextEditingValue value = TextEditingValue.empty;
   final List<_Attachment> attachments = [];
@@ -54,6 +70,11 @@ class _ComposerDrafts extends ChangeNotifier {
     }
     _drafts.remove(draft.key);
     _badges.remove(draft.key);
+    // A session opened ahead runs in the old project; its cwd cannot move.
+    if (draft.project != project) {
+      draft.preparedThread = null;
+      draft.prepareFailure = null;
+    }
     draft.project = project;
     _drafts[draft.key] = draft;
     if (draft.hasDraft) _badges.add(draft.key);
@@ -81,8 +102,18 @@ class _ComposerDrafts extends ChangeNotifier {
     _drafts.remove(draft.key);
     _badges.remove(draft.key);
     draft.threadId = id;
+    draft.preparedThread = null;
+    draft.prepareFailure = null;
     save(draft, changed: true);
   }
+
+  /// Sessions opened ahead for unsent drafts: they belong to those drafts'
+  /// own views, not to the conversation list.
+  Set<String> get preparedIds => {
+    for (final draft in _drafts.values)
+      if (draft.threadId == null && draft.preparedThread != null)
+        draft.preparedThread!,
+  };
 
   /// The host behind every draft of this service changed (connection lost
   /// or replaced, capabilities changed): attachments still being picked,

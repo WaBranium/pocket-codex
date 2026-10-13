@@ -14,6 +14,7 @@ import 'api/bridge/host_config.dart';
 import 'api/bridge/host_sessions.dart';
 import 'api/bridge/hosted_account.dart';
 import 'api/bridge/hosting.dart';
+import 'api/bridge/native_sessions.dart';
 import 'api/bridge/services.dart';
 import 'api/bridge/session_config.dart';
 import 'api/bridge/threads.dart';
@@ -301,6 +302,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ModelInfoDto dco_decode_model_info_dto(dynamic raw);
+
+  @protected
+  NativeSessionListDto dco_decode_native_session_list_dto(dynamic raw);
+
+  @protected
+  NativeSessionPageDto dco_decode_native_session_page_dto(dynamic raw);
+
+  @protected
+  NativeSessionRevisionDto dco_decode_native_session_revision_dto(dynamic raw);
 
   @protected
   OlderPageDto dco_decode_older_page_dto(dynamic raw);
@@ -779,6 +789,21 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ModelInfoDto sse_decode_model_info_dto(SseDeserializer deserializer);
+
+  @protected
+  NativeSessionListDto sse_decode_native_session_list_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  NativeSessionPageDto sse_decode_native_session_page_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  NativeSessionRevisionDto sse_decode_native_session_revision_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   OlderPageDto sse_decode_older_page_dto(SseDeserializer deserializer);
@@ -1367,6 +1392,24 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_model_info_dto(ModelInfoDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_native_session_list_dto(
+    NativeSessionListDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_native_session_page_dto(
+    NativeSessionPageDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_native_session_revision_dto(
+    NativeSessionRevisionDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_older_page_dto(OlderPageDto self, SseSerializer serializer);

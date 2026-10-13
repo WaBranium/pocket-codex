@@ -87,7 +87,8 @@ extension _SessionEvents on _AppSessionState {
     }
     // The agent replaced this session's options / modes / usage.
     if (e.kind == 'acp/session/updated') {
-      if (e.threadId == _threadId) _refreshAgentSettings();
+      // Includes the session opened ahead for the shown draft.
+      if (e.threadId == _agentSessionThread) _refreshAgentSettings();
       return;
     }
     // Ignore events belonging to another thread. Before this conversation has a

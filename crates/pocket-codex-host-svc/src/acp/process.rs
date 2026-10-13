@@ -60,7 +60,32 @@ pub fn spawn(
     path: Option<&OsString>,
     env: &[(OsString, OsString)],
 ) -> Result<Spawned, SpawnError> {
+    spawn_command(program, args, path, env, false)
+}
+
+/// Start an owned helper with only the supplied environment. In particular,
+/// read-only history helpers must not inherit provider credentials or hooks.
+#[cfg(unix)]
+pub fn spawn_isolated(
+    program: &Path,
+    args: &[String],
+    env: &[(OsString, OsString)],
+) -> Result<Spawned, SpawnError> {
+    spawn_command(program, args, None, env, true)
+}
+
+#[cfg(unix)]
+fn spawn_command(
+    program: &Path,
+    args: &[String],
+    path: Option<&OsString>,
+    env: &[(OsString, OsString)],
+    isolated: bool,
+) -> Result<Spawned, SpawnError> {
     let mut command = Command::new(program);
+    if isolated {
+        command.env_clear();
+    }
     command
         .args(args)
         .stdin(Stdio::piped())
@@ -106,6 +131,16 @@ pub fn spawn(
     _program: &Path,
     _args: &[String],
     _path: Option<&OsString>,
+    _env: &[(OsString, OsString)],
+) -> Result<Spawned, SpawnError> {
+    Err(SpawnError::UnsupportedPlatform)
+}
+
+/// Owned helpers are unavailable on this platform.
+#[cfg(not(unix))]
+pub fn spawn_isolated(
+    _program: &Path,
+    _args: &[String],
     _env: &[(OsString, OsString)],
 ) -> Result<Spawned, SpawnError> {
     Err(SpawnError::UnsupportedPlatform)

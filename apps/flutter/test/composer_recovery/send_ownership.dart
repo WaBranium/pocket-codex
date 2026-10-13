@@ -314,7 +314,8 @@ void _registerSendOwnership() {
       // generation or source of the same service name, or a replaced host)
       // is not known to belong to whichever host answers now: it is never
       // adopted, recorded or listed, and the input stays in its own unsent
-      // draft. The user's next send starts a session on the current host.
+      // draft. The draft's session on the current host is opened anew, and
+      // the user's next send uses that one.
       for (final replaced in [false, true]) {
         testWidgets('a thread start finishing after a host change '
             '(replaced: $replaced) is not adopted; the input returns', (
@@ -322,12 +323,14 @@ void _registerSendOwnership() {
         ) async {
           final api = FakeBridgeApi()..acpCapabilities[acp] = acpCapsOf();
           await api.appConnect(acp, 28080);
+          // The new conversation opens its session by itself; this one is
+          // held, and the send below waits for it.
+          final gate = Completer<void>();
+          api.threadStartGate = gate;
           await t.pumpWidget(
             host(const AppSessionScreen(serviceKey: acp, cwd: '/work'), api),
           );
-          await t.pumpAndSettle();
-          final gate = Completer<void>();
-          api.threadStartGate = gate;
+          await frames(t);
           await type(t, 'hello');
           await send(t);
           expect(api.threadStartCalls, [acp]);
@@ -346,7 +349,9 @@ void _registerSendOwnership() {
             findsNothing,
             reason: 'the old connection\'s session is not listed',
           );
-          // The user's own send asks the current host for a new session.
+          // The current host opened its own session for the draft, which
+          // the user's own send uses.
+          expect(api.threadStartCalls, [acp, acp]);
           await send(t);
           expect(api.threadStartCalls, [acp, acp]);
           expect(api.turnStartCalls, hasLength(1));
@@ -541,12 +546,13 @@ void _registerSendOwnership() {
           ThreadMeta(id: 'ses-2', preview: 'two', cwd: '/work', updatedAt: 1),
         ]);
         await api.appConnect(acp, 28080);
+        // The draft's own session opening is held; the send waits for it.
+        final gate = Completer<void>();
+        api.threadStartGate = gate;
         await t.pumpWidget(
           host(const AppSessionScreen(serviceKey: acp, cwd: '/work'), api),
         );
-        await t.pumpAndSettle();
-        final gate = Completer<void>();
-        api.threadStartGate = gate;
+        await frames(t);
         await type(t, 'hello');
         await send(t);
         // Away to another conversation, and a newer send there.

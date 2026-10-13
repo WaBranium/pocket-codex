@@ -22,41 +22,9 @@ import 'package:pocket_codex/src/widgets/status_dots.dart';
 import 'package:pocket_codex/src/widgets/takeover_dialog.dart';
 import 'package:pocket_codex/src/widgets/utility_page.dart';
 
-/// Where a sessions view reads from: this machine's `CODEX_HOME` directly
-/// ([SessionSource.local]), or a (possibly remote) host's CODEX_HOME over its
-/// meta tunnel, keyed by that host's app-server [serviceKey]
-/// ([SessionSource.remote]). The remote source is what makes a desktop host's
-/// sessions viewable + resumable from a phone (and, since a meta tunnel hosted
-/// by this app is served over loopback, the same path covers local hosting).
-class SessionSource {
-  /// Read this machine's sessions directly.
-  const SessionSource.local() : serviceKey = null;
-
-  /// Read the host behind [key]'s sessions over its meta tunnel.
-  const SessionSource.remote(String key) : serviceKey = key;
-
-  /// The app-server service key whose host to read, or null for local.
-  final String? serviceKey;
-
-  /// Whether this reads a (possibly remote) host over the meta tunnel.
-  bool get isRemote => serviceKey != null;
-
-  /// List the source's sessions.
-  Future<List<LocalSession>> list(BridgeApi b) =>
-      serviceKey == null ? b.appLocalSessions() : b.metaSessions(serviceKey!);
-
-  /// One session's liveness from the source.
-  Future<SessionLiveness> liveness(BridgeApi b, String threadId) =>
-      serviceKey == null
-      ? b.appSessionLiveness(threadId)
-      : b.metaSessionLiveness(serviceKey!, threadId);
-
-  /// One session's read-only transcript from the source.
-  Future<List<ThreadItem>> transcript(BridgeApi b, String threadId) =>
-      serviceKey == null
-      ? b.appLocalSessionTranscript(threadId)
-      : b.metaSessionTranscript(serviceKey!, threadId);
-}
+import 'session_source.dart';
+export 'session_source.dart';
+part 'local_sessions/native_inventory.dart';
 
 /// Lists codex sessions under a host's `CODEX_HOME` — including ones created by
 /// the desktop app / CLI / VS Code extension — annotated with whether each is
@@ -89,6 +57,16 @@ class LocalSessionsScreen extends ConsumerStatefulWidget {
 }
 
 class _LocalSessionsState extends ConsumerState<LocalSessionsScreen> {
+  late String _provider;
+  int _loadEpoch = 0;
+  String? _sourceId, _nextCursor, _location, _moreError;
+  bool _loadingMore = false;
+  bool _resuming = false;
+  SessionSource get _source => widget.source.isRemote
+      ? widget.source
+      : SessionSource.local(provider: _provider);
+  void _update(VoidCallback change) => setState(change);
+
   bool _loading = true;
   String? _error;
   List<LocalSession> _sessions = const [];
@@ -103,10 +81,25 @@ class _LocalSessionsState extends ConsumerState<LocalSessionsScreen> {
   @override
   void initState() {
     super.initState();
+    _provider = widget.source.provider;
     _load();
   }
 
+  @override
+  void didUpdateWidget(LocalSessionsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.source.serviceKey != widget.source.serviceKey ||
+        oldWidget.source.provider != widget.source.provider) {
+      _provider = widget.source.provider;
+      _load();
+    }
+  }
+
   Future<void> _load() async {
+    final epoch = ++_loadEpoch;
+    final source = _source;
+    _sourceId = _nextCursor = _location = _moreError = null;
+    _loadingMore = false;
     // Mobile controllers do not share a desktop Codex home. Their cached chats
     // and remote host sessions remain available through their own routes.
     if (_localUnavailable) {
@@ -118,14 +111,21 @@ class _LocalSessionsState extends ConsumerState<LocalSessionsScreen> {
       _error = null;
     });
     try {
-      final sessions = await widget.source.list(ref.read(bridgeApiProvider));
-      if (!mounted) return;
+      final api = ref.read(bridgeApiProvider);
+      final page = source.isNative
+          ? await api.appNativeSessions(source.provider)
+          : null;
+      final sessions = page?.sessions ?? await source.list(api);
+      if (!mounted || epoch != _loadEpoch) return;
+      _sourceId = page?.sourceId;
+      _nextCursor = page?.nextCursor;
+      _location = page?.location;
       setState(() {
         _sessions = sessions;
         _loading = false;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || epoch != _loadEpoch) return;
       setState(() {
         _error = friendlyError(e);
         _loading = false;
@@ -134,31 +134,37 @@ class _LocalSessionsState extends ConsumerState<LocalSessionsScreen> {
   }
 
   Future<void> _onResume(LocalSession session) async {
-    if (session.isGuardian) return;
-    // A finished-but-held session needs the holder-listing confirm; pre-fetch
-    // the current holders so the dialog can name them.
-    var holders = const <Holder>[];
-    if (session.requiresTakeover) {
-      try {
-        final liveness = await widget.source.liveness(
-          ref.read(bridgeApiProvider),
-          session.threadId,
-        );
-        holders = liveness.holders;
-      } catch (_) {
-        // Best-effort; the dialog still warns, just without names.
+    final source = _source;
+    if (_resuming || source.isNative || session.isGuardian) return;
+    final epoch = _loadEpoch;
+    bool current() => mounted && epoch == _loadEpoch;
+    _resuming = true;
+    try {
+      var holders = const <Holder>[];
+      if (session.requiresTakeover) {
+        try {
+          holders = (await source.liveness(
+            ref.read(bridgeApiProvider),
+            session.threadId,
+          )).holders;
+        } catch (_) {
+          // The confirmation still explains interruption if the probe fails.
+        }
       }
+      if (!mounted || !current()) return;
+      await resumeLocalSession(
+        context,
+        ref,
+        threadId: session.threadId,
+        cwd: session.cwd,
+        requiresTakeover: session.requiresTakeover,
+        holders: holders,
+        source: source,
+        isCurrent: current,
+      );
+    } finally {
+      _resuming = false;
     }
-    if (!mounted) return;
-    await resumeLocalSession(
-      context,
-      ref,
-      threadId: session.threadId,
-      cwd: session.cwd,
-      requiresTakeover: session.requiresTakeover,
-      holders: holders,
-      source: widget.source,
-    );
   }
 
   @override
@@ -189,7 +195,13 @@ class _LocalSessionsState extends ConsumerState<LocalSessionsScreen> {
             onPressed: _loading ? null : _load,
           ),
       ],
-      body: body,
+      body: Column(
+        children: [
+          if (!_source.isRemote && !_localUnavailable) _providerBar(l10n),
+          Expanded(child: body),
+          if (_source.isNative && !_loading) _inventoryFooter(l10n),
+        ],
+      ),
     );
   }
 
@@ -390,7 +402,8 @@ class _LocalSessionsState extends ConsumerState<LocalSessionsScreen> {
               session: s,
               now: now,
               onResume: _onResume,
-              serviceKey: widget.source.serviceKey,
+              serviceKey: _source.serviceKey,
+              provider: _source.provider,
             ),
           );
         }),
@@ -404,7 +417,7 @@ class _LocalSessionsState extends ConsumerState<LocalSessionsScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (desktop)
+        if (desktop && !_source.isNative)
           _desktopToolbar(l10n)
         // Quick filter on compact layouts is shown only when it pays for its
         // vertical space. Desktop always keeps search + state filters visible.
@@ -510,6 +523,7 @@ class _SessionRow extends StatelessWidget {
     required this.now,
     required this.onResume,
     this.serviceKey,
+    this.provider = 'codex',
   });
 
   final LocalSession session;
@@ -519,6 +533,7 @@ class _SessionRow extends StatelessWidget {
   /// The remote host's app-server key, carried into the viewer route so it reads
   /// the transcript over the meta tunnel; null for the local source.
   final String? serviceKey;
+  final String provider;
 
   @override
   Widget build(BuildContext context) {
@@ -557,6 +572,8 @@ class _SessionRow extends StatelessWidget {
           onTap: () {
             final q = <String>[
               'tid=${Uri.encodeComponent(session.threadId)}',
+              if (serviceKey == null)
+                'provider=${Uri.encodeComponent(provider)}',
               if (session.isGuardian) 'guardian=true',
               if (session.parentThreadId != null)
                 'parent=${Uri.encodeComponent(session.parentThreadId!)}',
@@ -607,7 +624,9 @@ class _SessionRow extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 _safetyChip(context, l10n),
-                if (session.allowsResume && !session.isGuardian) ...[
+                if (provider == 'codex' &&
+                    session.allowsResume &&
+                    !session.isGuardian) ...[
                   const SizedBox(width: 6),
                   TextButton(
                     key: Key('resume-${session.threadId}'),
@@ -636,7 +655,10 @@ class _SessionRow extends StatelessWidget {
       'resumableUnfinished' => (cautionColor(scheme), l10n.sessionUnfinished),
       'ownedRunning' => (scheme.error, l10n.sessionRunningElsewhere),
       'ownedIdle' => (cautionColor(scheme), l10n.sessionInUseElsewhere),
-      _ => (scheme.outline, session.safety),
+      _ => (
+        scheme.outline,
+        provider == 'codex' ? session.safety : l10n.nativeHistoryReadOnly,
+      ),
     };
     return StatusChip(
       color: color,
@@ -709,7 +731,10 @@ Future<void> resumeLocalSession(
   required bool requiresTakeover,
   List<Holder> holders = const [],
   SessionSource source = const SessionSource.local(),
+  bool Function()? isCurrent,
 }) async {
+  bool current() => context.mounted && (isCurrent?.call() ?? true);
+  if (source.isNative || !current()) return;
   final l10n = AppLocalizations.of(context);
   final messenger = ToastMessenger.of(context);
   // Resolve the app-server to resume into. For a remote host that IS the host
@@ -729,16 +754,16 @@ Future<void> resumeLocalSession(
       try {
         await bridge.appConnect(target, appLocalPort);
       } catch (e) {
-        if (context.mounted) {
+        if (current()) {
           messenger.error(friendlyError(e));
         }
         return;
       }
     }
-    if (!context.mounted) return;
+    if (!context.mounted || !current()) return;
   } else {
     target = await ensureResumeTarget(ref);
-    if (!context.mounted) return;
+    if (!context.mounted || !current()) return;
   }
 
   if (requiresTakeover) {
@@ -747,7 +772,7 @@ Future<void> resumeLocalSession(
       builder: (_) =>
           TakeoverDialog(holders: holders, hasTarget: target != null),
     );
-    if (confirmed != true) return;
+    if (confirmed != true || !current()) return;
   }
   if (target == null) {
     messenger.error(l10n.takeoverNoTarget);
@@ -763,9 +788,10 @@ Future<void> resumeLocalSession(
         ? await bridge.metaForceResume(target, threadId)
         : await bridge.appForceResume(target, threadId);
   } catch (e) {
-    messenger.error(friendlyError(e));
+    if (current()) messenger.error(friendlyError(e));
     return;
   }
+  if (!context.mounted || !current()) return;
   if (!report.resumed) {
     messenger.error(l10n.takeoverResumeFailed(report.resumeError ?? ''));
     return;
@@ -778,7 +804,7 @@ Future<void> resumeLocalSession(
   messenger.notice(parts.join(' · '));
 
   // Open the resumed conversation (only reached on success).
-  if (!context.mounted) return;
+  if (!context.mounted || !current()) return;
   final key = Uri.encodeComponent(target);
   final q = <String>[
     'tid=${Uri.encodeComponent(threadId)}',

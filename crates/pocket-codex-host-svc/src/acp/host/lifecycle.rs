@@ -58,7 +58,7 @@ impl AgentHost {
     /// so an owner can register it — and stop it — before the launch begins.
     /// Must run inside a Tokio runtime.
     pub fn create(options: HostOptions) -> Self {
-        Self::create_parts(options, None, None)
+        Self::create_parts(options, None, None, None)
     }
 
     /// [`AgentHost::create`], launching `program` with `args` instead of the
@@ -66,7 +66,7 @@ impl AgentHost {
     /// before the spec's own arguments (see [`super::super::claude`]). The
     /// spec stays what the user chose.
     pub fn create_launching(options: HostOptions, args: Vec<String>) -> Self {
-        Self::create_parts(options, Some(args), None)
+        Self::create_parts(options, Some(args), None, None)
     }
 
     /// [`AgentHost::create`] (or [`AgentHost::create_launching`] with
@@ -79,13 +79,25 @@ impl AgentHost {
         launch_args: Option<Vec<String>>,
         session_meta: Option<serde_json::Map<String, Value>>,
     ) -> Self {
-        Self::create_parts(options, launch_args, session_meta)
+        Self::create_parts(options, launch_args, session_meta, None)
+    }
+
+    /// Create a host with an independent native reader. Unadmitted sessions
+    /// are browsed read-only rather than implicitly loaded into the agent.
+    pub fn create_with_native_history(
+        options: HostOptions,
+        launch_args: Option<Vec<String>>,
+        session_meta: Option<serde_json::Map<String, Value>>,
+        history: Option<crate::native_history::NativeHistory>,
+    ) -> Self {
+        Self::create_parts(options, launch_args, session_meta, history)
     }
 
     fn create_parts(
         options: HostOptions,
         launch_args: Option<Vec<String>>,
         session_meta: Option<serde_json::Map<String, Value>>,
+        native_history: Option<crate::native_history::NativeHistory>,
     ) -> Self {
         let (closed, closures) = mpsc::unbounded_channel();
         let store = Arc::new(options.store);
@@ -103,6 +115,7 @@ impl AgentHost {
                 path: options.path,
                 env: options.env,
                 store,
+                native_history,
                 persist: Persist::spawn(apply),
                 state: Mutex::new(State::default()),
                 lifecycle: tokio::sync::Mutex::new(None),

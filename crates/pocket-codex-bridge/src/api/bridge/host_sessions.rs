@@ -206,7 +206,7 @@ fn meta_holder_dto(h: pocket_codex_host_svc::sessions::Holder) -> HolderDto {
     }
 }
 
-fn meta_liveness_dto(
+pub(super) fn meta_liveness_dto(
     value: pocket_codex_host_svc::sessions::SessionLiveness,
 ) -> SessionLivenessDto {
     SessionLivenessDto {

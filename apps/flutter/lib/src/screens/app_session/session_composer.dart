@@ -403,25 +403,12 @@ extension _SessionComposer on _AppSessionState {
                       : AgentSessionOptions(
                           settings: _agentSettings,
                           enabled: _agentControlsEnabled,
-                          projectLabel: _threadId == null
-                              ? _projectName()
-                              : null,
-                          onPickProject: _pickProject,
-                          // Before the first send, the agent's options exist
-                          // only once its session does; offer to open it for
-                          // the chosen project.
-                          onPrepare:
-                              _threadId == null &&
-                                  _cwd != null &&
-                                  _caps.sessionConfig &&
-                                  !_externalWriterMode &&
-                                  !_guardianReadOnly &&
-                                  !_reconnecting &&
-                                  !_connectionLost &&
-                                  !_showingCachedHistory
-                              ? _prepareAgentSession
-                              : null,
-                          preparing: _preparingSession,
+                          // Before the first send the agent's options exist
+                          // once the session opened ahead for this draft
+                          // does; until then the capsule says so.
+                          phase: _agentPhase,
+                          agentName: _caps.providerName,
+                          onRetry: _retryAgentSession,
                           // Bound to this build's target: a menu opened now
                           // answers to it, never to a later conversation.
                           onSelectConfig: (id, value) =>
@@ -748,9 +735,52 @@ extension _SessionComposer on _AppSessionState {
       );
     }
 
+    // An ACP agent names itself and the project the turn runs in, so the
+    // line reads "Claude · host · project" for every agent alike.
+    final caps = _caps;
+    final project = _cwd?.trim() ?? '';
     return Row(
       children: [
+        if (caps.isAcp && caps.providerName.isNotEmpty) ...[
+          Flexible(
+            child: Tooltip(
+              message: caps.providerName,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+                child: Row(
+                  key: const Key('composer-agent-chip'),
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    AgentIcon.of(
+                      provider: 'acp',
+                      profileId: caps.profileId,
+                      name: caps.providerName,
+                      size: 13,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 5),
+                    Flexible(
+                      child: Text(
+                        caps.providerName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: muted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+        ],
         Flexible(child: chip(Icons.computer, _hostLabel(l10n))),
+        if (caps.isAcp && project.isNotEmpty) ...[
+          const SizedBox(width: 10),
+          Flexible(
+            child: chip(Icons.folder_outlined, _projectName(), tip: project),
+          ),
+        ],
         if (_branch != null) ...[
           const SizedBox(width: 10),
           Flexible(

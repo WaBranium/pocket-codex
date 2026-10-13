@@ -65,7 +65,6 @@ extension _SessionSend on _AppSessionState {
         _reconnecting ||
         _historySyncing ||
         _restoringSettings ||
-        _preparingSession ||
         _showingCachedHistory) {
       return;
     }
@@ -294,6 +293,22 @@ extension _SessionSend on _AppSessionState {
           _restoreDraft(typed, sendAttachments, into: sendingDraft);
         }
         return;
+      }
+      if (targetThread == null) {
+        // The agent session being opened for this draft is this message's
+        // session: wait for that attempt rather than open a second one. A
+        // connection that moved meanwhile sends nothing (as below).
+        final opening = sendingDraft.preparing;
+        if (opening != null) {
+          await opening;
+          if (!sameLink()) throw const _LinkMoved();
+        }
+        // Opened ahead for this draft's project on this host generation.
+        // An unknown opening result may leave an empty session on the host.
+        // This explicit send can open another; no payload was sent before.
+        if (mounted && sendingDraft.project == targetCwd) {
+          targetThread = _preparedFor(sendingDraft);
+        }
       }
       targetThread ??= await api.appThreadStart(
         service,

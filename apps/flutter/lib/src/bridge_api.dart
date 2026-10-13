@@ -7,6 +7,7 @@ import 'dart:typed_data';
 part 'bridge/capability_types.dart';
 part 'bridge/connection_types.dart';
 part 'bridge/host_session_types.dart';
+part 'bridge/native_session_types.dart';
 part 'bridge/hosting_types.dart';
 part 'bridge/provider_types.dart';
 part 'bridge/thread_types.dart';
@@ -555,6 +556,24 @@ abstract interface class BridgeApi {
   /// each annotated with whether it is safe to resume. Reads local disk +
   /// the process table; no app-server connection required.
   Future<List<LocalSession>> appLocalSessions();
+
+  /// Read provider-native files on this computer without starting an agent.
+  Future<NativeSessionList> appNativeSessions(
+    String provider, {
+    String? cursor,
+    String? sourceId,
+  });
+  Future<NativeSessionPage> appNativeSessionPage(
+    String provider,
+    String threadId, {
+    String? before,
+    String? sourceId,
+  });
+  Future<NativeSessionRevision> appNativeSessionRevision(
+    String provider,
+    String threadId, {
+    String? sourceId,
+  });
 
   /// Inspect one session's live resume-safety and the processes a force
   /// takeover would evict. Poll before showing a resume button so the UI

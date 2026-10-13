@@ -103,6 +103,12 @@ impl AgentHost {
         expected: Option<&Identity>,
     ) -> Result<Value, HostError> {
         valid_id(id)?;
+        if !self.is_current(expected, self.state().generation) {
+            return Err(HostError::Stale);
+        }
+        if self.inner.native_history.is_some() && !self.state().sessions.contains_key(id) {
+            return Err(HostError::ReadOnly);
+        }
         let (generation, peer, caps) = self.ready_for(expected)?;
         if let Some(live) = self.live_session(id) {
             return live;
@@ -211,7 +217,19 @@ impl AgentHost {
         };
         let mut listed = None;
         let mut list_error = None;
-        if let Some((generation, peer, caps)) = &ready {
+        if let Some(native) = &self.inner.native_history {
+            let generation = self.state().generation;
+            let result = native
+                .list_sessions(cursor.as_deref(), 100)
+                .await
+                .map_err(|_| {
+                    HostError::Agent("native session inventory is unavailable; retry".into())
+                })?;
+            if self.state().generation != generation {
+                return Err(HostError::Stale);
+            }
+            listed = Some(self.accept_listing(generation, &result));
+        } else if let Some((generation, peer, caps)) = &ready {
             if caps.list_sessions {
                 let mut params = json!({});
                 if let Some(cursor) = &cursor {
@@ -230,7 +248,11 @@ impl AgentHost {
         }
         let first_page = cursor.is_none();
         let (mut sessions, next_cursor, source) = match listed {
-            Some((sessions, next)) => (sessions, next, "agent"),
+            Some((sessions, next)) => (
+                sessions,
+                next,
+                if self.inner.native_history.is_some() { "native" } else { "agent" },
+            ),
             None if !first_page => (Vec::new(), None, "host"),
             None => {
                 let sessions = self

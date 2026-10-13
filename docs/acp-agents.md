@@ -242,7 +242,7 @@ it cannot leave a consumed request unresolved on a live generation.
   newer start leaves the newer turn running.
 - When a turn ends the host re-announces the session state, and the bridge
   also clears a cached `runningTurnId` that still names the ended turn, so
-  controls gated on a running turn (agent options, **Set up agent**) are
+  controls gated on a running turn (agent options) are
   usable again in the same session.
 - `session/prompt` is acknowledged immediately with a host-assigned turn id;
   the agent's final response is awaited in the background and ends the turn
@@ -570,15 +570,22 @@ model without variants. A `mode` config option takes precedence over legacy
 `modes`, as ACP asks of clients that read config options.
 
 The catalog is per session (OpenCode resolves it for the session's
-directory), so it exists only once a session does. Before the first prompt
-of a new conversation, **Set up agent** next to the project chip opens the
-agent's session for the chosen project without sending anything; the draft
-(text, attachments, queue) moves to the new session as is, and its model,
-effort and mode can then be chosen. The first send uses that session. A set
-up that finishes after the user switched project or conversation is not
-adopted: the view is left alone and the empty session only appears in the
-host's session list. Native Codex keeps its own model catalog and effort
-control and creates its thread on the first send, as before.
+directory), so it exists only once a session does. A new conversation
+prepares its agent session automatically when it has a project. Model,
+effort and mode share one control group with opening, ready and retry states;
+there is no extra setup click. The first send waits for the same preparation
+attempt and keeps the draft and attachments. Late answers cannot adopt a
+session into another host, project or draft. An unused prepared session is
+hidden from this controller's sidebar until the first send; it may still
+appear in another controller's inventory. With no projects, the folder
+picker offers a typed host path and, on the host computer, native directory
+selection. Choosing a directory never sends a message. Native Codex keeps
+its own catalog and creates its thread on first send.
+
+Existing Claude/OpenCode histories can instead open through the independent
+[provider-native history reader](native-agent-history.md), without restoring
+them through ACP. These external histories remain read-only; the normal
+writable ACP path stays available to sessions owned by the running host.
 
 ### OpenCode gateway models by default
 

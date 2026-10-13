@@ -631,6 +631,12 @@ abstract class _FakeBridgeState implements BridgeApi {
   /// Every [appThreadStart] call's service key.
   final List<String> threadStartCalls = [];
 
+  /// Returned ids in invocation order, including still-pending calls.
+  final List<String?> threadStartResults = [];
+
+  /// Fails the next [appThreadStart] (after its gate), then resets.
+  Object? threadStartError;
+
   /// Settings a new ACP session reports (seeded for every started thread).
   SessionSettings? newSessionSettings;
 

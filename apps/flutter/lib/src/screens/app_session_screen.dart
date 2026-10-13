@@ -40,6 +40,7 @@ import 'package:pocket_codex/src/voice/voice_widgets.dart';
 import 'package:pocket_codex/src/service_key.dart';
 import 'package:pocket_codex/src/screens/app_session/agent_permission_card.dart';
 import 'package:pocket_codex/src/screens/app_session/agent_session_options.dart';
+import 'package:pocket_codex/src/screens/app_session/agent_welcome.dart';
 import 'package:pocket_codex/src/screens/app_session/attachment_gate.dart';
 import 'package:pocket_codex/src/screens/app_session/async_questions.dart';
 import 'package:pocket_codex/src/screens/app_session/activity_cards.dart';
@@ -80,6 +81,7 @@ import 'package:pocket_codex/src/screens/app_session/approval_review.dart';
 import 'package:pocket_codex/src/widgets/window_title_bar.dart';
 
 part 'app_session/composer_drafts.dart';
+part 'app_session/session_agent_prepare.dart';
 part 'app_session/session_attachments.dart';
 part 'app_session/session_capabilities.dart';
 part 'app_session/session_composer.dart';
@@ -243,7 +245,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
   AppCapabilities? _capsCache;
   String? _capsKey;
   // Moves whenever cached capabilities are dropped; agent option changes
-  // and prepared sessions are bound to it (see [_AgentTarget]).
+  // are bound to it (see [_AgentTarget]).
   int _capsEpoch = 0;
 
   /// The host connection this view's requests went to. It moves when that
@@ -898,8 +900,9 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
   @override
   void didChangeMetrics() => _repinForKeyboard();
 
-  /// A "prepare session" is in flight (see [_prepareAgentSession]).
-  bool _preparingSession = false;
+  /// A post-frame check for the shown draft's agent session is pending (see
+  /// [_scheduleAgentSessionCheck]).
+  bool _agentCheckScheduled = false;
 
   /// Max width of the centred conversation column. The transcript computes its
   /// own side padding from this; the turn rail lives in what's left over, so both

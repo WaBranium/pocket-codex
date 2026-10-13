@@ -4,8 +4,8 @@
 // `effort` option (category `thought_level`) that exists only while the
 // selected model has variants, and a `mode` option. Every change answers
 // with the complete option set, which replaces the old one. Also: choosing
-// options before the first prompt through an explicit "set up agent" step,
-// without losing or sending the draft.
+// options before the first prompt, on the session a new conversation opens
+// by itself, without losing or sending the draft.
 
 import 'dart:async';
 
@@ -355,82 +355,35 @@ void main() {
   });
 
   group('before the first prompt', () {
-    testWidgets('set up agent opens the session, keeps the draft, sends '
-        'nothing, then the first send uses that session', (t) async {
+    // Opening races, failures and disposal: acp_agent_welcome_test.dart.
+    testWidgets('a new conversation opens its session by itself: options are '
+        'choosable, nothing is sent, and the first send uses that session', (
+      t,
+    ) async {
       final api = _api('anthropic/claude-haiku-4-5', thread: 'unused')
         ..newSessionSettings = _opencode('anthropic/claude-haiku-4-5');
       await _open(t, api, cwd: '/work/alpha');
-      expect(find.byKey(const Key('agent-config-model')), findsNothing);
-      await t.enterText(find.byKey(const Key('composer-input')), 'my draft');
-      await t.pump();
-      await t.tap(find.byKey(const Key('agent-prepare-session')));
-      await _frames(t);
+      // No setup step: the session is open and its options are real.
       expect(api.threadStartCalls, [_acp]);
       expect(api.lastCwd, '/work/alpha');
       expect(api.turnStartCount, 0);
-      // The draft is untouched and the agent's options are now choosable.
-      expect(find.text('my draft'), findsOneWidget);
       expect(find.byKey(const Key('agent-config-model')), findsOneWidget);
-      expect(find.byKey(const Key('agent-prepare-session')), findsNothing);
+      await t.enterText(find.byKey(const Key('composer-input')), 'my draft');
+      await t.pump();
       await _pickFromSearchOrMenu(t, 'model', 'openrouter/openai/gpt-5');
       final prepared = api.sessionConfigCalls.single.$1;
+      expect(find.text('my draft'), findsOneWidget);
+      expect(api.turnStartCount, 0, reason: 'choosing sends nothing');
       await t.tap(find.byKey(const Key('send-btn')));
       await _frames(t);
-      // One session: the send reuses the prepared one.
+      // One session: the send reuses the one opened ahead.
       expect(api.threadStartCalls, hasLength(1));
       expect(api.lastTurnThread, prepared);
       expect(api.lastTurnText, 'my draft');
     });
 
-    testWidgets('a prepare finishing after a project switch is not adopted', (
-      t,
-    ) async {
-      final api = _api('anthropic/claude-haiku-4-5', thread: 'unused')
-        ..newSessionSettings = _opencode('anthropic/claude-haiku-4-5');
-      // Earlier sessions in two projects, so the project menu offers both.
-      api.appThreads.addAll(const [
-        ThreadMeta(id: 'a0', preview: 'a', cwd: '/work/alpha', updatedAt: 2),
-        ThreadMeta(id: 'b0', preview: 'b', cwd: '/work/beta', updatedAt: 1),
-      ]);
-      await _open(t, api, cwd: '/work/alpha');
-      await t.enterText(find.byKey(const Key('composer-input')), 'alpha draft');
-      await t.pump();
-      final gate = Completer<void>();
-      api.threadStartGate = gate;
-      await t.tap(find.byKey(const Key('agent-prepare-session')));
-      await t.pump();
-      // Sending waits for the prepare instead of starting a second session.
-      await t.tap(find.byKey(const Key('send-btn')));
-      await t.pump();
-      expect(api.threadStartCalls, hasLength(1));
-      // The prepare is pending (its spinner animates for as long as it is),
-      // so only bounded frames are pumped until the gate opens.
-      expect(
-        find.descendant(
-          of: find.byKey(const Key('agent-prepare-session')),
-          matching: find.byType(CircularProgressIndicator),
-        ),
-        findsOneWidget,
-      );
-      // The user moves the new conversation to another project meanwhile.
-      await t.tap(find.byKey(const Key('project-switcher-btn')));
-      await _frames(t);
-      final beta = find.byKey(const Key('project-menu-item-/work/beta'));
-      expect(beta, findsOneWidget);
-      await t.tap(beta);
-      await _frames(t);
-      expect(beta, findsNothing, reason: 'the menu closed');
-      expect(gate.isCompleted, isFalse, reason: 'still preparing');
-      gate.complete();
-      await _frames(t);
-      expect(api.turnStartCount, 0);
-      expect(find.byKey(const Key('agent-config-model')), findsNothing);
-      expect(find.byKey(const Key('agent-prepare-session')), findsOneWidget);
-    });
-
-    testWidgets('no setup action for agents without per-session options', (
-      t,
-    ) async {
+    testWidgets('no session is opened ahead for agents without per-session '
+        'options', (t) async {
       final api = FakeBridgeApi()
         ..acpCapabilities[_acp] = const AppCapabilities(
           provider: 'acp',
@@ -445,7 +398,10 @@ void main() {
           protocol: 'acp',
         );
       await _open(t, api, cwd: '/work/alpha');
-      expect(find.byKey(const Key('agent-prepare-session')), findsNothing);
+      // Its session opens with the first message, as before.
+      expect(api.threadStartCalls, isEmpty);
+      expect(find.byKey(const Key('agent-session-opening')), findsNothing);
+      expect(find.byKey(const Key('agent-session-options')), findsNothing);
     });
 
     // UI-only: the catalog below stands in for what OpenCode reports after

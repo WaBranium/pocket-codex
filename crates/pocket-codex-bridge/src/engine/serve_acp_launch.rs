@@ -180,6 +180,65 @@ fn run(prepared: Prepared) -> Result<AcpServeReport> {
             .map(acp::catalog::Launch::env)
             .unwrap_or_default();
         let path = pocket_codex_codex::external_tool_path();
+        let native_history = match &claude {
+            Some(launch) => {
+                let root = provider_launch
+                    .env
+                    .iter()
+                    .rev()
+                    .chain(launch.env.iter().rev())
+                    .find(|(key, _)| key == "CLAUDE_CONFIG_DIR")
+                    .map(|(_, value)| PathBuf::from(value))
+                    .or_else(|| std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from))
+                    .or_else(|| {
+                        std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".claude"))
+                    })
+                    .ok_or_else(|| anyhow!("Claude's local history directory is unavailable"))?;
+                let mut history =
+                    pocket_codex_host_svc::native_history::ClaudeHistory::from_adapter(
+                        launch.program.clone(),
+                        &launch.source,
+                        root,
+                    )?;
+                let cli = provider_launch
+                    .env
+                    .iter()
+                    .rev()
+                    .chain(launch.env.iter().rev())
+                    .find(|(key, _)| key == claude::CLI_ENV)
+                    .map(|(_, value)| PathBuf::from(value))
+                    .or_else(|| std::env::var_os(claude::CLI_ENV).map(PathBuf::from));
+                if let (Some(cli), Some(home)) = (cli, std::env::var_os("HOME")) {
+                    history = history.with_owner_probe(cli, home.into());
+                }
+                Some(pocket_codex_host_svc::native_history::NativeHistory::Claude(Arc::new(
+                    history,
+                )))
+            },
+            None if spec.profile_id == "opencode" => {
+                let effective = |name: &str| {
+                    provider_launch
+                        .env
+                        .iter()
+                        .rev()
+                        .chain(env.iter().rev())
+                        .find(|(key, _)| key == name)
+                        .map(|(_, value)| value.clone())
+                        .or_else(|| std::env::var_os(name))
+                };
+                let home = effective("HOME")
+                    .or_else(|| effective("USERPROFILE"))
+                    .map(PathBuf::from)
+                    .context("OpenCode home is unavailable")?;
+                let path = crate::engine::native_sessions::opencode_path_with(
+                    &home,
+                    effective("XDG_DATA_HOME"),
+                    effective("OPENCODE_DB"),
+                )?;
+                Some(crate::engine::native_sessions::open_code(path)?)
+            },
+            None => None,
+        };
         let session_meta = provider_launch.session_meta;
         let (program, launch_args) = match claude {
             Some(launch) => {
@@ -190,7 +249,7 @@ fn run(prepared: Prepared) -> Result<AcpServeReport> {
         };
         // Last, so the instance's provider wins over inherited values.
         env.extend(provider_launch.env);
-        AgentHost::create_configured(
+        AgentHost::create_with_native_history(
             HostOptions {
                 spec: spec.clone(),
                 program,
@@ -200,6 +259,7 @@ fn run(prepared: Prepared) -> Result<AcpServeReport> {
             },
             launch_args,
             session_meta,
+            native_history,
         )
     };
     // Visible to a quit before the agent exists, so it can never escape it.

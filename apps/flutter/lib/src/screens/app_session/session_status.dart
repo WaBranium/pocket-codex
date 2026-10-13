@@ -17,10 +17,21 @@ extension _SessionStatus on _AppSessionState {
       );
     }
     if (_externalWriterMode) {
+      if (_caps.isAcp &&
+          (_externalWriterLiveness?.turnState ?? 'unknown') == 'unknown') {
+        return (
+          color: infoColor(scheme),
+          label: l10n.nativeHistoryReadOnly,
+          icon: Icons.lock_outline,
+          nominal: false,
+        );
+      }
       final resumable = _externalWriterLiveness?.allowsResume ?? false;
+      final nativeIdle =
+          _caps.isAcp && _externalWriterLiveness?.safety == 'nativeOwnedIdle';
       return (
         color: cautionColor(scheme),
-        label: resumable
+        label: resumable || nativeIdle
             ? l10n.sessionInUseElsewhere
             : l10n.sessionRunningElsewhere,
         icon: resumable ? Icons.lock_open_outlined : Icons.lock_clock_outlined,

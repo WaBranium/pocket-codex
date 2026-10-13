@@ -50,9 +50,9 @@ mod connection;
 mod events;
 #[cfg(test)]
 mod live_tests;
+mod native_history;
 mod ops;
 mod translate;
-
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex, MutexGuard, Weak},
@@ -61,6 +61,7 @@ use std::{
 
 use anyhow::{anyhow, bail, Context as _, Result};
 use futures::StreamExt;
+pub use native_history::{follow_native_session, native_liveness};
 use once_cell::sync::OnceCell;
 pub use ops::*;
 use pocket_codex_host_svc::acp::{
@@ -68,6 +69,7 @@ use pocket_codex_host_svc::acp::{
 };
 use serde_json::Value;
 use tokio::{sync::broadcast, task::JoinHandle, time::Instant};
+pub use translate::app_item as native_item;
 
 pub use self::connection::{connect, context_changed, disconnect, is_connected, probe_reason};
 #[cfg(test)]
@@ -120,6 +122,8 @@ pub(crate) struct Shared {
     unsynced: HashMap<(String, String), Retry>,
     /// Session → oldest loaded turn (paging cursor).
     oldest: HashMap<String, String>,
+    /// Native source generation of each loaded window.
+    history_epochs: HashMap<String, String>,
     /// The event stream is open.
     healthy: bool,
 }
@@ -318,6 +322,7 @@ pub fn capabilities_of(info: &Value, generation: u64) -> Capabilities {
         caps.profile_id = id.to_string();
     }
     caps.auth_required = info["authRequired"] == true;
+    caps.external_writer_monitor = info["nativeHistory"] == true;
     let negotiated = &info["capabilities"];
     if info["phase"]["state"] == "ready" && negotiated.is_object() {
         caps.negotiated = true;

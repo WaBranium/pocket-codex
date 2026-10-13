@@ -7,6 +7,7 @@ AppCapabilities negotiatedAcpCapabilities({
   int generation = 1,
   bool imageInput = false,
   bool steer = false,
+  bool nativeHistory = false,
 }) => AppCapabilities(
   provider: 'acp',
   fast: false,
@@ -14,7 +15,7 @@ AppCapabilities negotiatedAcpCapabilities({
   guardian: false,
   rateLimits: false,
   takeover: false,
-  externalWriterMonitor: false,
+  externalWriterMonitor: nativeHistory,
   localSessions: false,
   planMode: false,
   protocol: 'acp',

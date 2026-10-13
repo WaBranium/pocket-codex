@@ -82,6 +82,9 @@ extension _SessionProjects on _AppSessionState {
       context,
       serviceKey: widget.serviceKey,
       initialPath: _cwd,
+      // Projects of this host's sessions, offered even when the chosen
+      // folder has no history of its own.
+      recent: _knownProjects(),
     );
     if (mounted && generation == _threadLoadGeneration && picked != null) {
       _selectProject(picked);

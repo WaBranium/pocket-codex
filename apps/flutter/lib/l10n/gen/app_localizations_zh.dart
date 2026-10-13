@@ -2588,12 +2588,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get agentOptionNoMatch => '没有匹配的选项。';
 
   @override
-  String get agentPrepareSession => '设置智能体';
-
-  @override
-  String get agentPrepareHint => '现在为该项目打开智能体会话，以便在发送前选择模型和推理强度。';
-
-  @override
   String get historyGapNotice => '此智能体主机无法提供更早的历史记录。';
 
   @override
@@ -3023,4 +3017,116 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get claudeEnvEditDormant => '编辑未启用的覆盖项';
+
+  @override
+  String get nativeHistoryReadOnly => '本地历史 · 只读';
+
+  @override
+  String get nativeHistoryTakeoverUnavailable =>
+      '历史会自动更新，当前为只读。此智能体无法保证独占交接，暂不支持接管；如需发送消息，请新建对话。';
+
+  @override
+  String agentWelcomeTitle(String agent) {
+    return '与 $agent 开始对话';
+  }
+
+  @override
+  String agentWelcomeOpening(String agent) {
+    return '正在此文件夹中打开 $agent 会话…';
+  }
+
+  @override
+  String get agentWelcomeReady => '已就绪，输入第一条消息即可开始。';
+
+  @override
+  String agentWelcomeReadyModel(String model) {
+    return '已就绪 · $model';
+  }
+
+  @override
+  String agentWelcomeFailed(String reason) {
+    return '无法打开会话：$reason';
+  }
+
+  @override
+  String agentWelcomeNeedsProject(String agent) {
+    return '为 $agent 选择一个工作文件夹。';
+  }
+
+  @override
+  String get agentWelcomeLater => '发送第一条消息时打开会话。';
+
+  @override
+  String get agentWelcomeConnecting => '正在等待主机连接…';
+
+  @override
+  String get chooseFolder => '选择文件夹…';
+
+  @override
+  String get recentProjects => '最近的项目';
+
+  @override
+  String get agentHostSettings => '主机设置';
+
+  @override
+  String agentOpening(String agent) {
+    return '正在打开 $agent…';
+  }
+
+  @override
+  String get agentOpeningHint => '会话打开后会显示智能体的模型和选项。已输入的内容会保留在这里。';
+
+  @override
+  String get agentOptionsUnavailable => '选项不可用';
+
+  @override
+  String get agentOptionsRetry => '未能加载智能体选项，选择以重试。';
+
+  @override
+  String get agentErrorHint => '请检查该主机的模型服务和环境配置，然后重试。';
+
+  @override
+  String get agentAuthHint => '智能体报告需要凭据。请通过该主机的环境配置提供凭据，然后重试。';
+
+  @override
+  String get folderOnThisComputer => '在本机上选择…';
+
+  @override
+  String get folderTypePath => '输入路径';
+
+  @override
+  String get folderPathFieldLabel => '主机上的文件夹路径';
+
+  @override
+  String get folderOutsideRootsNote => '该路径不在项目文件夹内，无法在此浏览；会话开始时由主机检查。';
+
+  @override
+  String get folderPickerNoRootsHint => '仍可输入主机上任意文件夹的路径。';
+
+  @override
+  String get folderNoSubfolders => '这里没有子文件夹，可以直接使用此文件夹。';
+
+  @override
+  String get folderWillUse => '将使用';
+
+  @override
+  String get folderPathAbsolute => '请输入完整路径（从主机文件系统的根目录开始）。';
+
+  @override
+  String get folderBreadcrumbTop => '起点';
+
+  @override
+  String get noProjectsYet => '还没有项目。选择一个文件夹即可开始。';
+
+  @override
+  String get nativeLocalHistoryHint => '直接查看本机保存的会话，无需连接智能体。原生历史始终只读。';
+
+  @override
+  String get nativeHistoryLoadMore => '加载更多会话';
+
+  @override
+  String get nativeHistoryLoadOlder => '加载更早消息';
+
+  @override
+  String get nativeHistoryWindowHint => '当前显示有限的历史窗口，部分内容已省略或位于窗口之外。';
 }

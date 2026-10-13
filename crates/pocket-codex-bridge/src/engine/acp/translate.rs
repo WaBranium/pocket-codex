@@ -684,6 +684,7 @@ pub fn reconcile(shared: &mut Shared, snapshot: &Value) -> Plan {
     shared.unsynced.clear();
     if replaced {
         shared.oldest.clear();
+        shared.history_epochs.clear();
     }
     let recent: HashMap<(String, String), Value> = snapshot["recentTurns"]
         .as_array()

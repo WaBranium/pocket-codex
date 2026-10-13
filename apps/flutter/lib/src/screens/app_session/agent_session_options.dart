@@ -1,13 +1,13 @@
-/// An ACP agent's own per-session controls in the composer toolbar: one chip
-/// per select configuration option it reported (model, effort, mode, …), the
-/// legacy mode when it reports no mode option, and — before the first send —
-/// the project folder plus an explicit "prepare session" action that opens
-/// the agent's session early, so its model and effort can be chosen before
-/// anything is sent. An agent that reports nothing gets no chips: there is no
-/// invented model catalog behind them.
+/// An ACP agent's own per-session controls in the composer toolbar, drawn as
+/// one capsule: a segment per select configuration option it reported
+/// (model, effort, mode, …) plus the legacy mode when it reports no mode
+/// option. Before the agent's session exists the capsule is a single state
+/// segment instead — opening, or unavailable with a retry. An agent that
+/// reports nothing gets nothing: there is no invented model catalog behind
+/// the segments.
 ///
 /// Options follow ACP's session config options: categories are UX hints that
-/// order the chips (model, then thought level, then mode, then the rest);
+/// order the segments (model, then thought level, then mode, then the rest);
 /// ids and values are opaque and sent back verbatim. After every change the
 /// agent returns its complete option set, which replaces this one — a model
 /// change may add, drop or reset the effort option.
@@ -18,6 +18,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:pocket_codex/l10n/gen/app_localizations.dart';
 import 'package:pocket_codex/src/bridge_api.dart';
+import 'package:pocket_codex/src/motion.dart';
 import 'package:pocket_codex/src/screens/app_session/option_picker.dart';
 
 /// [options] in display order: model, thought level, mode, then the others,
@@ -43,25 +44,43 @@ bool showsLegacyModes(SessionSettings settings) =>
     settings.modes.isNotEmpty &&
     !settings.configOptions.any((o) => o.category == 'mode');
 
-/// The chips; selecting a value calls back with the opaque ids verbatim.
+/// Where an ACP view's own agent session stands before its first message.
+enum AgentSessionPhase {
+  /// Nothing to report: an existing conversation, an agent without
+  /// per-session options, or a view still waiting for its host.
+  idle,
+
+  /// No project is chosen, so no session can open yet.
+  needsProject,
+
+  /// The session is being opened.
+  opening,
+
+  /// The session is open; its options (if it reported any) are offered.
+  ready,
+
+  /// Opening failed; a retry is offered.
+  failed,
+}
+
+/// The capsule; selecting a value calls back with the opaque ids verbatim.
 class AgentSessionOptions extends StatelessWidget {
-  /// Creates the chips from [settings].
+  /// Creates the controls from [settings].
   const AgentSessionOptions({
     super.key,
     required this.settings,
     required this.enabled,
     required this.onSelectConfig,
     required this.onSelectMode,
-    this.projectLabel,
-    this.onPickProject,
-    this.onPrepare,
-    this.preparing = false,
+    this.phase = AgentSessionPhase.idle,
+    this.agentName = '',
+    this.onRetry,
   });
 
   /// The agent's current session state, or null before a session exists.
   final SessionSettings? settings;
 
-  /// Whether the chips can be used right now.
+  /// Whether the segments can be used right now.
   final bool enabled;
 
   /// Sets select option `configId` to `value`.
@@ -70,21 +89,17 @@ class AgentSessionOptions extends StatelessWidget {
   /// Switches the legacy mode.
   final Future<void> Function(String modeId) onSelectMode;
 
-  /// The project chip label, before the first send.
-  final String? projectLabel;
+  /// The session's state while it has no options to show.
+  final AgentSessionPhase phase;
 
-  /// Opens the project picker.
-  final Future<void> Function()? onPickProject;
+  /// The agent's display name, for the opening state.
+  final String agentName;
 
-  /// Opens the agent's session for the chosen project without sending, so
-  /// its options can be set first; null when not applicable.
-  final Future<void> Function()? onPrepare;
+  /// Opens the session again after [AgentSessionPhase.failed].
+  final VoidCallback? onRetry;
 
-  /// A prepare is in flight.
-  final bool preparing;
-
-  // The chips scroll horizontally inside the space the composer leaves;
-  // each one is bounded by that space too, so a revealed chip is always
+  // The segments scroll horizontally inside the space the composer leaves;
+  // each one is bounded by that space too, so a revealed segment is always
   // entirely visible and a long label ellipsizes inside it instead.
   @override
   Widget build(BuildContext context) => LayoutBuilder(
@@ -94,45 +109,13 @@ class AgentSessionOptions extends StatelessWidget {
   Widget _build(BuildContext context, double room) {
     final l10n = AppLocalizations.of(context);
     final settings = this.settings;
-    // Never below a chip's icon, chevron and padding (10 + 15 + 4 + 15 + 10).
+    // The capsule's own edge and inner padding come out of the room first.
+    final inner = room.isFinite ? math.max(room - 6, 0.0) : room;
+    // Never below a segment's icon, chevron and padding (10 + 15 + 4 + 15 +
+    // 10).
     double fit(double width) =>
-        room.isFinite ? math.min(width, math.max(room, 54)) : width;
-    Widget bounded(Widget chip) => room.isFinite
-        ? ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: room),
-            child: chip,
-          )
-        : chip;
+        inner.isFinite ? math.min(width, math.max(inner, 54)) : width;
     final chips = <Widget>[
-      if (projectLabel != null && onPickProject != null)
-        bounded(
-          ActionChip(
-            key: const Key('agent-project-chip'),
-            avatar: const Icon(Icons.folder_outlined, size: 16),
-            label: Text(projectLabel!, overflow: TextOverflow.ellipsis),
-            onPressed: preparing ? null : () => onPickProject!(),
-          ),
-        ),
-      if (settings == null && onPrepare != null)
-        bounded(
-          Tooltip(
-            message: l10n.agentPrepareHint,
-            child: ActionChip(
-              key: const Key('agent-prepare-session'),
-              avatar: preparing
-                  ? const SizedBox.square(
-                      dimension: 14,
-                      child: CircularProgressIndicator(strokeWidth: 1.6),
-                    )
-                  : const Icon(Icons.tune, size: 16),
-              label: Text(
-                l10n.agentPrepareSession,
-                overflow: TextOverflow.ellipsis,
-              ),
-              onPressed: preparing || !enabled ? null : () => onPrepare!(),
-            ),
-          ),
-        ),
       if (settings != null)
         for (final option in orderedOptions(settings.configOptions))
           _OptionChip(
@@ -149,6 +132,7 @@ class AgentSessionOptions extends StatelessWidget {
             icon: switch (option.category) {
               'model' => Icons.auto_awesome,
               'thought_level' => Icons.psychology_outlined,
+              'mode' => Icons.swap_horiz,
               _ => Icons.tune,
             },
             maxWidth: fit(option.category == 'model' ? 220 : 160),
@@ -190,23 +174,137 @@ class AgentSessionOptions extends StatelessWidget {
           onSelected: onSelectMode,
         ),
     ];
-    if (chips.isEmpty) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
+    if (chips.isEmpty) return _stateSegment(context, l10n, room);
+    // One capsule, one hairline between neighbours: the options read as a
+    // single control for "how the agent works", not a row of loose pills.
+    final divider = Container(
+      width: 1,
+      height: 18,
+      color: scheme.outlineVariant.withValues(alpha: 0.7),
+    );
     return Semantics(
       container: true,
       label: l10n.agentOptions,
-      child: SingleChildScrollView(
-        key: const Key('agent-session-options'),
-        scrollDirection: Axis.horizontal,
-        reverse: true,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: room),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: scheme.surfaceContainerLow.withValues(alpha: 0.6),
+            border: Border.all(color: scheme.outlineVariant),
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(2),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: SingleChildScrollView(
+                key: const Key('agent-session-options'),
+                scrollDirection: Axis.horizontal,
+                reverse: true,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (var i = 0; i < chips.length; i++) ...[
+                      if (i > 0) divider,
+                      chips[i],
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The single segment shown while the session has no options yet:
+  /// opening (with progress), or unavailable (select to retry).
+  Widget _stateSegment(
+    BuildContext context,
+    AppLocalizations l10n,
+    double room,
+  ) {
+    final failed = phase == AgentSessionPhase.failed && onRetry != null;
+    if (phase != AgentSessionPhase.opening && !failed) {
+      return const SizedBox.shrink();
+    }
+    final scheme = Theme.of(context).colorScheme;
+    final label = failed
+        ? l10n.agentOptionsUnavailable
+        : l10n.agentOpening(agentName.isEmpty ? l10n.agentOptions : agentName);
+    final face = ConstrainedBox(
+      constraints: BoxConstraints(
+        minHeight: 40,
+        maxWidth: room.isFinite ? math.max(room, 54) : 260,
+      ),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: failed
+              ? scheme.errorContainer.withValues(alpha: 0.45)
+              : scheme.surfaceContainerLow.withValues(alpha: 0.6),
+          border: Border.all(
+            color: failed
+                ? scheme.error.withValues(alpha: 0.4)
+                : scheme.outlineVariant,
+          ),
+          borderRadius: BorderRadius.circular(999),
+        ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            for (var i = 0; i < chips.length; i++) ...[
-              if (i > 0) const SizedBox(width: 4),
-              chips[i],
-            ],
+            if (failed)
+              Icon(Icons.refresh_rounded, size: 15, color: scheme.error)
+            else
+              SizedBox.square(
+                dimension: 13,
+                child: CircularProgressIndicator(
+                  strokeWidth: 1.5,
+                  // A determinate ring under reduced motion: the label
+                  // still says what is happening.
+                  value: Motion.ambientAllowed(context) ? null : 0.7,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  color: failed ? scheme.onErrorContainer : scheme.onSurface,
+                ),
+              ),
+            ),
           ],
         ),
+      ),
+    );
+    final tip = failed ? l10n.agentOptionsRetry : l10n.agentOpeningHint;
+    return Semantics(
+      container: true,
+      button: failed,
+      liveRegion: true,
+      label: '$label. $tip',
+      onTap: failed ? onRetry : null,
+      excludeSemantics: true,
+      child: Tooltip(
+        message: tip,
+        child: failed
+            ? InkWell(
+                key: const Key('agent-session-retry'),
+                borderRadius: BorderRadius.circular(999),
+                onTap: onRetry,
+                child: face,
+              )
+            : KeyedSubtree(
+                key: const Key('agent-session-opening'),
+                child: face,
+              ),
       ),
     );
   }
@@ -321,10 +419,15 @@ class _OptionChipState extends State<_OptionChip> {
         : '${widget.title}: $full\n${widget.description}';
     final face = ConstrainedBox(
       constraints: BoxConstraints(minHeight: 40, maxWidth: widget.maxWidth),
-      child: Container(
+      // A segment of the capsule: the capsule draws the edge, the segment
+      // only its own press and pending states.
+      child: AnimatedContainer(
+        duration: Motion.of(context, Motion.fast),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          border: Border.all(color: scheme.outlineVariant),
+          color: _pending || _open
+              ? scheme.onSurface.withValues(alpha: 0.06)
+              : Colors.transparent,
           borderRadius: BorderRadius.circular(999),
         ),
         child: Row(

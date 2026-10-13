@@ -7,6 +7,7 @@ import 'package:pocket_codex/src/rust/api/bridge/connection.dart' as frb;
 import 'package:pocket_codex/src/rust/api/bridge/events.dart' as frb;
 import 'package:pocket_codex/src/rust/api/bridge/host_config.dart' as frb;
 import 'package:pocket_codex/src/rust/api/bridge/host_sessions.dart' as frb;
+import 'package:pocket_codex/src/rust/api/bridge/native_sessions.dart' as frb;
 import 'package:pocket_codex/src/rust/api/bridge/hosted_account.dart' as frb;
 import 'package:pocket_codex/src/rust/api/bridge/hosting.dart' as frb;
 import 'package:pocket_codex/src/rust/api/bridge/services.dart' as frb;

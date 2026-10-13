@@ -1,8 +1,11 @@
 part of '../app_session_screen.dart';
 
 extension _SessionExternalWriter on _AppSessionState {
-  bool _isActiveWriterError(Object error) =>
-      error.toString().toLowerCase().contains('active writer');
+  bool _isActiveWriterError(Object error) {
+    final message = error.toString().toLowerCase();
+    return message.contains('active writer') ||
+        message.contains('native history is read-only');
+  }
 
   void _cancelExternalWriterSubscription() {
     _externalHistoryTimer?.cancel();
@@ -441,7 +444,10 @@ extension _SessionExternalWriter on _AppSessionState {
                   const SizedBox(width: 8),
                   Flexible(
                     child: Text(
-                      l10n.readOnlyViewing,
+                      _caps.isAcp &&
+                              (liveness?.turnState ?? 'unknown') == 'unknown'
+                          ? l10n.nativeHistoryReadOnly
+                          : l10n.readOnlyViewing,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -465,6 +471,17 @@ extension _SessionExternalWriter on _AppSessionState {
               mainAxisSize: MainAxisSize.min,
               children: [
                 stateControl,
+                if (_caps.isAcp && !canResume) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    l10n.nativeHistoryTakeoverUnavailable,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
                 if (hasCwd) ...[
                   const SizedBox(height: 8),
                   SizedBox(

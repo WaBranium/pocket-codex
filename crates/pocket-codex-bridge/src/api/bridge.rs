@@ -28,6 +28,7 @@ pub mod host_config;
 pub mod host_sessions;
 pub mod hosted_account;
 pub mod hosting;
+pub mod native_sessions;
 pub mod services;
 pub mod session_config;
 pub mod threads;
@@ -77,6 +78,10 @@ pub use self::{
         codex_locate, embedded_codex_version, AcpAgentSpecDto, AcpCatalogProviderDto,
         AcpCatalogStatusDto, AcpClaudeSetupDto, AcpClaudeStatusDto, AcpPresetDto, AcpServeDto,
         AppServeDto, AppServeStatusDto,
+    },
+    native_sessions::{
+        app_native_session_page, app_native_session_revision, app_native_sessions,
+        NativeSessionListDto, NativeSessionPageDto, NativeSessionRevisionDto,
     },
     services::{
         api_subscribe, api_unsubscribe, discover_services, subscriptions, ServiceIdDto,

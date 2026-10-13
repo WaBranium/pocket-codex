@@ -1,6 +1,67 @@
 part of '../bridge_api_rust.dart';
 
 mixin _RustHostSessions implements BridgeApi {
+  @override
+  Future<NativeSessionList> appNativeSessions(
+    String provider, {
+    String? cursor,
+    String? sourceId,
+  }) async {
+    final v = await frb.appNativeSessions(
+      provider: provider,
+      cursor: cursor,
+      sourceId: sourceId,
+    );
+    return NativeSessionList(
+      sourceId: v.sourceId,
+      location: v.location,
+      sessions: v.sessions.map(_localSession).toList(),
+      nextCursor: v.nextCursor,
+    );
+  }
+
+  @override
+  Future<NativeSessionPage> appNativeSessionPage(
+    String provider,
+    String threadId, {
+    String? before,
+    String? sourceId,
+  }) async {
+    final v = await frb.appNativeSessionPage(
+      provider: provider,
+      threadId: threadId,
+      before: before,
+      sourceId: sourceId,
+    );
+    return NativeSessionPage(
+      sourceId: v.sourceId,
+      generation: v.generation,
+      revision: v.revision,
+      items: v.items.map(_item).toList(),
+      nextBefore: v.nextBefore,
+      truncated: v.truncated,
+    );
+  }
+
+  @override
+  Future<NativeSessionRevision> appNativeSessionRevision(
+    String provider,
+    String threadId, {
+    String? sourceId,
+  }) async {
+    final v = await frb.appNativeSessionRevision(
+      provider: provider,
+      threadId: threadId,
+      sourceId: sourceId,
+    );
+    return NativeSessionRevision(
+      sourceId: v.sourceId,
+      generation: v.generation,
+      revision: v.revision,
+      liveness: _liveness(v.liveness),
+    );
+  }
+
   // --- Local session takeover ---
 
   @override
