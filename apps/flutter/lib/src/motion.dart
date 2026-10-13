@@ -30,6 +30,25 @@ abstract final class Motion {
   static Duration of(BuildContext context, Duration d) =>
       MediaQuery.maybeDisableAnimationsOf(context) ?? false ? Duration.zero : d;
 
+  /// Animate a child's size, or lay it out directly with reduced motion.
+  /// A zero-duration AnimatedSize can notify layout from its own layout pass.
+  static Widget resize(
+    BuildContext context, {
+    required Widget child,
+    Duration duration = medium,
+    AlignmentGeometry alignment = Alignment.center,
+    Curve curve = move,
+  }) {
+    final effective = of(context, duration);
+    if (effective == Duration.zero) return child;
+    return AnimatedSize(
+      duration: effective,
+      alignment: alignment,
+      curve: curve,
+      child: child,
+    );
+  }
+
   /// Whether looping, purely decorative motion (pulses, typing dots) may run.
   static bool ambientAllowed(BuildContext context) =>
       !(MediaQuery.maybeDisableAnimationsOf(context) ?? false);

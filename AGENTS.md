@@ -709,8 +709,9 @@ this file's roadmap so the source of truth stays in sync.
     spec, its argv and the session record key (the adapter path) stay what
     they were. An explicit path or any other program is launched verbatim;
     the native CLI is never spoken to.
-    A missing adapter is prepared only by an explicit Start that announced it
-    for the same agent and environment from an open dialog
+    A missing adapter can be prepared by **Prepare ACP environment**, without
+    saving, starting or restarting hosting, or by an explicit Start that
+    announced it for the same agent and environment from an open editor
     (`acp/claude_setup.rs`, bridge `engine/claude_setup.rs`): exactly
     `@agentclientprotocol/claude-agent-acp@0.89.1` with scripts off into
     `<state>/acp-runtime/claude-agent-acp`; reuse and install share one
@@ -820,6 +821,13 @@ this file's roadmap so the source of truth stays in sync.
     checks covered Settings and Codex setup entries to running and new
     hosts, repeated selection, keyboard cancellation, return navigation
     and unsaved-change protection.
+
+27. **Sidebar refinement (2026-10-13).** Selected conversations use neutral
+    surfaces. Running rows combine a rotating indicator with a faint sweep;
+    reduced motion uses a static mark and label. Hierarchy controls preserve
+    keyboard/RTL semantics and 44px touch targets. Narrow sidebars and large
+    text put metadata below titles. Paint-only animation respects TickerMode
+    and releases its controllers on disposal.
 
 ### UI and history maintenance (2026-09-13)
 

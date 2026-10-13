@@ -958,7 +958,7 @@
   "@claudeAdapterPrepared": {
     "placeholders": { "path": { "type": "String" } }
   },
-  "claudeAdapterWillPrepare": "The ACP adapter is not installed. Start downloads {package} from npm into this app's cache (nothing global changes), then starts Claude.",
+  "claudeAdapterWillPrepare": "The ACP adapter is not installed. Prepare it now, or let Start hosting prepare it first. This downloads {package} from npm into this app's cache; the global environment stays unchanged.",
   "@claudeAdapterWillPrepare": {
     "placeholders": { "package": { "type": "String" } }
   },
@@ -981,6 +981,8 @@
   },
   "claudeCliInherited": "Claude Code: as set in CLAUDE_CODE_EXECUTABLE",
   "claudeCliBundled": "Claude Code was not found; the adapter uses its bundled copy.",
+  "claudePrepareEnvironment": "Prepare ACP environment",
+  "claudeEnvironmentReady": "ACP environment is ready. No host was started or restarted.",
   "claudeEnvRecheck": "Check again",
   "claudePreparing": "Preparing the Claude ACP adapter… {seconds} s",
   "@claudePreparing": {
@@ -994,7 +996,7 @@
   "claudePrepareStopWaiting": "Stop waiting",
   "claudePrepareJoined": "Another window started this preparation; this page only follows it.",
   "claudePrepareLeftRunning": "Stopped waiting. The preparation started elsewhere keeps running.",
-  "claudePrepareReplaced": "Another preparation replaced the one this page followed, so its result is not shown here. Start again to retry.",
+  "claudePrepareReplaced": "Another preparation replaced the one this page followed, so its result is not shown here. Prepare ACP environment or Start hosting to retry.",
   "quitStopping": "Stopping hosted agents before quitting…",
   "quitBlocked": "The app stays open because hosting could not be stopped safely: {error}",
   "@quitBlocked": {"placeholders": {"error": {"type": "String"}}},
@@ -1003,7 +1005,7 @@
   "@claudePrepareFailed": {
     "placeholders": { "error": { "type": "String" } }
   },
-  "claudePrepareCancelled": "Preparing the Claude ACP adapter was stopped. Start tries again.",
+  "claudePrepareCancelled": "Preparing the Claude ACP adapter was stopped. Choose Prepare ACP environment or Start hosting to retry.",
   "acpProgramFound": "Found: {path}",
   "@acpProgramFound": {
     "placeholders": { "path": { "type": "String" } }

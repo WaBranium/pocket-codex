@@ -2,9 +2,20 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:pocket_codex/l10n/gen/app_localizations.dart';
+import 'package:pocket_codex/src/desktop_theme.dart';
+import 'package:pocket_codex/src/fonts.dart';
+import 'package:pocket_codex/src/motion.dart';
 
 /// Parent/child affordances shared by live and on-disk session inventories.
+///
+/// The fold control sits in the row's leading gutter: the inset [child]
+/// already keeps before its title ([leadingInset]), widened only where that
+/// is too narrow for the control. Parents and plain rows then share one title
+/// column. A child indents by half a gutter, which puts its edge under its
+/// parent's fold control, and a hairline rail there joins the family. Rows
+/// outside any hierarchy are returned unchanged.
 class SessionTreeRow extends StatelessWidget {
+  /// Creates the hierarchy affordances around [child].
   const SessionTreeRow({
     super.key,
     required this.id,
@@ -15,57 +26,148 @@ class SessionTreeRow extends StatelessWidget {
     required this.child,
     this.childSession = false,
     this.guardian = false,
+    this.leadingInset = 0,
   });
 
+  /// The session id, used in the row and toggle keys.
   final String id;
+
+  /// Nesting depth; 0 for a root.
   final int depth;
+
+  /// Direct children, folded or not.
   final int childCount;
+
+  /// Whether the children are shown.
   final bool expanded;
+
+  /// Shows or hides the children.
   final VoidCallback onToggle;
+
+  /// The session row itself.
   final Widget child;
+
+  /// Whether this session was spawned by another.
   final bool childSession;
+
+  /// Whether this session is a model approval review.
   final bool guardian;
+
+  /// Space [child] already leaves before its title, which the fold control
+  /// may occupy.
+  final double leadingInset;
+
+  /// The fold control's box; touch keeps a finger-sized target.
+  static double _box() => isDesktop ? 22 : 44;
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
     if (childCount == 0 && !childSession && !guardian) return child;
+    final box = _box();
+    final gutter = math.max(leadingInset, box + 4);
+    final rail = Theme.of(context).colorScheme.outlineVariant;
+    final caption = guardian || childSession
+        ? Padding(
+            padding: EdgeInsetsDirectional.only(start: gutter, top: 4),
+            child: Text(
+              guardian
+                  ? AppLocalizations.of(context).guardianSession
+                  : AppLocalizations.of(context).childSession,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          )
+        : null;
     return Padding(
       key: ValueKey('session-tree-$id'),
-      padding: EdgeInsets.only(left: math.min(depth, 4) * 12.0),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      padding: EdgeInsetsDirectional.only(
+        start: math.min(depth, 4) * gutter / 2,
+      ),
+      child: Stack(
+        fit: StackFit.passthrough,
         children: [
-          if (childCount > 0)
-            IconButton(
-              key: ValueKey('session-children-$id'),
-              tooltip: l10n.childSessions(childCount),
-              isSelected: expanded,
-              onPressed: onToggle,
-              icon: Icon(expanded ? Icons.expand_more : Icons.chevron_right),
-            )
-          else
-            const Padding(
-              padding: EdgeInsets.fromLTRB(8, 12, 4, 0),
-              child: Icon(Icons.subdirectory_arrow_right, size: 16),
+          // Beneath the row, so a selected child's plate covers it.
+          if (depth > 0)
+            PositionedDirectional(
+              start: 0,
+              top: 0,
+              bottom: 0,
+              width: 1,
+              child: ColoredBox(color: rail),
             ),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (guardian || childSession)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 12, top: 4),
-                    child: Text(
-                      guardian ? l10n.guardianSession : l10n.childSession,
-                      style: Theme.of(context).textTheme.labelSmall,
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ?caption,
+              Stack(
+                fit: StackFit.passthrough,
+                children: [
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minHeight: childCount > 0 ? box : 0,
+                    ),
+                    child: Padding(
+                      padding: EdgeInsetsDirectional.only(
+                        start: gutter - leadingInset,
+                      ),
+                      child: child,
                     ),
                   ),
-                child,
-              ],
-            ),
+                  if (childCount > 0)
+                    PositionedDirectional(
+                      start: (gutter - box) / 2,
+                      top: 0,
+                      bottom: 0,
+                      child: Center(child: _foldToggle(context, box)),
+                    ),
+                ],
+              ),
+            ],
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _foldToggle(BuildContext context, double box) {
+    final scheme = Theme.of(context).colorScheme;
+    final rtl = Directionality.of(context) == TextDirection.rtl;
+    return IconButton(
+      key: ValueKey('session-children-$id'),
+      tooltip: AppLocalizations.of(context).childSessions(childCount),
+      isSelected: expanded,
+      onPressed: onToggle,
+      padding: EdgeInsets.zero,
+      style: IconButton.styleFrom(
+        fixedSize: Size.square(box),
+        minimumSize: Size.square(box),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(kRowRadius),
+        ),
+      ),
+      // The project heading's glyph, turning the same way, so every fold in
+      // the sidebar speaks one language. The mirrored glyph turns the other
+      // way in RTL to land pointing down.
+      icon: Semantics(
+        expanded: expanded,
+        child: AnimatedRotation(
+          turns: expanded ? (rtl ? -0.25 : 0.25) : 0,
+          duration: Motion.of(context, Motion.fast),
+          curve: Motion.move,
+          child: Transform.flip(
+            flipX: rtl,
+            child: Icon(
+              Icons.keyboard_arrow_right,
+              size: isDesktop ? 16 : 20,
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+        ),
       ),
     );
   }

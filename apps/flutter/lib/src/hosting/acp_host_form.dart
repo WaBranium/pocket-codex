@@ -113,6 +113,7 @@ class AcpHostForm extends ConsumerStatefulWidget {
     this.initial,
     this.fixedName,
     this.restored,
+    this.onPrepare,
   });
 
   /// The agent picked in the grid.
@@ -132,6 +133,9 @@ class AcpHostForm extends ConsumerStatefulWidget {
 
   /// Called with the current value.
   final ValueChanged<AcpFormValue> onChanged;
+
+  /// Prepare the Claude adapter without starting a host, then refresh detection.
+  final Future<void> Function()? onPrepare;
 
   /// Whether the fields can be edited.
   final bool enabled;
@@ -367,6 +371,16 @@ class _AcpHostFormState extends ConsumerState<AcpHostForm> {
     });
   }
 
+  Future<void> _prepareEnvironment() async {
+    final prepare = widget.onPrepare;
+    if (prepare == null || !widget.enabled) return;
+    final choice = _choiceSeq;
+    final lookup = _locateSeq;
+    await prepare();
+    if (!mounted || choice != _choiceSeq || lookup != _locateSeq) return;
+    _locate();
+  }
+
   Future<void> _browse() async {
     final choice = _choiceSeq;
     final file = await openFile();
@@ -419,6 +433,8 @@ class _AcpHostFormState extends ConsumerState<AcpHostForm> {
         ? ClaudeEnvironment(
             status: _claude!,
             onRecheck: enabled ? _locate : null,
+            onPrepare: widget.onPrepare == null ? null : _prepareEnvironment,
+            enabled: enabled,
           )
         : _located == null
         ? Text(
@@ -567,17 +583,29 @@ class _AcpHostFormState extends ConsumerState<AcpHostForm> {
 }
 
 /// What the Claude preset will run on this computer: its ACP adapter (or
-/// that Start prepares it), the Node.js that runs it and the native CLI it
-/// drives. Shown before Start, so a download is never a surprise.
+/// an explicit preparation action), the Node.js that runs it and the native
+/// CLI it drives. Shown before preparation, so a download is never a surprise.
 class ClaudeEnvironment extends StatelessWidget {
   /// Creates the panel for [status].
-  const ClaudeEnvironment({super.key, required this.status, this.onRecheck});
+  const ClaudeEnvironment({
+    super.key,
+    required this.status,
+    this.onRecheck,
+    this.onPrepare,
+    this.enabled = true,
+  });
 
   /// The detected environment.
   final AcpClaudeStatus status;
 
   /// Detect again (after installing something); `null` disables it.
   final VoidCallback? onRecheck;
+
+  /// Prepare the missing adapter independently of hosting.
+  final VoidCallback? onPrepare;
+
+  /// Whether an editor operation permits starting preparation.
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
@@ -663,6 +691,15 @@ class ClaudeEnvironment extends StatelessWidget {
         cli,
         if (!status.ready && !status.canPrepare && problem != null)
           line('claude-problem', problem, bad),
+        if (!status.ready && status.canPrepare && onPrepare != null) ...[
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            key: const Key('claude-prepare-environment'),
+            onPressed: enabled ? onPrepare : null,
+            icon: const Icon(Icons.download_rounded, size: 18),
+            label: Text(l10n.claudePrepareEnvironment),
+          ),
+        ],
       ],
     );
   }

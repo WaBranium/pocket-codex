@@ -69,7 +69,8 @@ class AnimatedLabel extends StatelessWidget {
     // is narrower, which overflows a squeezed chip. Clip to the incoming
     // constraints so the label can still ellipsize while it eases.
     return ClipRect(
-      child: AnimatedSize(
+      child: Motion.resize(
+        context,
         duration: duration,
         curve: Motion.move,
         alignment: alignment,

@@ -1,6 +1,15 @@
 part of '../app_session_screen.dart';
 
 extension _SessionConversations on _AppSessionState {
+  /// A row's inset from its plate edge to its content.
+  static const double _rowInset = 10;
+
+  /// Where a conversation row's title starts. Rows under a project heading
+  /// line up with its name, so the folder reads as their parent; the fold
+  /// control of a parent row sits in that gutter.
+  double _conversationInset({required bool showProject}) =>
+      widget.home && !showProject ? 28 : _rowInset;
+
   Widget _sessionsPane(AppLocalizations l10n, {bool inDrawer = false}) {
     final scheme = Theme.of(context).colorScheme;
     // Live set of running threads for this service, so other sessions show a
@@ -112,6 +121,9 @@ extension _SessionConversations on _AppSessionState {
           return SessionTreeRow(
             id: t.id,
             depth: row.depth,
+            leadingInset: _activityView
+                ? _rowInset
+                : _conversationInset(showProject: showProject),
             childCount: tree.children[t.id]?.length ?? 0,
             childSession: t.parentThreadId != null,
             guardian: t.isGuardian,
@@ -624,10 +636,7 @@ extension _SessionConversations on _AppSessionState {
             style: TextStyle(fontSize: 11.5, color: muted),
           );
     final trailing = running
-        ? Semantics(
-            label: l10n.running,
-            child: PulsingDot(color: signal, size: 7),
-          )
+        ? _runningMark(l10n, scheme)
         : when.isEmpty
         ? null
         : Text(
@@ -639,73 +648,157 @@ extension _SessionConversations on _AppSessionState {
               fontFeatures: const [FontFeature.tabularFigures()],
             ),
           );
+    final content = Padding(
+      padding: EdgeInsetsDirectional.fromSTEB(
+        _conversationInset(showProject: project != null),
+        dense ? 6 : 10,
+        _rowInset,
+        dense ? 6 : 10,
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // Preserve the title when large text or a narrow sidebar would let
+          // metadata consume its entire line.
+          final stacked =
+              !dense ||
+              constraints.maxWidth < 220 ||
+              MediaQuery.textScalerOf(context).scale(13) > 18;
+          if (stacked) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                titleText,
+                if (factsText != null || trailing != null) ...[
+                  const SizedBox(height: 3),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 2,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      ?factsText,
+                      if (running)
+                        _runningMark(
+                          l10n,
+                          scheme,
+                          maxLabelWidth: (constraints.maxWidth - 17).clamp(
+                            0,
+                            double.infinity,
+                          ),
+                          wrap: true,
+                        )
+                      else
+                        ?trailing,
+                    ],
+                  ),
+                ],
+              ],
+            );
+          }
+          return Row(
+            children: [
+              if (thread.isVoice) ...[
+                Icon(Icons.graphic_eq, size: 15, color: muted),
+                const SizedBox(width: 6),
+              ],
+              Expanded(
+                child: Row(
+                  children: [
+                    Flexible(child: titleText),
+                    if (factsText != null) ...[
+                      const SizedBox(width: 6),
+                      Flexible(child: factsText),
+                    ],
+                  ],
+                ),
+              ),
+              if (trailing != null) ...[const SizedBox(width: 8), trailing],
+            ],
+          );
+        },
+      ),
+    );
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 0.5),
-      child: Material(
+      child: _rowPlate(
         key: Key('conv-tile-${thread.id}'),
-        // The open conversation carries the accent, so "where am I" is
-        // answerable at a glance in a long list: a tinted row with a short
-        // bar on its leading edge, like a macOS source list's selection.
-        color: selected ? selectedRowColor(scheme) : Colors.transparent,
-        shape: selected
-            ? RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(kRowRadius),
-                side: BorderSide.none,
-              )
-            : RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(kRowRadius),
-              ),
-        clipBehavior: Clip.antiAlias,
-        child: _SelectionBar(
-          visible: selected,
-          color: signalColor(scheme),
-          child: InkWell(
-            mouseCursor: clickable,
-            borderRadius: BorderRadius.circular(kRowRadius),
-            onTap: onTap,
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(
-                // Rows under a project heading line up with its name, so the
-                // folder reads as their parent.
-                project == null && widget.home ? 28 : 10,
-                dense ? 6 : 10,
-                10,
-                dense ? 6 : 10,
-              ),
-              child: Row(
-                children: [
-                  if (thread.isVoice) ...[
-                    Icon(Icons.graphic_eq, size: 15, color: muted),
-                    const SizedBox(width: 6),
-                  ],
-                  Expanded(
-                    child: dense
-                        ? Row(
-                            children: [
-                              Flexible(child: titleText),
-                              if (factsText != null) ...[
-                                const SizedBox(width: 6),
-                                Flexible(child: factsText),
-                              ],
-                            ],
-                          )
-                        : Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              titleText,
-                              if (factsText != null) ...[
-                                const SizedBox(height: 2),
-                                factsText,
-                              ],
-                            ],
-                          ),
+        selected: selected,
+        radius: kRowRadius,
+        child: InkWell(
+          mouseCursor: clickable,
+          borderRadius: BorderRadius.circular(kRowRadius),
+          onTap: onTap,
+          child: running
+              ? RunningSheen(color: signal, child: content)
+              : content,
+        ),
+      ),
+    );
+  }
+
+  /// A sidebar row's ground. The open conversation is a neutral plate raised
+  /// out of the source list, found by its lift rather than by a second
+  /// accent, so the blue stays the signal for live work alone.
+  Widget _rowPlate({
+    required Key key,
+    required bool selected,
+    required double radius,
+    required Widget child,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      key: key,
+      color: selected ? sidebarSelection(scheme) : Colors.transparent,
+      elevation: selected ? 1 : 0,
+      shadowColor: sidebarSelectionShadow(scheme),
+      surfaceTintColor: Colors.transparent,
+      animationDuration: Motion.of(context, Motion.fast),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(radius),
+        side: selected
+            ? BorderSide(color: sidebarSelectionEdge(scheme))
+            : BorderSide.none,
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Semantics(container: true, selected: selected, child: child),
+    );
+  }
+
+  /// The trailing mark of a running row: a turning orbit where the time
+  /// would be. With reduced motion the orbit holds still, so the word is
+  /// shown beside it and the state never depends on movement.
+  Widget _runningMark(
+    AppLocalizations l10n,
+    ColorScheme scheme, {
+    double maxLabelWidth = 96,
+    bool wrap = false,
+  }) {
+    final signal = signalColor(scheme);
+    return Semantics(
+      label: l10n.running,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (!Motion.ambientAllowed(context)) ...[
+            ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: maxLabelWidth),
+              child: ExcludeSemantics(
+                child: Text(
+                  l10n.running,
+                  key: const Key('conv-running-label'),
+                  maxLines: wrap ? null : 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w500,
+                    color: signal,
                   ),
-                  if (trailing != null) ...[const SizedBox(width: 8), trailing],
-                ],
+                ),
               ),
             ),
-          ),
-        ),
+            const SizedBox(width: 6),
+          ],
+          PulsingDot.orbit(color: signal, size: 11),
+        ],
       ),
     );
   }
@@ -758,73 +851,80 @@ extension _SessionConversations on _AppSessionState {
     ].where((s) => s.isNotEmpty).join(' · ');
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 1),
-      child: Material(
+      child: _rowPlate(
         key: Key('activity-tile-${thread.id}'),
-        color: selected ? surfaceSelection(scheme) : Colors.transparent,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(kControlRadius),
-          side: BorderSide(
-            color: selected ? selectionBorder(scheme) : Colors.transparent,
-          ),
-        ),
+        selected: selected,
+        radius: kControlRadius,
         child: InkWell(
           mouseCursor: clickable,
           borderRadius: BorderRadius.circular(kControlRadius),
           onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 13,
-                          // Heavier than the project tree's rows: here the
-                          // title has a summary under it to stand apart from.
-                          fontWeight: FontWeight.w600,
-                          color: fg,
-                        ),
-                      ),
-                      if (summary.isNotEmpty) ...[
-                        const SizedBox(height: 3),
+          child: _activitySheen(
+            running: running,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         Text(
-                          summary,
-                          key: Key('activity-summary-${thread.id}'),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: 12, color: muted),
-                        ),
-                      ],
-                      if (meta.isNotEmpty) ...[
-                        const SizedBox(height: 3),
-                        Text(
-                          meta,
+                          title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontSize: 11,
-                            color: running ? signalColor(scheme) : muted,
+                            fontSize: 13,
+                            // Heavier than the project tree's rows: here the
+                            // title has a summary under it to stand apart from.
+                            fontWeight: FontWeight.w600,
+                            color: fg,
                           ),
                         ),
+                        if (summary.isNotEmpty) ...[
+                          const SizedBox(height: 3),
+                          Text(
+                            summary,
+                            key: Key('activity-summary-${thread.id}'),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 12, color: muted),
+                          ),
+                        ],
+                        if (meta.isNotEmpty) ...[
+                          const SizedBox(height: 3),
+                          Text(
+                            meta,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: running ? signalColor(scheme) : muted,
+                            ),
+                          ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
-                ),
-                if (running) ...[
-                  const SizedBox(width: 8),
-                  PulsingDot(color: signalColor(scheme), size: 7),
+                  if (running) ...[
+                    const SizedBox(width: 8),
+                    // The meta line already says "running" in words.
+                    PulsingDot.orbit(color: signalColor(scheme), size: 11),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ),
       ),
     );
   }
+
+  Widget _activitySheen({required bool running, required Widget child}) =>
+      running
+      ? RunningSheen(
+          color: signalColor(Theme.of(context).colorScheme),
+          child: child,
+        )
+      : child;
 }

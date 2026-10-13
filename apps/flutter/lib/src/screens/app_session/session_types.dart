@@ -106,48 +106,6 @@ class _CancelTitleEditIntent extends Intent {
   const _CancelTitleEditIntent();
 }
 
-/// Paints a short accent bar on the leading edge of a selected row, centred
-/// vertically, without changing the row's layout.
-class _SelectionBar extends StatelessWidget {
-  const _SelectionBar({
-    required this.visible,
-    required this.color,
-    required this.child,
-  });
-
-  final bool visible;
-  final Color color;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    if (!visible) return child;
-    return Stack(
-      alignment: Alignment.centerLeft,
-      children: [
-        child,
-        Positioned(
-          left: 0,
-          top: 0,
-          bottom: 0,
-          child: Center(
-            child: Container(
-              width: 3,
-              height: 16,
-              decoration: BoxDecoration(
-                color: color,
-                borderRadius: const BorderRadius.horizontal(
-                  right: Radius.circular(2),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 /// What an agent option change applies to: the service, conversation and the
 /// load, capability and connection generations it was offered under.
 typedef _AgentTarget = ({

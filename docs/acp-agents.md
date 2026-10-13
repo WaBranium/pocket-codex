@@ -481,8 +481,13 @@ stays Claude's own (its login or environment, inherited by the child); the
 hosting dialog shows only paths and versions.
 
 When the adapter is missing and a Node.js 22+ with its npm was found, the
-dialog says that **Start** will prepare `@agentclientprotocol/claude-agent-acp@0.89.1`;
-picking the preset or restoring a host never downloads anything. Start then
+editor offers **Prepare ACP environment** to install
+`@agentclientprotocol/claude-agent-acp@0.89.1` before hosting. It shows progress,
+allows cancellation or retry, and refreshes readiness while preserving the
+form. Preparation alone never saves configuration, starts or restarts a host,
+or enables automatic hosting; the same control is available in a running
+host's editor. **Start** also retains its announced preparation fallback.
+Picking the preset or restoring a host never downloads anything. Preparation
 runs that Node.js's npm (`install --prefix <stage> --ignore-scripts`, npm's
 own cache under the same directory, the Node.js directory first on the
 child's `PATH` only) into a new staging directory under
@@ -499,8 +504,8 @@ run off the setup state's lock, so reading the state or cancelling never
 waits for a probe. Start prepares only from an open dialog, and only after
 it announced the download for the same agent and the environment found
 now; a changed environment is announced again first.
-Overlapping Starts join one preparation; an incomplete directory in the way
-is moved aside, not deleted. A failure is shown with the next Start as the
+Overlapping preparation requests join one preparation; an incomplete directory in the way
+is moved aside, not deleted. A failure is shown; either Prepare ACP environment or Start can
 retry. Nothing global, no npm or shell configuration and no default Node.js
 is changed. Install scripts are skipped; the adapter's published package is
 assumed not to need them.

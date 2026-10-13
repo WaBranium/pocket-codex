@@ -27,7 +27,7 @@ mixin HostEditorActions<T extends ConsumerStatefulWidget>
   /// What `CODEX_HOME` provides (inherited description, official sign-in).
   CodexSetupStatus? setup;
 
-  /// Claude's adapter preparation while Start runs it.
+  /// Claude's adapter preparation, independent or before Start.
   AcpClaudeSetup? claudeSetup;
 
   // What Start itself announced an adapter download for; the next Start may
@@ -130,7 +130,7 @@ mixin HostEditorActions<T extends ConsumerStatefulWidget>
   }
 
   /// Stop waiting for a preparation another caller started (this page may
-  /// not cancel it): only this page's Start ends; that run goes on.
+  /// not cancel it): only this page's operation ends; that run goes on.
   void stopWaitingForClaude() {
     if (_preparing != null || !(claudeSetup?.running ?? false)) return;
     _op++;
@@ -169,6 +169,34 @@ mixin HostEditorActions<T extends ConsumerStatefulWidget>
 
   void _end(int op) {
     if (_owns(op)) setState(() => busy = false);
+  }
+
+  /// Prepare the selected Claude environment without saving or starting a host.
+  Future<void> prepareClaudeEnvironment() async {
+    final value = acp;
+    if (value == null || !isClaudeAdapterSpec(value.spec)) return;
+    final op = _begin();
+    if (op == null) return;
+    final l10n = AppLocalizations.of(context);
+    try {
+      final status = await api.acpClaudeStatus();
+      if (!_owns(op)) return;
+      if (!status.ready) {
+        if (!status.canPrepare) {
+          setState(
+            () => error =
+                status.problem ?? l10n.claudeAdapterMissing(status.package),
+          );
+          return;
+        }
+        if (!await _prepareClaude(op) || !_owns(op)) return;
+      }
+      setState(() => notice = l10n.claudeEnvironmentReady);
+    } catch (e) {
+      if (_owns(op)) setState(() => error = friendlyError(e));
+    } finally {
+      _end(op);
+    }
   }
 
   /// Start the new host.

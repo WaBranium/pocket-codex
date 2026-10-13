@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:pocket_codex/src/motion.dart';
 
@@ -27,7 +29,18 @@ class StatusDot extends StatelessWidget {
 /// once read as "many things happening".
 class PulsingDot extends StatefulWidget {
   /// Creates a pulsing dot of [size] px in [color].
-  const PulsingDot({super.key, required this.color, this.size = 9});
+  const PulsingDot({super.key, required this.color, this.size = 9})
+    : orbit = false;
+
+  /// A running indicator that turns: an arc travelling round a faint ring,
+  /// about a solid core. Rotation reads as "working" at a glance in a dense
+  /// list, where a few pixels of breathing halo do not. With reduced motion it
+  /// is a still ring and core, so callers say "running" in words beside it.
+  const PulsingDot.orbit({super.key, required this.color, this.size = 12})
+    : orbit = true;
+
+  /// Whether this is the turning [PulsingDot.orbit] form.
+  final bool orbit;
 
   /// Dot colour (defaults to the caller's choice; usually the "working" colour).
   final Color color;
@@ -43,20 +56,34 @@ class _PulsingDotState extends State<PulsingDot>
     with SingleTickerProviderStateMixin {
   late final AnimationController _c = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 1100),
+    duration: Duration(milliseconds: widget.orbit ? 1000 : 1100),
   );
+
+  @override
+  void didUpdateWidget(PulsingDot oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.orbit == widget.orbit) return;
+    _c
+      ..stop()
+      ..duration = Duration(milliseconds: widget.orbit ? 1000 : 1100);
+    _syncMotion();
+  }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _syncMotion();
+  }
+
+  void _syncMotion() {
     // Reduced motion keeps the dot (it still says "running") at full
     // strength, without the pulse.
     if (Motion.ambientAllowed(context)) {
-      if (!_c.isAnimating) _c.repeat(reverse: true);
+      if (!_c.isAnimating) _c.repeat(reverse: !widget.orbit);
     } else {
       _c
         ..stop()
-        ..value = 1;
+        ..value = widget.orbit ? 0 : 1;
     }
   }
 
@@ -67,7 +94,25 @@ class _PulsingDotState extends State<PulsingDot>
   }
 
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
+  Widget build(BuildContext context) {
+    if (widget.orbit) {
+      // Repaint only: the painter listens to the controller, so a turning
+      // frame never rebuilds or relayouts the row around it.
+      return RepaintBoundary(
+        child: CustomPaint(
+          size: Size.square(widget.size),
+          painter: _OrbitPainter(
+            _c,
+            widget.color,
+            still: !Motion.ambientAllowed(context),
+          ),
+        ),
+      );
+    }
+    return _pulse();
+  }
+
+  Widget _pulse() => AnimatedBuilder(
     animation: _c,
     builder: (context, _) {
       // A solid core with a soft ring breathing around it — the ring moves,
@@ -101,6 +146,45 @@ class _PulsingDotState extends State<PulsingDot>
       );
     },
   );
+}
+
+class _OrbitPainter extends CustomPainter {
+  _OrbitPainter(this.turn, this.color, {required this.still})
+    : super(repaint: turn);
+
+  final Animation<double> turn;
+  final Color color;
+  final bool still;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final side = size.shortestSide;
+    final center = size.center(Offset.zero);
+    final stroke = math.max(1.4, side * 0.13);
+    final radius = side / 2 - stroke / 2;
+    final ring = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = stroke
+      // Still, the whole ring carries the state; turning, it is the track.
+      ..color = color.withValues(alpha: still ? 0.5 : 0.18);
+    canvas
+      ..drawCircle(center, radius, ring)
+      ..drawCircle(center, side * 0.17, Paint()..color = color);
+    if (still) return;
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      turn.value * 2 * math.pi - math.pi / 2,
+      math.pi * 0.62,
+      false,
+      ring
+        ..color = color
+        ..strokeCap = StrokeCap.round,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_OrbitPainter old) =>
+      old.turn != turn || old.color != color || old.still != still;
 }
 
 /// A dot + label pill for service availability rows. Set [pulsing] for an

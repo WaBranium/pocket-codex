@@ -148,7 +148,8 @@ extension _SessionTranscript on _AppSessionState {
         _statusBar(l10n),
         // Where the reader is looking: the switch announces itself above the
         // conversation, which stays put until the new host has answered.
-        AnimatedSize(
+        Motion.resize(
+          context,
           duration: Motion.of(context, Motion.medium),
           curve: Motion.move,
           alignment: Alignment.topCenter,

@@ -368,9 +368,13 @@ extension _SessionProjects on _AppSessionState {
   }) {
     final scheme = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.only(left: 16, bottom: 2),
+      // Its text starts on the title column of the rows above.
+      padding: EdgeInsetsDirectional.only(
+        start: _conversationInset(showProject: false) - 6,
+        bottom: 2,
+      ),
       child: Align(
-        alignment: Alignment.centerLeft,
+        alignment: AlignmentDirectional.centerStart,
         child: Material(
           color: Colors.transparent,
           borderRadius: BorderRadius.circular(kRowRadius),

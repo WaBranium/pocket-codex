@@ -21,6 +21,7 @@ import 'package:intl/intl.dart' show DateFormat;
 import 'package:super_sliver_list/super_sliver_list.dart';
 import 'package:pocket_codex/src/bridge_api.dart';
 import 'package:pocket_codex/src/session_tree.dart';
+import 'package:pocket_codex/src/widgets/running_sheen.dart';
 import 'package:pocket_codex/src/widgets/session_tree_row.dart';
 import 'package:pocket_codex/src/context_status.dart';
 import 'package:pocket_codex/src/desktop_theme.dart';

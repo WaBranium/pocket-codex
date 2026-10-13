@@ -478,7 +478,8 @@ extension _SessionComposer on _AppSessionState {
                 ],
                 // A take's strip: the field stays editable below it, and the
                 // words appear in the field itself as they are spoken.
-                AnimatedSize(
+                Motion.resize(
+                  context,
                   duration: Motion.of(context, Motion.fast),
                   curve: Motion.move,
                   alignment: Alignment.topCenter,

@@ -299,13 +299,22 @@ class _HostingEditorState extends ConsumerState<HostingEditor>
         EditorBlock(
           child: spec == null
               ? EditorNote(l10n.hostAgentUnknown)
-              : AcpHostForm(
-                  key: ValueKey('host-agent-form-$agentFormSeq'),
-                  choice: choiceFor(spec),
-                  initial: spec,
-                  fixedName: host.name,
-                  enabled: !busy,
-                  onChanged: agentChanged,
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    AcpHostForm(
+                      key: ValueKey('host-agent-form-$agentFormSeq'),
+                      choice: choiceFor(spec),
+                      initial: spec,
+                      fixedName: host.name,
+                      enabled: !busy,
+                      onChanged: agentChanged,
+                      onPrepare: prepareClaudeEnvironment,
+                    ),
+                    if (claudeSetup case final setup? when setup.running)
+                      _claudeProgress(l10n, setup),
+                  ],
                 ),
         ),
       ],
@@ -347,6 +356,7 @@ class _HostingEditorState extends ConsumerState<HostingEditor>
                     enabled: !busy,
                     takenNames: takenNames,
                     onChanged: agentChanged,
+                    onPrepare: prepareClaudeEnvironment,
                   ),
                   if (claudeSetup case final setup? when setup.running)
                     _claudeProgress(l10n, setup),
@@ -412,8 +422,8 @@ class _HostingEditorState extends ConsumerState<HostingEditor>
               // While Claude's adapter is being prepared by this page, Cancel
               // stops that preparation (only the npm process it started); one
               // joined from another caller is not this page's to stop, so it
-              // offers Stop waiting, which ends only this page's Start. Close
-              // stays beside either, unavailable until Start is over.
+              // offers Stop waiting, which ends only this page's operation.
+              // Close stays beside either, unavailable until it is over.
               if ((claudeSetup?.running ?? false) && ownsClaudePrepare)
                 TextButton(
                   key: const Key('claude-prepare-cancel'),

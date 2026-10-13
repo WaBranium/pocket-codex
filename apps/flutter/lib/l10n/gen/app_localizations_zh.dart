@@ -2272,7 +2272,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String claudeAdapterWillPrepare(String package) {
-    return '尚未安装 ACP 适配器。点击开始会从 npm 下载 $package 到本应用缓存（不改动任何全局环境），然后启动 Claude。';
+    return '尚未安装 ACP 适配器。可以先准备环境，也可在开始托管时自动准备。将从 npm 下载 $package 到本应用缓存，不改动全局环境。';
   }
 
   @override
@@ -2305,6 +2305,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get claudeCliBundled => '未找到 Claude Code；适配器将使用其自带版本。';
 
   @override
+  String get claudePrepareEnvironment => '准备 ACP 环境';
+
+  @override
+  String get claudeEnvironmentReady => 'ACP 环境已就绪，未启动或重启任何托管。';
+
+  @override
   String get claudeEnvRecheck => '重新检测';
 
   @override
@@ -2330,7 +2336,8 @@ class AppLocalizationsZh extends AppLocalizations {
   String get claudePrepareLeftRunning => '已停止等待。其他地方启动的准备仍在继续。';
 
   @override
-  String get claudePrepareReplaced => '本页跟随的准备已被另一次准备取代，这里不显示它的结果。请重新开始以重试。';
+  String get claudePrepareReplaced =>
+      '本页跟随的准备已被另一次准备取代，这里不显示它的结果。点击“准备 ACP 环境”或“开始托管”可重试。';
 
   @override
   String get quitStopping => '正在停止托管的智能体，然后退出…';
@@ -2349,7 +2356,8 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String get claudePrepareCancelled => '已停止准备 Claude ACP 适配器。点击开始可重试。';
+  String get claudePrepareCancelled =>
+      '已停止准备 Claude ACP 适配器。点击“准备 ACP 环境”或“开始托管”可重试。';
 
   @override
   String acpProgramFound(String path) {

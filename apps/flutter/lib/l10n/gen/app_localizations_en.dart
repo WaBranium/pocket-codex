@@ -2361,7 +2361,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String claudeAdapterWillPrepare(String package) {
-    return 'The ACP adapter is not installed. Start downloads $package from npm into this app\'s cache (nothing global changes), then starts Claude.';
+    return 'The ACP adapter is not installed. Prepare it now, or let Start hosting prepare it first. This downloads $package from npm into this app\'s cache; the global environment stays unchanged.';
   }
 
   @override
@@ -2396,6 +2396,13 @@ class AppLocalizationsEn extends AppLocalizations {
       'Claude Code was not found; the adapter uses its bundled copy.';
 
   @override
+  String get claudePrepareEnvironment => 'Prepare ACP environment';
+
+  @override
+  String get claudeEnvironmentReady =>
+      'ACP environment is ready. No host was started or restarted.';
+
+  @override
   String get claudeEnvRecheck => 'Check again';
 
   @override
@@ -2424,7 +2431,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get claudePrepareReplaced =>
-      'Another preparation replaced the one this page followed, so its result is not shown here. Start again to retry.';
+      'Another preparation replaced the one this page followed, so its result is not shown here. Prepare ACP environment or Start hosting to retry.';
 
   @override
   String get quitStopping => 'Stopping hosted agents before quitting…';
@@ -2444,7 +2451,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get claudePrepareCancelled =>
-      'Preparing the Claude ACP adapter was stopped. Start tries again.';
+      'Preparing the Claude ACP adapter was stopped. Choose Prepare ACP environment or Start hosting to retry.';
 
   @override
   String acpProgramFound(String path) {

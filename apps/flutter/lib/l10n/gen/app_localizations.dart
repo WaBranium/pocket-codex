@@ -4289,7 +4289,7 @@ abstract class AppLocalizations {
   /// No description provided for @claudeAdapterWillPrepare.
   ///
   /// In en, this message translates to:
-  /// **'The ACP adapter is not installed. Start downloads {package} from npm into this app\'s cache (nothing global changes), then starts Claude.'**
+  /// **'The ACP adapter is not installed. Prepare it now, or let Start hosting prepare it first. This downloads {package} from npm into this app\'s cache; the global environment stays unchanged.'**
   String claudeAdapterWillPrepare(String package);
 
   /// No description provided for @claudeAdapterMissing.
@@ -4333,6 +4333,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Claude Code was not found; the adapter uses its bundled copy.'**
   String get claudeCliBundled;
+
+  /// No description provided for @claudePrepareEnvironment.
+  ///
+  /// In en, this message translates to:
+  /// **'Prepare ACP environment'**
+  String get claudePrepareEnvironment;
+
+  /// No description provided for @claudeEnvironmentReady.
+  ///
+  /// In en, this message translates to:
+  /// **'ACP environment is ready. No host was started or restarted.'**
+  String get claudeEnvironmentReady;
 
   /// No description provided for @claudeEnvRecheck.
   ///
@@ -4379,7 +4391,7 @@ abstract class AppLocalizations {
   /// No description provided for @claudePrepareReplaced.
   ///
   /// In en, this message translates to:
-  /// **'Another preparation replaced the one this page followed, so its result is not shown here. Start again to retry.'**
+  /// **'Another preparation replaced the one this page followed, so its result is not shown here. Prepare ACP environment or Start hosting to retry.'**
   String get claudePrepareReplaced;
 
   /// No description provided for @quitStopping.
@@ -4409,7 +4421,7 @@ abstract class AppLocalizations {
   /// No description provided for @claudePrepareCancelled.
   ///
   /// In en, this message translates to:
-  /// **'Preparing the Claude ACP adapter was stopped. Start tries again.'**
+  /// **'Preparing the Claude ACP adapter was stopped. Choose Prepare ACP environment or Start hosting to retry.'**
   String get claudePrepareCancelled;
 
   /// No description provided for @acpProgramFound.

@@ -218,6 +218,10 @@ open, shows the reason with "Quit again" (`quit_status.dart`), and a later
 quit retries. What it cannot see (a process this app never identified) is
 not claimed.
 
+- **Prepare ACP environment** installs the missing Claude adapter into the
+  app cache and refreshes the environment panel. It does not save configuration,
+  start or restart hosting, or enable automatic hosting. Existing hosts expose
+  the same progress, cancellation and retry controls.
 - **Start** (new host) commits the configuration and starts that revision as
   one operation (`engine/host_start.rs`); a failed start restores the
   previous saved configuration. A name already hosting is refused.

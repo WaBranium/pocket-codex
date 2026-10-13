@@ -160,6 +160,27 @@ Color selectedRowColor(ColorScheme scheme) => Color.alphaBlend(
   surfaceSidebar(scheme),
 );
 
+/// The open conversation in the sidebar: a neutral plate raised out of the
+/// source list (the page's own white in light, a lifted graphite in dark),
+/// so "you are here" is found by its lift rather than a second accent, and the
+/// blue stays the signal for live work alone.
+Color sidebarSelection(ColorScheme scheme) =>
+    scheme.brightness == Brightness.light
+    ? scheme.surfaceBright
+    : scheme.surfaceContainerHigh;
+
+/// The hairline that edges [sidebarSelection].
+Color sidebarSelectionEdge(ColorScheme scheme) =>
+    scheme.brightness == Brightness.light
+    ? scheme.outlineVariant
+    : Colors.white.withValues(alpha: 0.07);
+
+/// The soft shadow under [sidebarSelection]; dark plates lift by tone alone.
+Color sidebarSelectionShadow(ColorScheme scheme) =>
+    scheme.brightness == Brightness.light
+    ? Colors.black.withValues(alpha: 0.10)
+    : Colors.transparent;
+
 /// A faint accent wash behind the user's own messages and inline code, so the
 /// two voices in a transcript, and code inside prose, separate at a glance.
 Color accentWash(ColorScheme scheme, {double strength = 1}) =>

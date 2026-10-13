@@ -46,6 +46,214 @@ void _registerClaudePreparation() {
       }
     }
 
+    Future<void> prepareOnly(WidgetTester t) async {
+      final button = find.byKey(const Key('claude-prepare-environment'));
+      await t.ensureVisible(button);
+      await t.tap(button);
+      for (var i = 0; i < 4; i++) {
+        await t.pump();
+      }
+    }
+
+    Future<void> finishPreparation(WidgetTester t) async {
+      await t.pump(const Duration(milliseconds: 600));
+      await t.pump(const Duration(milliseconds: 400));
+      await t.pumpAndSettle();
+    }
+
+    void expectNoHostMutation(FakeBridgeApi api, _HeldPrefs prefs) {
+      expect(api.startConfiguredCalls, isEmpty);
+      expect(api.acpServeCalls, isEmpty);
+      expect(api.hostConfigSaves, isEmpty);
+      expect(api.applyCalls, isEmpty);
+      expect(prefs.written, isEmpty);
+    }
+
+    testWidgets('Prepare refreshes readiness and keeps the draft without '
+        'starting or saving; a later Start reuses it', (t) async {
+      final api = claudeApi(missing);
+      final prefs = _HeldPrefs(const UiPrefs());
+      await _pumpDialog(t, api, prefs: prefs);
+      await _chooseAcp(t, 'claude');
+      final name = find.byKey(const Key('acp-instance-name-field'));
+      await t.enterText(name, 'my-claude');
+      final semantics = t.ensureSemantics();
+      final button = find.byKey(const Key('claude-prepare-environment'));
+      await t.ensureVisible(button);
+      final node = t.getSemantics(button);
+      node.owner!.performAction(node.id, SemanticsAction.tap);
+      for (var i = 0; i < 4; i++) {
+        await t.pump();
+      }
+      expect(api.claudePrepareStarts, 1);
+      expect(find.byKey(const Key('claude-prepare-progress')), findsOneWidget);
+      expect(t.widget<OutlinedButton>(button).onPressed, isNull);
+      expectNoHostMutation(api, prefs);
+      api.claudeStatus = const AcpClaudeStatus(
+        ready: true,
+        adapter: 'prepared',
+        adapterPath: '/app-cache/claude-agent-acp.js',
+        runtime: 'found',
+        runtimeVersion: '22.11.0',
+        runtimePath: '/usr/local/bin/node',
+        cli: 'found',
+        cliPath: '/Users/me/.local/bin/claude',
+        canPrepare: false,
+        package: '@agentclientprotocol/claude-agent-acp@0.89.1',
+      );
+      api.settleClaudePrepare('done');
+      await finishPreparation(t);
+      expect(find.byType(LocalHostDialog), findsOneWidget);
+      expect(button, findsNothing);
+      expect(find.byKey(const Key('claude-adapter')), findsOneWidget);
+      expect(t.widget<TextField>(name).controller!.text, 'my-claude');
+      expectNoHostMutation(api, prefs);
+      expect(
+        find.text(
+          'ACP environment is ready. No host was started or restarted.',
+        ),
+        findsOneWidget,
+      );
+      semantics.dispose();
+      await _start(t);
+      expect(api.claudePrepareStarts, 1);
+      expect(api.acpServeCalls, hasLength(1));
+      expect(api.acpServeCalls.single.$1, 'my-claude');
+    });
+
+    testWidgets('Prepare can retry failure and cancellation without hosting', (
+      t,
+    ) async {
+      final api = claudeApi(missing);
+      final prefs = _HeldPrefs(const UiPrefs());
+      await _pumpDialog(t, api, prefs: prefs);
+      await _chooseAcp(t, 'claude');
+      await prepareOnly(t);
+      api.settleClaudePrepare('failed', error: 'npm could not install it');
+      await finishPreparation(t);
+      expect(find.textContaining('npm could not install it'), findsOneWidget);
+      await prepareOnly(t);
+      expect(api.claudePrepareStarts, 2);
+      await t.tap(find.byKey(const Key('claude-prepare-cancel')));
+      await finishPreparation(t);
+      expect(api.claudeCancelledRuns, [2]);
+      await prepareOnly(t);
+      expect(api.claudePrepareStarts, 3);
+      api.settleClaudePrepare('done');
+      await finishPreparation(t);
+      expectNoHostMutation(api, prefs);
+    });
+
+    testWidgets('independent Prepare joins without owning cancellation or '
+        'using a late result after Stop waiting', (t) async {
+      final api = claudeApi(missing)
+        ..claudeSetup = const AcpClaudeSetup(
+          state: 'running',
+          stage: 'installing',
+          run: 5,
+        );
+      final prefs = _HeldPrefs(const UiPrefs());
+      await _pumpDialog(t, api, prefs: prefs);
+      await _chooseAcp(t, 'claude');
+      await prepareOnly(t);
+      expect(api.claudePrepareStarts, 0);
+      expect(find.byKey(const Key('claude-prepare-cancel')), findsNothing);
+      await t.tap(find.byKey(const Key('claude-prepare-stop-waiting')));
+      await t.pump();
+      api.settleClaudePrepare('done');
+      await finishPreparation(t);
+      expect(api.claudePrepareCancels, 0);
+      expect(
+        find.text(
+          'ACP environment is ready. No host was started or restarted.',
+        ),
+        findsNothing,
+      );
+      expectNoHostMutation(api, prefs);
+    });
+
+    testWidgets(
+      'independent Prepare cancels its late owned run after leaving',
+      (t) async {
+        final api = claudeApi(missing);
+        final prefs = _HeldPrefs(const UiPrefs());
+        final gate = Completer<void>();
+        api.claudePrepareGate = gate;
+        await _pumpDialog(t, api, prefs: prefs);
+        await _chooseAcp(t, 'claude');
+        await prepareOnly(t);
+        Navigator.of(t.element(find.byType(LocalHostDialog))).pop();
+        await t.pump();
+        gate.complete();
+        await t.pumpAndSettle();
+        expect(api.claudeCancelledRuns, [1]);
+        expect(t.takeException(), isNull);
+        expectNoHostMutation(api, prefs);
+      },
+    );
+
+    testWidgets(
+      'independent Prepare rechecks prerequisites before downloading',
+      (t) async {
+        final api = claudeApi(missing);
+        await _pumpDialog(t, api);
+        await _chooseAcp(t, 'claude');
+        api.claudeStatus = const AcpClaudeStatus(
+          ready: false,
+          adapter: 'missing',
+          runtime: 'missing',
+          cli: 'bundled',
+          canPrepare: false,
+          package: '@agentclientprotocol/claude-agent-acp@0.89.1',
+          problem: 'Node.js is no longer available',
+        );
+        await prepareOnly(t);
+        await finishPreparation(t);
+        expect(api.claudePrepareStarts, 0);
+        expect(
+          find.byKey(const Key('claude-prepare-environment')),
+          findsNothing,
+        );
+        expect(find.text('Node.js is no longer available'), findsWidgets);
+        expect(api.acpServeCalls, isEmpty);
+      },
+    );
+
+    testWidgets(
+      'a running host can prepare its adapter without saving or restarting',
+      (t) async {
+        const host = AppServeStatus(
+          name: 'claude',
+          device: 'local',
+          alive: true,
+          appServiceKey: 'pcx:local:acp:claude',
+          provider: 'acp',
+          protocol: 'acp',
+          profileId: 'claude',
+          providerName: 'Claude',
+          codexBinary: 'claude-agent-acp',
+          agentPhase: 'ready',
+        );
+        final api = claudeApi(missing)..serveHosts.add(host);
+        final prefs = _HeldPrefs(const UiPrefs());
+        await _pumpDialog(t, api, existing: host, prefs: prefs);
+        await t.pump(const Duration(milliseconds: 400));
+        await t.pumpAndSettle();
+        await prepareOnly(t);
+        expect(
+          find.byKey(const Key('claude-prepare-progress')),
+          findsOneWidget,
+        );
+        expect(find.byKey(const Key('claude-prepare-cancel')), findsOneWidget);
+        api.settleClaudePrepare('done');
+        await finishPreparation(t);
+        expect(api.claudePrepareStarts, 1);
+        expectNoHostMutation(api, prefs);
+        expect(api.serveHosts.single, same(host));
+        expect(api.acpRestartCalls, isEmpty);
+      },
+    );
+
     testWidgets('Start prepares a missing adapter, then hosts it', (t) async {
       final api = claudeApi(missing);
       await startPreparing(t, api);
@@ -114,7 +322,7 @@ void _registerClaudePreparation() {
       expect(api.acpServeCalls, isEmpty);
       expect(
         find.text(
-          'Preparing the Claude ACP adapter was stopped. Start tries again.',
+          'Preparing the Claude ACP adapter was stopped. Choose Prepare ACP environment or Start hosting to retry.',
         ),
         findsOneWidget,
       );
