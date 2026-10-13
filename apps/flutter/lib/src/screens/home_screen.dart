@@ -568,10 +568,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   Future<void> _startHosting() async {
-    await showDialog<void>(
-      context: context,
-      builder: (_) => const LocalHostDialog(),
-    );
+    await showHostingEditor(context);
     if (!mounted) return;
     ref.invalidate(servicesProvider);
     _resolve();

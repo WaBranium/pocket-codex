@@ -92,10 +92,11 @@ class MemXFile extends XFile {
   Future<int> length() async => _bytes.length;
 }
 
-/// A tiny in-memory PNG for attachment fixtures.
-Uint8List tinyPng() {
+/// A tiny in-memory PNG for attachment fixtures; a different [red] gives
+/// different content, for telling several images apart.
+Uint8List tinyPng({int red = 200}) {
   final im = img.Image(width: 6, height: 4);
-  img.fill(im, color: img.ColorRgb8(200, 40, 40));
+  img.fill(im, color: img.ColorRgb8(red, 40, 40));
   return img.encodePng(im);
 }
 

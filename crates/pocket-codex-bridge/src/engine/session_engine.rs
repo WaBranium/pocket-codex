@@ -120,6 +120,15 @@ pub struct TurnOptions {
     pub reasoning_effort: Option<String>,
 }
 
+/// What became of a supplement ([`SessionEngine::turn_supplement`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Supplement {
+    /// Taken by this running turn.
+    Injected(String),
+    /// No turn was running; nothing was consumed.
+    PromptRequired,
+}
+
 /// What a connection supports. Booleans default to "no": a feature is only
 /// shown when the protocol (and, for ACP, the negotiated agent) has it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -314,6 +323,21 @@ pub trait SessionEngine: Sync {
     ) -> Result<String> {
         let _ = (service_key, thread_id, turn_id, text, images);
         Err(unsupported(self.protocol(), "supplementing a running turn"))
+    }
+    /// Add input to the running turn, saying whether it was taken
+    /// ([`Supplement::Injected`]) or, with no turn running, not consumed at
+    /// all ([`Supplement::PromptRequired`]: send it as an ordinary prompt).
+    /// Natively that is [`SessionEngine::turn_steer`].
+    fn turn_supplement(
+        &self,
+        service_key: &str,
+        thread_id: &str,
+        turn_id: Option<&str>,
+        text: &str,
+        images: &[String],
+    ) -> Result<Supplement> {
+        self.turn_steer(service_key, thread_id, turn_id, text, images)
+            .map(Supplement::Injected)
     }
     /// Interrupt / cancel the running turn.
     fn turn_interrupt(
@@ -643,6 +667,17 @@ impl SessionEngine for AcpEngine {
 
     fn turn_start(&self, service_key: &str, thread_id: &str, options: TurnOptions) -> Result<()> {
         acp::turn_start(service_key, thread_id, &options.text, &options.images)
+    }
+
+    fn turn_supplement(
+        &self,
+        service_key: &str,
+        thread_id: &str,
+        turn_id: Option<&str>,
+        text: &str,
+        images: &[String],
+    ) -> Result<Supplement> {
+        acp::turn_supplement(service_key, thread_id, turn_id, text, images)
     }
 
     fn turn_interrupt(

@@ -119,8 +119,9 @@ Mouse text selection and reduced-motion behavior are preserved.
 
 ## Source map and verification
 
-- `crates/pocket-codex-bridge/src/engine/app_session.rs`: upstream forwarding and
-  persisted thread-source parsing. No new runtime dependency.
+- `crates/pocket-codex-bridge/src/engine/app_session_turns.rs` (upstream
+  forwarding) and `app_session_threads.rs` (persisted thread-source parsing).
+  No new runtime dependency.
 - `apps/flutter/lib/src/voice/voice_transport.dart`: native media lifecycle.
 - `apps/flutter/lib/src/voice/voice_controller.dart`: cancellation, signaling,
   call status and bounded live transcripts.

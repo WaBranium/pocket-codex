@@ -1,0 +1,292 @@
+//! Start a new host with the configuration its editor chose, as one
+//! operation under the instance's lifecycle lease: the configuration
+//! (model service, key and runtime) is committed, the host starts with
+//! exactly that revision, and a failed start puts the previous saved
+//! configuration back. So a new host never starts with another instance's
+//! stale configuration, and a failed start never leaves its own behind.
+
+use anyhow::{bail, Result};
+use pocket_codex_host_svc::acp::AgentSpec;
+
+use super::{
+    host_lease::{self, Op},
+    host_names,
+    host_profiles::{self, Change, Engine, Runtime, RuntimeChange},
+    runtime,
+    serve::{self, Binary, CodexStart, ServeReport},
+    serve_acp::{self, AcpServeReport},
+};
+
+/// What a new host runs.
+#[derive(Debug, Clone)]
+pub enum NewHost {
+    /// A native Codex host.
+    Codex {
+        /// The app-server port (`0`: automatic).
+        port: u16,
+        /// The codex executable (`None`: saved, then `PATH`); an explicit
+        /// one is saved as the app's codex path, as an ordinary start does.
+        binary: Option<String>,
+        /// The upstream proxy.
+        proxy: Option<String>,
+    },
+    /// An ACP agent.
+    Acp(AgentSpec),
+}
+
+/// A started host.
+#[derive(Debug, Clone)]
+pub enum Started {
+    /// A native Codex host.
+    Codex(ServeReport),
+    /// An ACP agent.
+    Acp(AcpServeReport),
+}
+
+/// Save `change` (with `host`'s runtime) for `name` and start it.
+pub fn start_configured(name: Option<&str>, host: NewHost, change: Change) -> Result<Started> {
+    start_in(&runtime::support_dir()?, &host_profiles::root()?, name, host, change)
+}
+
+fn start_in(
+    support: &std::path::Path,
+    profiles: &std::path::Path,
+    name: Option<&str>,
+    host: NewHost,
+    change: Change,
+) -> Result<Started> {
+    let fallback = match &host {
+        NewHost::Codex {
+            ..
+        } => "default",
+        NewHost::Acp(spec) => spec.profile_id.as_str(),
+    };
+    let requested = host_names::requested(name, fallback);
+    let lease = host_lease::acquire(&requested, Op::Start)?;
+    if serve::codex_relaunch(&requested).is_some() || serve_acp::is_hosting(lease.name()) {
+        bail!("`{requested}` is already hosting; edit it instead, or choose another name");
+    }
+    let runtime = match &host {
+        NewHost::Codex {
+            port,
+            binary,
+            proxy,
+        } => Runtime::Codex {
+            binary: binary.clone(),
+            port: *port,
+            proxy: proxy.clone(),
+        },
+        NewHost::Acp(spec) => Runtime::Acp(spec.clone()),
+    };
+    let change = Change {
+        runtime: RuntimeChange::Set(runtime),
+        ..change
+    };
+    let engine = match &host {
+        NewHost::Codex {
+            ..
+        } => Engine::Codex,
+        NewHost::Acp(spec) => Engine::Acp(spec),
+    };
+    // No host runs under the name, so whatever was saved for it before is
+    // replaced; it comes back if the start fails.
+    let (_, staged) = host_profiles::stage_in(profiles, &requested, &change, None, engine)?;
+    #[cfg(test)]
+    tests::after_stage(&staged);
+    // Exactly what this stage committed: a save made meanwhile (saves do
+    // not take the lifecycle lease) never changes what this start runs.
+    let started = staged.resolved().cloned().and_then(|provider| {
+        #[cfg(test)]
+        tests::launching(&provider);
+        launch(&lease, support, profiles, &requested, host, provider)
+    });
+    match started {
+        Ok(started) => {
+            staged.finish();
+            Ok(started)
+        },
+        Err(error) => {
+            if let Err(rollback) = staged.rollback() {
+                tracing::warn!(
+                    error = %format!("{rollback:#}"),
+                    "restoring the previous saved host configuration failed"
+                );
+            }
+            Err(error)
+        },
+    }
+}
+
+fn launch(
+    lease: &host_lease::Lease,
+    support: &std::path::Path,
+    profiles: &std::path::Path,
+    requested: &str,
+    host: NewHost,
+    provider: host_profiles::Resolved,
+) -> Result<Started> {
+    match host {
+        NewHost::Codex {
+            port,
+            binary,
+            proxy,
+        } => {
+            let start = CodexStart {
+                port,
+                binary: Binary::Requested(binary),
+                name: requested.to_string(),
+                proxy,
+                provider: Some(provider),
+            };
+            serve::serve_start_locked(lease, support, profiles, start).map(Started::Codex)
+        },
+        NewHost::Acp(spec) => {
+            serve_acp::start_locked(lease, spec, Some(provider), profiles).map(Started::Acp)
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::RefCell;
+
+    use pocket_codex_core::provider::{ApiProtocol, Secret};
+
+    use super::*;
+    use crate::engine::host_profiles::{KeyChange, ProfileInput, Resolved, Source, Staged};
+
+    type Hook = Box<dyn FnOnce()>;
+
+    thread_local! {
+        static AFTER_STAGE: RefCell<Option<Hook>> = RefCell::new(None);
+        static LAUNCHED: RefCell<Option<Resolved>> = const { RefCell::new(None) };
+    }
+
+    /// Runs this thread's pending hook between the commit and the launch.
+    pub(super) fn after_stage(_staged: &Staged) {
+        if let Some(hook) = AFTER_STAGE.with(|h| h.borrow_mut().take()) {
+            hook();
+        }
+    }
+
+    /// Records the configuration handed to the launch.
+    pub(super) fn launching(provider: &Resolved) {
+        LAUNCHED.with(|s| *s.borrow_mut() = Some(provider.clone()));
+    }
+
+    fn custom(url: &str, key: &str) -> Change {
+        Change {
+            input: ProfileInput {
+                source: Source::Custom,
+                protocol: Some(ApiProtocol::Responses),
+                base_url: Some(url.into()),
+                model: None,
+            },
+            key: KeyChange::Replace(Secret::new(key)),
+            runtime: RuntimeChange::Keep,
+        }
+    }
+
+    #[test]
+    fn a_failed_start_puts_the_previous_configuration_back() {
+        let support = tempfile::tempdir().expect("support");
+        let profiles = support.path().join("hosting");
+        let before = custom("https://before.example.com", "sk-before");
+        host_profiles::save_in(&profiles, "start-test", &before, None, Engine::Codex)
+            .expect("saved before");
+        let missing = support.path().join("no-codex").display().to_string();
+        let err = start_in(
+            support.path(),
+            &profiles,
+            Some("start-test"),
+            NewHost::Codex {
+                port: 0,
+                binary: Some(missing),
+                proxy: None,
+            },
+            custom("https://after.example.com", "sk-after"),
+        )
+        .expect_err("no codex there");
+        assert!(err.to_string().contains("could not find the codex binary"), "{err}");
+        let restored = host_profiles::get_in(&profiles, "start-test").expect("get");
+        assert_eq!(restored.base_url.as_deref(), Some("https://before.example.com"));
+        assert!(restored.runtime.is_none(), "the failed runtime was not kept");
+        let key = host_profiles::resolve_in(&profiles, "start-test")
+            .expect("resolve")
+            .endpoint
+            .and_then(|e| e.key)
+            .map(|k| k.expose().to_string());
+        assert_eq!(key.as_deref(), Some("sk-before"));
+        assert!(!serve::is_hosting_codex("start-test"));
+    }
+
+    #[test]
+    fn a_save_between_commit_and_launch_never_changes_what_starts() {
+        let support = tempfile::tempdir().expect("support");
+        let profiles = support.path().join("hosting");
+        let meanwhile = profiles.clone();
+        // Saves take no lifecycle lease, so one can land right after the
+        // start committed its own configuration.
+        AFTER_STAGE.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move || {
+                host_profiles::save_in(
+                    &meanwhile,
+                    "start-race",
+                    &custom("https://other.example.com", "sk-other"),
+                    None,
+                    Engine::Codex,
+                )
+                .expect("a save meanwhile");
+            }))
+        });
+        let missing = support.path().join("no-codex").display().to_string();
+        start_in(
+            support.path(),
+            &profiles,
+            Some("start-race"),
+            NewHost::Codex {
+                port: 0,
+                binary: Some(missing),
+                proxy: None,
+            },
+            custom("https://mine.example.com", "sk-mine"),
+        )
+        .expect_err("no codex there");
+        let launched = LAUNCHED
+            .with(|s| s.borrow_mut().take())
+            .expect("a launch was attempted");
+        let endpoint = launched.endpoint.expect("custom");
+        assert_eq!(endpoint.base_url, "https://mine.example.com");
+        assert_eq!(endpoint.key.as_ref().map(Secret::expose), Some("sk-mine"));
+        // The failed start's rollback leaves the newer save alone.
+        let kept = host_profiles::get_in(&profiles, "start-race").expect("get");
+        assert_eq!(kept.base_url.as_deref(), Some("https://other.example.com"));
+    }
+
+    #[test]
+    fn an_invalid_configuration_starts_nothing() {
+        let support = tempfile::tempdir().expect("support");
+        let profiles = support.path().join("hosting");
+        let mut change = custom("ftp://bad.example.com", "k");
+        change.key = KeyChange::Keep;
+        let err = start_in(
+            support.path(),
+            &profiles,
+            Some("start-invalid"),
+            NewHost::Codex {
+                port: 0,
+                binary: None,
+                proxy: None,
+            },
+            change,
+        )
+        .expect_err("invalid");
+        assert!(!err.to_string().is_empty());
+        assert_eq!(
+            host_profiles::get_in(&profiles, "start-invalid")
+                .expect("get")
+                .revision,
+            0
+        );
+    }
+}

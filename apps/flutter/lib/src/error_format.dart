@@ -60,7 +60,7 @@ bool isSandboxHelperFailure(String message) {
 /// into localized guidance (stop the other instance or pick another name)
 /// instead of the raw reason.
 ///
-/// Matches the exact phrasings produced by `engine/serve.rs`'s
+/// Matches the exact phrasings produced by `engine/host_services.rs`'s
 /// `register_service`, `pocket_codex_pb::PublishError::Conflict`, and the CLI's
 /// relay probe. This is the one registration failure that must not be retried:
 /// two publishers of one key evict each other on the relay indefinitely.

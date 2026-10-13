@@ -16,9 +16,15 @@
 //! tray keeps hosting alive.
 //!
 //! Publishing is the same in account and self-host mode; the only difference is
-//! the credential and key namespace [`Transport`] carries. Reconnecting a
-//! dropped registration is the pb-mapper SDK's job, so the only failure this
-//! module acts on is a name CONFLICT — see [`register_service`].
+//! the credential and key namespace [`Transport`](transport::Transport)
+//! carries. Reconnecting a dropped registration is the pb-mapper SDK's job, so
+//! the only failure this module acts on is a name CONFLICT — see
+//! [`register_service`].
+//!
+//! The external codex process (log tail, watchdog, restarts) lives in
+//! `serve_codex.rs`, stopping and the quit fence in `serve_lifecycle.rs`, and
+//! relay registrations in `serve_registration.rs`; the steps ACP hosting
+//! shares are in `host_services.rs`.
 //!
 //! The codex spawn/watchdog mirrors
 //! `crates/pocket-codex-cli/src/commands/serve.rs`; the API proxy is the shared
@@ -35,35 +41,49 @@ use std::{
 use anyhow::{anyhow, bail, Context, Result};
 use once_cell::sync::OnceCell;
 use pocket_codex_codex::{
-    locate_binary, spawn_ready, ListenSpec, SpawnOptions, SpawnReadyError, StartupFailure,
+    locate_binary, spawn_ready_redacted, ListenSpec, SpawnOptions, SpawnReadyError, StartupFailure,
     READY_TIMEOUT,
 };
 use pocket_codex_core::{
-    process::{
-        find_codex_app_server, force_kill, pid_running, send_sigterm, tcp_port_open,
-        wait_for_port_closed,
-    },
+    process::tcp_port_open,
     service::{default_device_id, ServiceId, ServiceKind},
 };
-use pocket_codex_pb::{publish_pending, PublishError, Published, RegisterOptions};
+use pocket_codex_pb::Published;
 use tokio::task::JoinHandle;
 
 use crate::engine::{
     config::{load_config, update_config},
-    logging, runtime,
-    transport::{self, Transport},
+    host_lease::{self, Lease, Op},
+    host_names, host_profiles, logging,
+    owned_child::{OwnedChild, EXIT_WAIT},
+    runtime, transport,
 };
 
-/// How often the watchdog probes codex's `/readyz`.
-const HEALTH_INTERVAL: Duration = Duration::from_secs(15);
-/// Per-probe timeout — a wedged app-server hangs rather than refusing.
-const HEALTH_TIMEOUT: Duration = Duration::from_secs(4);
-/// Consecutive failed probes before codex is treated as wedged.
-const HEALTH_FAILURES: u32 = 3;
-/// Pause after a restart before probing resumes (codex is still booting).
-const HEALTH_RESTART_GRACE: Duration = Duration::from_secs(12);
-/// Upper bound on the backoff between repeated failed restarts.
-const MAX_RESTART_BACKOFF: Duration = Duration::from_secs(300);
+#[path = "serve_codex.rs"]
+mod codex;
+#[path = "serve_lifecycle.rs"]
+mod lifecycle;
+#[path = "serve_registration.rs"]
+mod registration;
+
+#[cfg(test)]
+use self::codex::{over_log_cap, truncate_host_log, MAX_HOST_LOG_BYTES};
+pub(super) use self::lifecycle::serve_stop_locked;
+use self::{
+    codex::{health_watchdog, per_host_log_file, startup_failure_error, tail_codex_log, Watched},
+    lifecycle::{
+        commit_host, not_exited, quitting, settle_retained, stop_host_tasks, NATIVE, NOT_EXITED,
+    },
+    registration::{republish_dropped, republish_refused},
+};
+pub use self::{
+    lifecycle::{serve_stop, serve_stop_all},
+    registration::{serve_deregister, serve_reregister},
+};
+use super::host_services::{
+    bind_loopback, config_store, host_store, is_published, needs_publishing, register_service,
+    supervise, MAX_RESTART_BACKOFF,
+};
 
 /// One active local host: a codex app-server + an in-process Responses API
 /// proxy, each published on the relay under its own key. Tracked
@@ -76,6 +96,10 @@ struct LocalServe {
     app_key: String,
     app_local: SocketAddr,
     pid: u32,
+    /// The exact app-server process this app started (and the shim in
+    /// front of it), identified at the spawn: the only one a stop or
+    /// restart signals; `None` when adopted.
+    child: Option<super::owned_child::OwnedChild>,
     /// `Some` while the app service is published; `None` once deregistered.
     /// Holding it IS the publication — dropping it unpublishes.
     app_register: Option<Published>,
@@ -97,9 +121,80 @@ struct LocalServe {
     meta_register: Option<Published>,
     /// The resolved external codex binary path, surfaced in host details.
     codex_binary: Option<String>,
+    /// That exact executable, for restarting the host as it ran.
+    binary_path: Option<std::path::PathBuf>,
+    /// Identifies this start: a later start under the same name is another
+    /// incarnation, which an apply opened for this one never touches.
+    incarnation: String,
+    /// The app-server was already running (adopted, not started here): it
+    /// is not this host's to restart.
+    adopted: bool,
     /// The upstream proxy codex + the API proxy were started with, or `None`
     /// when they inherit the app's own environment. Surfaced for debugging.
     proxy: Option<String>,
+    /// The model-service configuration this codex was launched with, kept
+    /// so an apply that fails can restart it as it was.
+    config: host_profiles::Resolved,
+}
+
+/// How a running Codex host was launched, for restarting it in place.
+#[derive(Debug, Clone)]
+pub(super) struct CodexRelaunch {
+    /// Its name in the host table.
+    pub(super) name: String,
+    /// Its app-server port.
+    pub(super) port: u16,
+    /// Its exact codex executable.
+    pub(super) binary: Option<std::path::PathBuf>,
+    /// Its upstream proxy.
+    pub(super) proxy: Option<String>,
+    /// Its model service.
+    pub(super) provider: host_profiles::Resolved,
+    /// This start's identity.
+    pub(super) incarnation: String,
+    /// Its app-server was adopted rather than started here.
+    pub(super) adopted: bool,
+}
+
+/// How the running Codex host named like `name` (canonically) was launched.
+pub(super) fn codex_relaunch(name: &str) -> Option<CodexRelaunch> {
+    hosts_locked()
+        .values()
+        .find(|ls| host_names::same(&ls.name, name))
+        .map(|ls| CodexRelaunch {
+            name: ls.name.clone(),
+            port: ls.app_local.port(),
+            binary: ls.binary_path.clone(),
+            proxy: ls.proxy.clone(),
+            provider: ls.config.clone(),
+            incarnation: ls.incarnation.clone(),
+            adopted: ls.adopted,
+        })
+}
+
+/// Which codex executable a start uses.
+#[derive(Debug, Clone)]
+pub(super) enum Binary {
+    /// Resolved as a user's start does (explicit, saved, then `PATH`); an
+    /// explicit path is saved for later starts.
+    Requested(Option<String>),
+    /// Exactly this executable, never saved: an apply or a restore.
+    Exact(std::path::PathBuf),
+}
+
+/// One Codex start.
+#[derive(Debug, Clone)]
+pub(super) struct CodexStart {
+    /// The app-server port (`0`: automatic).
+    pub(super) port: u16,
+    /// The executable.
+    pub(super) binary: Binary,
+    /// The requested instance name (trimmed; `default` when none).
+    pub(super) name: String,
+    /// The upstream proxy.
+    pub(super) proxy: Option<String>,
+    /// The model service; `None`: the instance's saved one.
+    pub(super) provider: Option<host_profiles::Resolved>,
 }
 
 /// Result of [`serve_start`], surfaced to the UI.
@@ -176,12 +271,25 @@ pub struct ServeStatus {
     pub profile_id: Option<String>,
     /// Agent lifecycle phase (ACP): `starting`, `ready`, `failed`, `stopped`.
     pub agent_phase: Option<String>,
-    /// Why the agent is not running (ACP), safe to show.
+    /// Why the agent is not running (ACP), safe to show; for a Codex host,
+    /// that a codex it owned did not exit (stop it again).
     pub agent_error: Option<String>,
     /// The agent reported that authentication is required (ACP).
     pub auth_required: bool,
     /// The OpenCode model catalog for this host (ACP, `opencode` profile).
     pub catalog: Option<pocket_codex_host_svc::acp::catalog::CatalogStatus>,
+    /// Where the running host gets its model service (`inherited`,
+    /// `official`, `custom`), as launched. `None` when unknown.
+    pub config_source: Option<String>,
+    /// The saved configuration revision the running host was launched with
+    /// (`0`: never saved). Differs from the saved one until it is applied.
+    pub config_revision: Option<u64>,
+    /// Identifies this run of the host: an apply names it, so it never
+    /// restarts a host that was replaced meanwhile.
+    pub incarnation: Option<String>,
+    /// What holds the host right now (`starting`, `stopping`, `restarting`,
+    /// `applying`), when anything does.
+    pub busy: Option<String>,
 }
 
 fn hosts() -> &'static Mutex<HashMap<String, LocalServe>> {
@@ -202,44 +310,6 @@ fn hosts_locked() -> std::sync::MutexGuard<'static, HashMap<String, LocalServe>>
     hosts().lock().unwrap_or_else(|poison| poison.into_inner())
 }
 
-/// The process-global per-thread config store, shared by every local meta
-/// service: all hosts on this machine share one `CODEX_HOME` and therefore one
-/// config map, so they must write through one serialized store. Opened once,
-/// lazily, and the success cached; a store-open failure (an unresolvable /
-/// unwritable `CODEX_HOME`) is returned as an `Err` for the caller to surface
-/// as a hosting error rather than panicking the process (the bridge builds with
-/// `panic = "abort"`, so an `expect` here would take the whole app down).
-pub(super) fn config_store() -> Result<Arc<pocket_codex_host_svc::store::ConfigStore>> {
-    static STORE: OnceCell<Arc<pocket_codex_host_svc::store::ConfigStore>> = OnceCell::new();
-    STORE
-        .get_or_try_init(|| -> Result<Arc<pocket_codex_host_svc::store::ConfigStore>> {
-            // Co-locate the config store with the sessions it annotates (under
-            // CODEX_HOME) so every host on this machine shares one map.
-            let path = pocket_codex_host_svc::store::default_db_path()?;
-            let store = runtime::runtime()
-                .block_on(pocket_codex_host_svc::store::ConfigStore::open(path))
-                .context("opening the host meta config store")?;
-            Ok(Arc::new(store))
-        })
-        .map(Arc::clone)
-}
-
-/// The process-wide host-config store (project roots + default project), opened
-/// once and shared by every host — like [`config_store`], co-located under
-/// CODEX_HOME so all hosts on this machine share one host config.
-pub(super) fn host_store() -> Result<Arc<pocket_codex_host_svc::store::HostStore>> {
-    static STORE: OnceCell<Arc<pocket_codex_host_svc::store::HostStore>> = OnceCell::new();
-    STORE
-        .get_or_try_init(|| -> Result<Arc<pocket_codex_host_svc::store::HostStore>> {
-            let path = pocket_codex_host_svc::store::default_host_config_path()?;
-            let store = runtime::runtime()
-                .block_on(pocket_codex_host_svc::store::HostStore::open(path))
-                .context("opening the host config store")?;
-            Ok(Arc::new(store))
-        })
-        .map(Arc::clone)
-}
-
 /// The resolved codex binary path (explicit override → persisted config →
 /// PATH), or `None` when none resolve so the UI can prompt for one.
 pub fn codex_locate() -> Option<String> {
@@ -250,173 +320,6 @@ pub fn codex_locate() -> Option<String> {
     locate_binary(configured.as_deref()).map(|p| p.display().to_string())
 }
 
-/// Publish `local` on the relay for `kind`, holding the registration.
-///
-/// Not fallible for the caller's purposes unless the NAME is taken: a relay
-/// that is merely unreachable still yields a handle whose worker keeps
-/// retrying, so the service comes up on its own. That asymmetry is deliberate —
-/// a name conflict cannot resolve itself and must stop hosting, while
-/// everything else can.
-///
-/// Deliberately NOT wrapped in `tokio::time::timeout`: cancelling `publish`
-/// drops the handle, and with it the SDK worker doing the retrying, so a slow
-/// relay would leave the service permanently unpublished rather than merely
-/// late. The bound comes from the SDK's own readiness budget instead, and
-/// [`pocket_codex_pb::publish_pending`] hands the handle back either way.
-pub(super) fn register_service(
-    transport: &Transport,
-    device: &str,
-    kind: ServiceKind,
-    name: &str,
-    local: SocketAddr,
-) -> Result<Option<Published>> {
-    let key = transport.key(&ServiceId::new(device, kind, name));
-    let outcome =
-        runtime::runtime().block_on(publish_pending(&transport.session, RegisterOptions {
-            key: key.clone(),
-            local_addr: local.to_string(),
-            // Plain HTTP/WebSocket traffic can trigger resets on the relay path.
-            // Subscribers negotiate the publisher's codec through pb-mapper.
-            codec: true,
-        }));
-    match outcome {
-        Ok((published, ready)) => {
-            if !ready {
-                tracing::info!(
-                    key = %key,
-                    "hosting started before the relay confirmed this service; it keeps retrying"
-                );
-            }
-            Ok(Some(published))
-        },
-        // The one condition hosting must not proceed through: another live
-        // instance owns the name, and publishing anyway makes the two evict each
-        // other on the relay in an endless leapfrog.
-        Err(PublishError::Conflict {
-            detail, ..
-        }) => bail!("`{name}` is already in use by another device: {detail}"),
-        Err(PublishError::Other(err)) => {
-            tracing::warn!(
-                key = %key,
-                error = %format!("{err:#}"),
-                "publishing failed; hosting continues and will retry"
-            );
-            Ok(None)
-        },
-    }
-}
-
-/// `true` if there is no registration to hold — none was created, or the relay
-/// permanently refused the one we have.
-///
-/// Deliberately NOT the same question as "is it serving right now": a handle in
-/// `Retrying` is down but must not be replaced, because its worker is already
-/// reconnecting and a second registration for one key is the eviction leapfrog.
-/// [`is_published`] is what the UI shows; this is what decides whether to
-/// publish again.
-pub(super) fn needs_publishing(published: &Option<Published>) -> bool {
-    published.as_ref().is_none_or(|p| p.failure().is_some())
-}
-
-/// `true` if a service is reachable through the relay right now.
-///
-/// What the UI reports, so `Starting` and `Retrying` read as NOT published: the
-/// key may still be indexed while nothing is forwarding, and showing that as
-/// online is what would withhold the offline / re-register controls from a user
-/// whose service is unreachable.
-pub(super) fn is_published(published: &Option<Published>) -> bool {
-    published.as_ref().is_some_and(|p| p.is_live())
-}
-
-/// Re-publish whichever of `name`'s three services are not currently published.
-///
-/// Errors only on a name CONFLICT, which is the one condition a caller must act
-/// on: the local host stays up either way, but a name another device owns can
-/// never publish, so a re-host under it has to say so rather than report
-/// success.
-///
-/// Takes the hosts lock only to read what needs publishing and to store the
-/// results — never across the relay round trip, which would stall status polls.
-fn republish_dropped(name: &str) -> Result<()> {
-    let Some((device, pending)) = ({
-        let guard = hosts_locked();
-        guard.get(name).map(|ls| {
-            let pending: Vec<(ServiceKind, SocketAddr)> = [
-                (ServiceKind::App, ls.app_local, &ls.app_register),
-                (ServiceKind::Api, ls.api_local, &ls.api_register),
-                (ServiceKind::Meta, ls.meta_local, &ls.meta_register),
-            ]
-            .into_iter()
-            .filter(|(_, _, slot)| needs_publishing(slot))
-            .map(|(kind, local, _)| (kind, local))
-            .collect();
-            (ls.device.clone(), pending)
-        })
-    }) else {
-        return Ok(());
-    };
-    if pending.is_empty() {
-        return Ok(());
-    }
-    let transport = transport::resolve_blocking()?;
-
-    let mut conflict = None;
-    for (kind, local) in pending {
-        // Drop the refused registration BEFORE publishing again, so the relay
-        // releases the old key and the fresh publish is not competing with its
-        // own predecessor for the name.
-        take_registration(name, kind);
-        let published = match register_service(&transport, &device, kind, name, local) {
-            Ok(published) => published,
-            Err(err) => {
-                // Keep going: a conflict on one kind (typically `app`) should not
-                // leave the other two unpublished, and the caller wants the app
-                // conflict reported once everything else is up.
-                conflict = conflict.or(Some(err));
-                continue;
-            },
-        };
-        store_registration(name, kind, published);
-    }
-    match conflict {
-        Some(err) => Err(err),
-        None => Ok(()),
-    }
-}
-
-/// Take a host's registration for `kind` out of the map and drop it, releasing
-/// the relay key. No-op for an unknown host.
-fn take_registration(name: &str, kind: ServiceKind) {
-    let mut guard = hosts_locked();
-    if let Some(ls) = guard.get_mut(name) {
-        *registration_slot(ls, kind) = None;
-    }
-}
-
-/// Store a freshly published registration, or clear the slot when publishing
-/// did not produce one. Drops it immediately if the host vanished while we
-/// published.
-fn store_registration(name: &str, kind: ServiceKind, published: Option<Published>) {
-    let mut guard = hosts_locked();
-    match guard.get_mut(name) {
-        Some(ls) => *registration_slot(ls, kind) = published,
-        // The host was stopped while we were publishing; unpublish rather than
-        // leaving a key on the relay with nothing behind it.
-        None => drop(published),
-    }
-}
-
-fn registration_slot(ls: &mut LocalServe, kind: ServiceKind) -> &mut Option<Published> {
-    match kind {
-        ServiceKind::Api => &mut ls.api_register,
-        ServiceKind::Meta => &mut ls.meta_register,
-        // `App` and any future kind share the app slot: a host publishes exactly
-        // these three, and routing an unknown kind here is better than panicking
-        // in a code path that holds the hosts lock.
-        _ => &mut ls.app_register,
-    }
-}
-
 /// Reserve a free loopback port (when the caller passed 0 for an automatic
 /// one).
 pub(super) fn free_loopback_port() -> Result<u16> {
@@ -424,146 +327,18 @@ pub(super) fn free_loopback_port() -> Result<u16> {
     Ok(l.local_addr()?.port())
 }
 
-/// Size at which a running host's log file is truncated by its tailer.
-///
-/// Deliberately a SIZE bound and not a time window. "Keep the last six hours"
-/// sounds like the right rule and isn't: the burst that prompted this peaked at
-/// 72 MB/min, which is 25 GB over six hours — a time rule bounds nothing on a
-/// disk. 8 MB is far more than the in-app viewer can show (its ring holds 2000
-/// lines) and comfortably more than a normal session writes, while staying
-/// negligible on any disk.
-const MAX_HOST_LOG_BYTES: u64 = 8 * 1024 * 1024;
-
-/// Whether a host log of `len` bytes has outgrown [`MAX_HOST_LOG_BYTES`].
-/// Trivial, but split out so the threshold is asserted somewhere rather than
-/// living only inside an async poll loop no unit test can reach.
-fn over_log_cap(len: u64) -> bool {
-    len > MAX_HOST_LOG_BYTES
-}
-
-/// Truncate a live host's log to zero, returning whether it worked.
-///
-/// `set_len(0)` and not `remove_file`: the child holds this file open, so
-/// unlinking would leave it appending to a deleted inode and the blocks would
-/// stay allocated until the host stopped — the opposite of what a disk-pressure
-/// guard should do. Truncating frees them now, and the child's next append
-/// lands at offset 0, which the caller's `len < pos` resync already handles.
-async fn truncate_host_log(log_file: &std::path::Path) -> bool {
-    match tokio::fs::OpenOptions::new()
-        .write(true)
-        .open(log_file)
-        .await
-    {
-        Ok(f) => f.set_len(0).await.is_ok(),
-        Err(cause) => {
-            tracing::debug!(?log_file, %cause, "could not truncate oversized host log");
-            false
-        },
-    }
-}
-
-/// This host's own codex log file (each external host gets its own, so one
-/// tailer never picks up another host's — or an earlier run's — interleaved
-/// output from the shared default file).
-fn per_host_log_file(name: &str) -> Result<std::path::PathBuf> {
-    let safe: String = name
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
-        .collect();
-    Ok(runtime::support_dir()?
-        .join("codex-logs")
-        .join(format!("codex-{safe}.log")))
-}
-
-/// Tail an external codex process's log file (its own `tracing` output) into
-/// the in-app log stream. Starts at
-/// `start_pos` (this run's first byte), polls for appended content, and emits
-/// each complete new line under a `codex(<name>)` target. Aborted on stop.
-fn tail_codex_log(log_file: std::path::PathBuf, start_pos: u64, name: String) -> JoinHandle<()> {
-    use tokio::io::{AsyncReadExt, AsyncSeekExt};
-    // Flush a runaway partial line so a newline-less blob can't grow `carry`
-    // without bound.
-    const CARRY_CAP: usize = 64 * 1024;
-    let target = format!("codex({name})");
-    runtime::runtime().spawn(async move {
-        let mut pos = start_pos;
-        // Bytes, not a String: a multi-byte UTF-8 char split across a read
-        // boundary must be held intact until its line completes, then decoded —
-        // decoding the partial chunk would corrupt it into replacement chars.
-        let mut carry: Vec<u8> = Vec::new();
-        loop {
-            tokio::time::sleep(Duration::from_millis(500)).await;
-            let Ok(meta) = tokio::fs::metadata(&log_file).await else {
-                continue;
-            };
-            let mut len = meta.len();
-            // Enforce the size cap HERE, not only at spawn. The spawn-time check
-            // alone is useless against the case that actually hurt: one host
-            // running for hours. The burst that prompted this wrote 4.9 GB in a
-            // single ~12h session, peaking at 72 MB/min — a check that only runs
-            // between sessions never fired once.
-            //
-            // Truncate in place rather than unlink: the child holds this file
-            // open, so removing it would leave the writer appending to a deleted
-            // inode (the space never comes back until the host stops, which is
-            // exactly the wrong behaviour for a disk-pressure guard). `set_len(0)`
-            // frees the blocks immediately and the child's next append lands at 0.
-            if over_log_cap(len) && truncate_host_log(&log_file).await {
-                tracing::info!(?log_file, bytes = len, "host log passed its size cap; truncated");
-                len = 0;
-            }
-            if len < pos {
-                // Truncated / rotated — resync to the new end (don't replay the
-                // whole file).
-                pos = len;
-                carry.clear();
-            }
-            if len == pos {
-                continue;
-            }
-            let Ok(mut f) = tokio::fs::File::open(&log_file).await else {
-                continue;
-            };
-            if f.seek(std::io::SeekFrom::Start(pos)).await.is_err() {
-                continue;
-            }
-            let mut buf = Vec::with_capacity((len - pos) as usize);
-            if f.take(len - pos).read_to_end(&mut buf).await.is_err() {
-                continue;
-            }
-            pos = len;
-            carry.extend_from_slice(&buf);
-            // Emit complete lines; keep any trailing partial (possibly mid-char)
-            // bytes for next round. `from_utf8_lossy` runs on a whole line, so no
-            // char is ever split.
-            while let Some(nl) = carry.iter().position(|&b| b == b'\n') {
-                let line: Vec<u8> = carry.drain(..=nl).collect();
-                let text = String::from_utf8_lossy(&line);
-                let text = text.trim_end();
-                if !text.is_empty() {
-                    logging::push_external(&target, text);
-                }
-            }
-            if carry.len() > CARRY_CAP {
-                let text = String::from_utf8_lossy(&carry);
-                let text = text.trim_end();
-                if !text.is_empty() {
-                    logging::push_external(&target, text);
-                }
-                carry.clear();
-            }
-        }
-    })
-}
-
 /// Which codex binary to spawn: explicit override → persisted config → `$PATH`.
 /// Persists an override that differs from what is saved, so the next start
 /// finds the same codex without the caller passing it again.
 fn resolve_codex_binary(
-    binary_override: Option<String>,
+    binary: Binary,
     support: &std::path::Path,
     config: &mut pocket_codex_core::config::Config,
 ) -> Result<Option<std::path::PathBuf>> {
+    let binary_override = match binary {
+        Binary::Exact(path) => return Ok(Some(path)),
+        Binary::Requested(requested) => requested,
+    };
     let override_trimmed = binary_override
         .as_deref()
         .map(str::trim)
@@ -603,6 +378,14 @@ fn resolve_codex_binary(
 /// processes fighting over one port.
 fn reuse_or_retire_host(name: &str, port: u16) -> Result<Option<ServeReport>> {
     let mut guard = hosts_locked();
+    // Another spelling of the same instance would publish the same relay
+    // keys and share its saved configuration.
+    if let Some(other) = guard
+        .keys()
+        .find(|other| other.as_str() != name && host_names::same(other, name))
+    {
+        bail!("`{other}` is already hosting under the same name; choose another name");
+    }
     if let Some(ls) = guard.get_mut(name) {
         if listen_addr_open(&ls.app_local.to_string()) {
             let report = ServeReport {
@@ -671,32 +454,73 @@ pub fn serve_start(
     if embedded {
         bail!("the built-in engine is not implemented; use an external codex binary");
     }
-    serve_start_in(&runtime::support_dir()?, port, binary_override, name, proxy)
+    let start = CodexStart {
+        port,
+        binary: Binary::Requested(binary_override),
+        name: host_names::requested(name.as_deref(), "default"),
+        proxy,
+        provider: None,
+    };
+    serve_start_in(&runtime::support_dir()?, &host_profiles::root()?, start)
 }
 
 /// [`serve_start`] reading its configuration (and saving an explicit codex
-/// path) in `support`. Publishing still resolves the process-wide transport.
-fn serve_start_in(
+/// path) in `support` and the saved host configuration in `profiles`, under
+/// the instance's lifecycle lease. Publishing still resolves the
+/// process-wide transport.
+pub(super) fn serve_start_in(
     support: &std::path::Path,
-    port: u16,
-    binary_override: Option<String>,
-    name: Option<String>,
-    proxy: Option<String>,
+    profiles: &std::path::Path,
+    start: CodexStart,
 ) -> Result<ServeReport> {
+    let lease = host_lease::acquire(&start.name, Op::Start)?;
+    serve_start_locked(&lease, support, profiles, start)
+}
+
+/// [`serve_start_in`] with the instance's lease already held (an apply).
+pub(super) fn serve_start_locked(
+    lease: &Lease,
+    support: &std::path::Path,
+    profiles: &std::path::Path,
+    start: CodexStart,
+) -> Result<ServeReport> {
+    debug_assert!(host_names::same(lease.name(), &start.name), "the lease names this host");
+    // The instance's model service. An unreadable saved configuration fails
+    // the start rather than silently launching with another provider.
+    let provider = match start.provider.clone() {
+        Some(provider) => provider,
+        None => host_profiles::resolve_in(profiles, &start.name)?,
+    };
+    // Child output (in a startup failure) is shown only with the key's
+    // lines withheld.
+    launch_codex(support, start, &provider)
+        .map_err(|e| anyhow!(host_profiles::redact(&format!("{e:#}"), &provider)))
+}
+
+fn launch_codex(
+    support: &std::path::Path,
+    start: CodexStart,
+    provider: &host_profiles::Resolved,
+) -> Result<ServeReport> {
+    let CodexStart {
+        port,
+        binary,
+        name,
+        proxy,
+        ..
+    } = start;
+    let provider = provider.clone();
     // No account gate: publishing goes through the shared transport, which
     // resolves self-host (relay + key) and account mode alike.
     let mut config = load_config(support)?;
 
-    let binary = resolve_codex_binary(binary_override, support, &mut config)?;
+    let binary = resolve_codex_binary(binary, support, &mut config)?;
     // Capture the resolved path for the host details before `binary` is moved
     // into the spawn options below.
     let codex_binary_display = binary.as_ref().map(|p| p.display().to_string());
+    let binary_path = binary.clone();
 
     let device = default_device_id();
-    let name = name
-        .map(|n| n.trim().to_string())
-        .filter(|n| !n.is_empty())
-        .unwrap_or_else(|| "default".to_string());
     let app_key = ServiceId::new(&device, ServiceKind::App, &name).key();
     let api_key = ServiceId::new(&device, ServiceKind::Api, &name).key();
     let meta_key = ServiceId::new(&device, ServiceKind::Meta, &name).key();
@@ -711,6 +535,11 @@ fn serve_start_in(
         pocket_codex_api_proxy::validate_proxy(p)?;
     }
 
+    // As child-only `-c` arguments and environment.
+    let launch = host_profiles::codex(&provider, &name)?;
+    let expected = launch.expected.clone();
+    let incarnation = uuid::Uuid::new_v4().to_string();
+
     // A meta key is derived from the instance name, so one name cannot serve
     // two providers on this device. The claim lasts until this start returns
     // (after the host is recorded), so no other provider can start under the
@@ -719,6 +548,8 @@ fn serve_start_in(
     if let Some(report) = reuse_or_retire_host(&name, port)? {
         return Ok(report);
     }
+    // Nothing launches beside an earlier codex of this name still running.
+    settle_retained(&name)?;
 
     warn_if_no_codex_login();
 
@@ -734,19 +565,20 @@ fn serve_start_in(
     // startup-failure hint both promise 0 works.
     let port = if port == 0 { free_loopback_port()? } else { port };
 
-    let (app_local, pid, watchdog, log_tail, adopted) = {
+    let (app_local, pid, child, watchdog, log_tail, adopted) = {
         let spawn_opts = SpawnOptions {
             binary,
             listen: ListenSpec::WebSocket {
                 host: "127.0.0.1".to_string(),
                 port,
             },
-            extra_args: Vec::new(),
+            extra_args: launch.args,
             // A per-host log file so this host's tailer captures only its own
             // codex's output, never another host's from the shared default file.
             log_file: Some(per_host_log_file(&name)?),
             proxy: proxy.clone(),
         };
+        let secret_env = launch.env;
         // Spawn + readiness in one step: don't publish tunnels to a child
         // that died on boot (classically a bind failure on an already-taken
         // port) — fail the start now, with the child's own error output.
@@ -757,26 +589,36 @@ fn serve_start_in(
         // a failed start leaves an unsupervised codex squatting on the port,
         // out of reach of `serve_stop` (which only knows registered hosts).
         // A pre-existing server adopted by `spawn` is never killed.
-        let report = match spawn_ready(spawn_opts.clone(), READY_TIMEOUT) {
-            Ok(report) => report,
-            Err(SpawnReadyError::Spawn(e)) => {
-                return Err(anyhow::Error::new(e).context("spawning codex app-server"));
-            },
-            Err(SpawnReadyError::NotReady {
-                report,
-                failure,
-            }) => {
-                if !report.reused && !failure.process_exited {
-                    if pid_running(report.info.pid) {
-                        send_sigterm(report.info.pid);
-                    }
-                    if let Some(addr) = spawn_opts.listen.as_socket_addr() {
-                        stop_codex_at(&addr);
-                    }
-                }
-                return Err(startup_failure_error(*failure));
-            },
-        };
+        // A child with a key writes its output through the redactor, so its
+        // log file never holds a line that holds the key.
+        let redactor = host_profiles::redactor(&provider);
+        let report =
+            match spawn_ready_redacted(spawn_opts.clone(), &secret_env, &redactor, READY_TIMEOUT) {
+                Ok(report) => report,
+                Err(SpawnReadyError::Spawn(e)) => {
+                    return Err(anyhow::Error::new(e).context("spawning codex app-server"));
+                },
+                Err(SpawnReadyError::NotReady {
+                    report,
+                    failure,
+                }) => {
+                    // Only what this start launched, as identified at its
+                    // spawn: a codex someone else started on the port is never
+                    // signalled, and one that does not exit stays owned.
+                    let exited = OwnedChild::of_report(&report)
+                        .is_none_or(|child| NATIVE.stop(&name, child, EXIT_WAIT));
+                    return Err(kept(startup_failure_error(*failure), exited));
+                },
+            };
+        // An adopted app-server was not launched with this instance's
+        // provider arguments: refuse it (never killed) rather than publish a
+        // host that silently uses another model service.
+        if report.reused && provider.source != host_profiles::Source::Inherited {
+            bail!(
+                "port {port} is already served by a codex this host did not start, so its model \
+                 service cannot be applied; stop it or choose another port"
+            );
+        }
         let listen_addr = report
             .info
             .listen
@@ -788,19 +630,57 @@ fn serve_start_in(
         let app_local: SocketAddr = listen_addr
             .parse()
             .with_context(|| format!("codex listen `{listen_addr}` is not a socket address"))?;
+        // As identified at the spawn, never looked up by its address.
+        let child = OwnedChild::of_report(&report);
+        // Managed configuration and requirements are merged above `-c`: use
+        // the host only if the app-server's effective configuration routes it
+        // as selected, and stop the child this start launched otherwise.
+        if let (false, Some(expected)) = (report.reused, &expected) {
+            let checked = pocket_codex_codex::provider_launch::check_effective_blocking(
+                &report.info.listen,
+                expected,
+                READY_TIMEOUT,
+            );
+            if let Err(refusal) = checked {
+                let exited = child.is_none_or(|child| NATIVE.stop(&name, child, EXIT_WAIT));
+                bail!("{refusal}{}", not_exited(exited));
+            }
+        }
+        // Observed again held by the server readiness attributed: a second
+        // point-in-time check, not proof that every answer since was its.
+        if !pocket_codex_codex::still_owned(&report) {
+            let exited = child.is_none_or(|child| NATIVE.stop(&name, child, EXIT_WAIT));
+            bail!(
+                "port {port} is no longer served by the codex this host started{}",
+                not_exited(exited)
+            );
+        }
         // Pin the watchdog's respawn to the resolved codex port.
         let mut watchdog_opts = spawn_opts;
         watchdog_opts.listen = ListenSpec::WebSocket {
             host: app_local.ip().to_string(),
             port: app_local.port(),
         };
-        let watchdog =
-            runtime::runtime().spawn(health_watchdog(app_local.to_string(), watchdog_opts));
+        // An adopted app-server is not this app's to restart.
+        let watchdog = if report.reused {
+            runtime::runtime().spawn(async {})
+        } else {
+            runtime::runtime().spawn(health_watchdog(Watched {
+                name: name.clone(),
+                incarnation: incarnation.clone(),
+                local_addr: app_local.to_string(),
+                spawn_opts: watchdog_opts,
+                secret_env,
+                expected,
+                redactor: redactor.clone(),
+            }))
+        };
         // Surface the spawned codex's own logs in the in-app viewer by tailing
-        // the file its stdout/stderr are redirected to, from this run's offset.
+        // the file its stdout/stderr are redirected to, from this run's offset,
+        // with every line holding the key withheld.
         let log_tail =
-            tail_codex_log(report.info.log_file.clone(), report.log_offset, name.clone());
-        (app_local, report.info.pid, watchdog, Some(log_tail), report.reused)
+            tail_codex_log(report.info.log_file.clone(), report.log_offset, name.clone(), redactor);
+        (app_local, report.info.pid, child, watchdog, Some(log_tail), report.reused)
     };
 
     // The rest of the start can still fail (loopback listener binds, relay
@@ -817,22 +697,8 @@ fn serve_start_in(
     // `meta:<name>` tunnels keep forwarding to live servers rather than dead
     // sockets.
     let bringup_tail = (|| -> Result<_> {
-        let api_std = std::net::TcpListener::bind("127.0.0.1:0")
-            .context("binding the in-app API proxy listener")?;
-        api_std
-            .set_nonblocking(true)
-            .context("setting the API proxy listener non-blocking")?;
-        let api_local: SocketAddr = api_std
-            .local_addr()
-            .context("reading the API proxy listener address")?;
-        let meta_std = std::net::TcpListener::bind("127.0.0.1:0")
-            .context("binding the in-app meta service listener")?;
-        meta_std
-            .set_nonblocking(true)
-            .context("setting the meta service listener non-blocking")?;
-        let meta_local: SocketAddr = meta_std
-            .local_addr()
-            .context("reading the meta service listener address")?;
+        let (api_std, api_local) = bind_loopback("in-app API proxy")?;
+        let (meta_std, meta_local) = bind_loopback("in-app meta service")?;
         let transport = transport::resolve_blocking()?;
         Ok((api_std, api_local, meta_std, meta_local, transport))
     })();
@@ -843,10 +709,8 @@ fn serve_start_in(
             if let Some(t) = &log_tail {
                 t.abort();
             }
-            if !adopted {
-                stop_codex_at(&app_local.to_string());
-            }
-            return Err(e);
+            let exited = child.is_none_or(|child| NATIVE.stop(&name, child, EXIT_WAIT));
+            return Err(kept(e, exited));
         },
     };
     let api_proxy =
@@ -878,6 +742,7 @@ fn serve_start_in(
         app_key: app_key.clone(),
         app_local,
         pid,
+        child,
         // Filled in immediately below.
         app_register: None,
         watchdog,
@@ -891,7 +756,11 @@ fn serve_start_in(
         meta_svc,
         meta_register,
         codex_binary: codex_binary_display,
+        binary_path,
+        incarnation,
+        adopted,
         proxy: proxy.clone(),
+        config: provider,
     };
 
     // Publish the app service last, and treat its outcome as decisive: if another
@@ -902,12 +771,13 @@ fn serve_start_in(
     match register_service(&transport, &device, ServiceKind::App, &name, app_local) {
         Ok(published) => host.app_register = published,
         Err(conflict) => {
-            stop_host_tasks(host);
-            return Err(conflict);
+            let exited = stop_host_tasks(host);
+            return Err(kept(conflict, exited));
         },
     }
 
-    hosts_locked().insert(name.clone(), host);
+    // Recorded only while the app is not quitting; otherwise torn down here.
+    commit_host(host)?;
 
     Ok(ServeReport {
         device,
@@ -921,6 +791,16 @@ fn serve_start_in(
         pid,
         reused: false,
     })
+}
+
+/// `error`, saying so when the codex its start launched did not exit (it
+/// stays owned, and the next stop or quit tries again).
+fn kept(error: anyhow::Error, exited: bool) -> anyhow::Error {
+    if exited {
+        error
+    } else {
+        error.context("its codex did not exit; stop the host again")
+    }
 }
 
 /// Snapshot of every local host, sorted by name for a stable UI order.
@@ -937,8 +817,19 @@ pub fn serve_status() -> Vec<ServeStatus> {
     // way to report one, and a name conflict here means another device took over,
     // which the `false` registered flag already conveys.
     republish_refused();
+    let mut out = codex_status();
+    out.extend(super::serve_acp::status());
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out
+}
 
+/// The Codex rows of [`serve_status`], without its relay recovery.
+fn codex_status() -> Vec<ServeStatus> {
     let guard = hosts_locked();
+    // Hosts whose owned codex did not exit, whether or not their record is
+    // still here: listed (and so stoppable again) until it exited.
+    let kept = NATIVE.owners(|_| true);
+    let stuck = |name: &str| kept.iter().any(|owner| host_names::same(owner, name));
     let mut out: Vec<ServeStatus> = guard
         .values()
         .map(|ls| ServeStatus {
@@ -962,18 +853,42 @@ pub fn serve_status() -> Vec<ServeStatus> {
             provider_version: None,
             protocol: "codex-app-server".to_string(),
             provider_name: "Codex".to_string(),
+            config_source: Some(ls.config.source.as_str().to_string()),
+            config_revision: Some(ls.config.revision),
+            incarnation: Some(ls.incarnation.clone()),
+            busy: host_lease::holder(&ls.name).map(|op| op.label().to_string()),
+            agent_error: stuck(&ls.name).then(|| NOT_EXITED.to_string()),
             ..ServeStatus::default()
         })
         .collect();
+    out.extend(
+        kept.iter()
+            .filter(|owner| !guard.keys().any(|name| host_names::same(name, owner)))
+            .map(|owner| ServeStatus {
+                name: owner.clone(),
+                // As its start named it, so it is listed under this device.
+                device: default_device_id(),
+                provider: "codex".to_string(),
+                protocol: "codex-app-server".to_string(),
+                provider_name: "Codex".to_string(),
+                busy: host_lease::holder(owner).map(|op| op.label().to_string()),
+                agent_error: Some(NOT_EXITED.to_string()),
+                ..ServeStatus::default()
+            }),
+    );
     drop(guard);
-    out.extend(super::serve_acp::status());
-    out.sort_by(|a, b| a.name.cmp(&b.name));
     out
 }
 
-/// Whether `name` is a Codex host of this process.
+/// Whether `name` is a Codex host of this process, including one whose
+/// owned codex was not seen to exit (its record may be gone): the name is
+/// not free for another provider until it exited.
 pub(super) fn is_hosting_codex(name: &str) -> bool {
-    hosts_locked().contains_key(name)
+    let hosts = hosts_locked();
+    hosts.contains_key(name)
+        || !NATIVE
+            .owners(|owner| host_names::same(owner, name))
+            .is_empty()
 }
 
 /// Resolve this process's own session (app-server or ACP
@@ -986,197 +901,6 @@ pub(super) fn local_endpoints(service_key: &str) -> Option<(String, String)> {
     codex.or_else(|| super::serve_acp::local_endpoints(service_key))
 }
 
-/// Re-publish every host's permanently-refused services, quietly.
-///
-/// The self-healing half of [`serve_status`]. Best-effort by construction: it
-/// cannot report to anyone, so a failure just leaves the service unpublished
-/// for the next tick to retry. Rate-limited because status is polled often and
-/// each attempt is a relay round trip — without that, a relay that is down
-/// would turn a 1 Hz UI poll into a 1 Hz publish storm, which is the shape of
-/// the 2026-07-07 outage.
-fn republish_refused() {
-    static LAST: Mutex<Option<Instant>> = Mutex::new(None);
-    /// Minimum gap between recovery sweeps.
-    const RECOVERY_INTERVAL: Duration = Duration::from_secs(30);
-
-    {
-        let mut last = LAST.lock().unwrap_or_else(|poison| poison.into_inner());
-        if last.is_some_and(|at| at.elapsed() < RECOVERY_INTERVAL) {
-            return;
-        }
-        *last = Some(Instant::now());
-    }
-
-    let names: Vec<String> = hosts_locked()
-        .values()
-        .filter(|ls| {
-            needs_publishing(&ls.app_register)
-                || needs_publishing(&ls.api_register)
-                || needs_publishing(&ls.meta_register)
-        })
-        .map(|ls| ls.name.clone())
-        .collect();
-    for name in names {
-        if let Err(err) = republish_dropped(&name) {
-            tracing::debug!(
-                service = %name,
-                error = %format!("{err:#}"),
-                "re-publishing a refused service failed; will retry"
-            );
-        }
-    }
-}
-
-/// Take one service (`kind` = `"app"`/`"api"`/`"meta"`) off the relay without
-/// stopping the host. Reversible via [`serve_reregister`].
-///
-/// Dropping the registration IS the deregistration now, and it releases the
-/// relay key as it goes. It used to need a `DELETE /v1/services` on top,
-/// because the local end of the tunnel was a task the app could abort while the
-/// BACKEND still held the relay-side registration open — so the key lingered
-/// until its lease expired unless the backend was asked to retire it. With the
-/// app registering directly there is no second party holding anything.
-pub fn serve_deregister(name: &str, kind: &str) -> Result<()> {
-    if super::serve_acp::is_hosting(name) {
-        return super::serve_acp::deregister(name, kind);
-    }
-    let kind: ServiceKind = kind
-        .parse()
-        .map_err(|_| anyhow!("invalid service kind `{kind}`"))?;
-    let published = {
-        let mut guard = hosts_locked();
-        let ls = guard
-            .get_mut(name)
-            .ok_or_else(|| anyhow!("`{name}` is not hosting locally"))?;
-        registration_slot(ls, kind).take()
-    };
-    // Awaited outside the hosts lock, and awaited rather than dropped, so the
-    // relay frees the key before a re-register could race its own predecessor.
-    if let Some(published) = published {
-        if let Err(e) = runtime::runtime().block_on(published.stop()) {
-            tracing::warn!(
-                error = %format!("{e:#}"),
-                service = %name,
-                kind = %kind.as_key_segment(),
-                "releasing the relay key on deregister failed; it lingers until lease expiry"
-            );
-        }
-    }
-    Ok(())
-}
-
-/// Re-publish a previously [`serve_deregister`]'d service, forwarding to the
-/// still-running process. No-op if already published.
-pub fn serve_reregister(name: &str, kind: &str) -> Result<()> {
-    if super::serve_acp::is_hosting(name) {
-        return super::serve_acp::reregister(name, kind);
-    }
-    let kind: ServiceKind = kind
-        .parse()
-        .map_err(|_| anyhow!("invalid service kind `{kind}`"))?;
-    let Some((device, local)) = ({
-        let guard = hosts_locked();
-        let ls = guard
-            .get(name)
-            .ok_or_else(|| anyhow!("`{name}` is not hosting locally"))?;
-        let (local, slot) = match kind {
-            ServiceKind::Api => (ls.api_local, &ls.api_register),
-            ServiceKind::Meta => (ls.meta_local, &ls.meta_register),
-            _ => (ls.app_local, &ls.app_register),
-        };
-        needs_publishing(slot).then(|| (ls.device.clone(), local))
-    }) else {
-        return Ok(());
-    };
-    // Publishing waits on the relay, so it happens with the hosts lock RELEASED —
-    // holding it would stall every status poll for as long as the relay takes.
-    let transport = transport::resolve_blocking()?;
-    let published = register_service(&transport, &device, kind, name, local)?;
-    store_registration(name, kind, published);
-    Ok(())
-}
-
-/// Fully stop one host by name: release its three relay keys, abort the
-/// watchdog, API proxy, and meta service tasks, and stop its codex.
-/// Best-effort and idempotent — a no-op when that name isn't hosting.
-pub fn serve_stop(name: &str) -> Result<()> {
-    if super::serve_acp::is_hosting(name) {
-        super::serve_acp::stop(name);
-        return Ok(());
-    }
-    stop_codex(name);
-    Ok(())
-}
-
-/// Stop the Codex host `name`, keeping its name claimed until its relay
-/// keys and listeners are released.
-fn stop_codex(name: &str) {
-    super::hosting::retiring(name, super::hosting::Provider::Codex, || {
-        let removed = hosts_locked().remove(name);
-        if let Some(ls) = removed {
-            stop_host_tasks(ls);
-        }
-    });
-}
-
-/// Stop every host (called on app quit so a real quit leaves no orphan codex).
-/// Owned ACP agents go first: their cleanup is bounded and closes the ACP
-/// start barrier, so no agent process is left behind by a slower relay.
-pub fn serve_stop_all() {
-    super::serve_acp::stop_all();
-    let names: Vec<String> = hosts_locked().keys().cloned().collect();
-    for name in names {
-        stop_codex(&name);
-    }
-}
-
-/// Abort a host's background tasks (all register tunnels, watchdog, API proxy,
-/// meta service) and stop its codex. Does not touch the relay (callers that
-/// need an immediate relay drop force-deregister separately).
-fn stop_host_tasks(ls: LocalServe) {
-    // Awaited rather than dropped, so the relay releases all three keys NOW: an
-    // immediate re-host under the same name would otherwise race registrations
-    // this one abandoned but the relay still held.
-    runtime::runtime().block_on(async {
-        for published in [ls.app_register, ls.api_register, ls.meta_register]
-            .into_iter()
-            .flatten()
-        {
-            if let Err(e) = published.stop().await {
-                tracing::warn!(
-                    error = %format!("{e:#}"),
-                    service = %ls.name,
-                    "releasing a relay key on stop failed; it lingers until lease expiry"
-                );
-            }
-        }
-    });
-    ls.watchdog.abort();
-    ls.api_proxy.abort();
-    ls.meta_svc.abort();
-    if let Some(h) = ls.log_tail {
-        h.abort();
-    }
-    stop_codex_at(&ls.app_local.to_string());
-}
-
-/// Stop the codex app-server listening on `listen_addr` — graceful SIGTERM,
-/// then a force-kill if it keeps the port. Port-targeted (via
-/// [`find_codex_app_server`] on the listen URL) so hosts on different ports
-/// stop independently, unlike the single-codex `pocket_codex_codex::stop`.
-fn stop_codex_at(listen_addr: &str) {
-    let listen_url = format!("ws://{listen_addr}");
-    let Some(pid) = find_codex_app_server(&listen_url) else {
-        return;
-    };
-    send_sigterm(pid);
-    if !wait_for_port_closed(listen_addr, Duration::from_secs(6)) {
-        if let Some(pid) = find_codex_app_server(&listen_url) {
-            force_kill(pid);
-        }
-    }
-}
-
 /// `true` if something is accepting TCP on a `host:port` listen address.
 pub(super) fn listen_addr_open(listen_addr: &str) -> bool {
     match listen_addr.rsplit_once(':') {
@@ -1185,66 +909,6 @@ pub(super) fn listen_addr_open(listen_addr: &str) -> bool {
             .map(|p| tcp_port_open(host, p))
             .unwrap_or(false),
         None => false,
-    }
-}
-
-/// Keep an in-process service alive on `addr`. Runs `serve` and, if it ever
-/// exits (a transient auth/IO error, or an `axum::serve` accept error),
-/// re-binds the SAME loopback port and restarts it with backoff — so the
-/// registered tunnel keeps forwarding to a live server instead of a dead
-/// socket. `first` is the listener already bound in [`serve_start`] (so the
-/// port is reserved); later restarts re-bind it. `label` names the service in
-/// logs. Aborting this task (on `serve_stop`) drops the listener.
-pub(super) async fn supervise<F, Fut>(
-    label: &str,
-    addr: SocketAddr,
-    first: std::net::TcpListener,
-    serve: F,
-) where
-    F: Fn(tokio::net::TcpListener) -> Fut,
-    Fut: std::future::Future<Output = Result<()>>,
-{
-    let mut reserved = Some(first);
-    let mut failures: u32 = 0;
-    loop {
-        let std_listener = match reserved.take() {
-            Some(listener) => listener,
-            None => match std::net::TcpListener::bind(addr) {
-                Ok(listener) => {
-                    let _ = listener.set_nonblocking(true);
-                    listener
-                },
-                Err(e) => {
-                    tracing::warn!(error = %e, %addr, "re-binding {label} failed");
-                    failures = failures.saturating_add(1);
-                    tokio::time::sleep(proxy_restart_backoff(failures)).await;
-                    continue;
-                },
-            },
-        };
-        let listener = match tokio::net::TcpListener::from_std(std_listener) {
-            Ok(listener) => listener,
-            Err(e) => {
-                tracing::warn!(error = %e, "adopting {label} listener failed");
-                failures = failures.saturating_add(1);
-                tokio::time::sleep(proxy_restart_backoff(failures)).await;
-                continue;
-            },
-        };
-        let started = Instant::now();
-        match serve(listener).await {
-            Ok(()) => tracing::warn!("{label} returned; restarting"),
-            Err(e) => tracing::warn!(error = %format!("{e:#}"), "{label} exited; restarting"),
-        }
-        // A server that ran a while then died hit a transient fault — reset the
-        // backoff; one that fails fast (e.g. a persistently missing login) backs
-        // off progressively.
-        failures = if started.elapsed() > Duration::from_secs(60) {
-            1
-        } else {
-            failures.saturating_add(1)
-        };
-        tokio::time::sleep(proxy_restart_backoff(failures)).await;
     }
 }
 
@@ -1278,291 +942,6 @@ async fn meta_svc_supervisor(
     .await
 }
 
-/// Backoff before restarting a supervised service: 2s, doubling, capped at
-/// [`MAX_RESTART_BACKOFF`].
-fn proxy_restart_backoff(failures: u32) -> Duration {
-    Duration::from_secs(2)
-        .saturating_mul(1u32 << failures.saturating_sub(1).min(7))
-        .min(MAX_RESTART_BACKOFF)
-}
-
-/// Probe codex's `/readyz` and restart it when it stops responding, so turns
-/// recover without the user intervening. Mirrors the CLI watchdog; logs via
-/// `tracing`.
-async fn health_watchdog(local_addr: String, spawn_opts: SpawnOptions) {
-    let url = format!("http://{local_addr}/readyz");
-    let Some(client) = probe_client() else {
-        return;
-    };
-    let mut consecutive: u32 = 0;
-    let mut restart_failures: u32 = 0;
-    loop {
-        tokio::time::sleep(HEALTH_INTERVAL).await;
-        if probe_ready(&client, &url).await && probe_thread_rpc(&local_addr).await {
-            consecutive = 0;
-            restart_failures = 0;
-            continue;
-        }
-        consecutive += 1;
-        if consecutive < HEALTH_FAILURES {
-            continue;
-        }
-        tracing::warn!("codex app-server failed {HEALTH_FAILURES} health checks; restarting it");
-        match restart_codex(spawn_opts.clone()).await {
-            Ok(()) => {
-                tracing::info!("codex app-server restarted");
-                restart_failures = 0;
-            },
-            Err(e) => {
-                restart_failures += 1;
-                tracing::warn!(error = %format!("{e:#}"), attempt = restart_failures, "codex restart failed");
-            },
-        }
-        consecutive = 0;
-        tokio::time::sleep(health_restart_backoff(restart_failures)).await;
-    }
-}
-
-/// Grace before probing resumes after a watchdog-driven restart, doubling per
-/// consecutive failed recovery up to [`MAX_RESTART_BACKOFF`].
-fn health_restart_backoff(restart_failures: u32) -> Duration {
-    HEALTH_RESTART_GRACE
-        .saturating_mul(1u32 << restart_failures.min(5))
-        .min(MAX_RESTART_BACKOFF)
-}
-
-/// The HTTP client the watchdog probes `/readyz` with. Built with
-/// `.no_proxy()`: probes only ever target our own loopback server, and the
-/// process environment can carry an upstream proxy whose `NO_PROXY` doesn't
-/// cover loopback — a proxied probe then fails against a perfectly healthy
-/// server and the watchdog would keep "recovering" it forever.
-fn probe_client() -> Option<reqwest::Client> {
-    reqwest::Client::builder()
-        .timeout(HEALTH_TIMEOUT)
-        .no_proxy()
-        .build()
-        .ok()
-}
-
-/// One `/readyz` probe over `client`: `true` on any 2xx.
-async fn probe_ready(client: &reqwest::Client, url: &str) -> bool {
-    matches!(client.get(url).send().await, Ok(resp) if resp.status().is_success())
-}
-
-async fn probe_thread_rpc(local_addr: &str) -> bool {
-    let result =
-        pocket_codex_codex::readiness::probe_rpc(&format!("ws://{local_addr}"), READY_TIMEOUT)
-            .await;
-    if let Err(error) = &result {
-        tracing::warn!(%local_addr, error = %format!("{error:#}"), "app-server functional health probe failed");
-    }
-    result.is_ok()
-}
-
-/// Stop the wedged codex and spawn a fresh one on the same port (escalating to
-/// a hard kill if it ignores the graceful stop). Blocking work runs off the
-/// async runtime.
-async fn restart_codex(spawn_opts: SpawnOptions) -> Result<()> {
-    tokio::task::spawn_blocking(move || -> Result<()> {
-        if let Some(addr) = spawn_opts.listen.as_socket_addr() {
-            stop_codex_at(&addr);
-        }
-        let report = spawn_ready(spawn_opts, READY_TIMEOUT).map_err(|err| match err {
-            SpawnReadyError::Spawn(e) => {
-                anyhow::Error::new(e).context("respawning the codex app-server")
-            },
-            // An adopted (reused) listener means spawn found the OLD process
-            // still bound — the restart did not take effect; report that
-            // precisely rather than as a readiness failure. Otherwise a
-            // respawn that dies on boot (e.g. something else grabbed the
-            // port while codex was down) must count as a FAILED restart, so
-            // the watchdog's restart backoff engages instead of resetting and
-            // hammering a bind that can never succeed.
-            SpawnReadyError::NotReady {
-                report,
-                failure,
-            } => {
-                if report.reused {
-                    anyhow::anyhow!(
-                        "codex is still holding the listen port; restart did not take effect"
-                    )
-                } else {
-                    startup_failure_error(*failure)
-                }
-            },
-        })?;
-        // Adopted-and-ready reads the same way: the old process survived, so
-        // the restart did not take effect.
-        anyhow::ensure!(
-            !report.reused,
-            "codex is still holding the listen port; restart did not take effect"
-        );
-        Ok(())
-    })
-    .await
-    .context("codex restart task panicked")?
-}
-
-/// The caller's phrasing of the pick-another-port remedy (the hosting form's
-/// port field) for [`startup_failure_error`].
-fn port_retry_hint(port: u16) -> String {
-    match port.checked_add(1) {
-        Some(next) => format!("retry with port {next}, or 0 to pick a free port automatically"),
-        None => "retry with a different port".to_string(),
-    }
-}
-
-/// Render a [`StartupFailure`] as the hosting error surfaced to the UI —
-/// [`StartupFailure::diagnosis`] with the remedy phrased as the hosting
-/// form's port field (the CLI sibling phrases it as the `--port` flag).
-fn startup_failure_error(failure: StartupFailure) -> anyhow::Error {
-    let retry = match failure.port {
-        Some(port) => port_retry_hint(port),
-        None => "retry with a different port".to_string(),
-    };
-    anyhow::anyhow!(failure.diagnosis(&retry))
-}
-
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn startup_failure_error_carries_log_tail_and_port_hint() {
-        let failure = StartupFailure {
-            rpc_error: None,
-            process_exited: true,
-            port_in_use: true,
-            listen: "ws://127.0.0.1:18080".to_string(),
-            port: Some(18080),
-            log_file: std::path::PathBuf::from("codex-app-server.log"),
-            log_tail: vec!["Error: Address already in use (os error 10048)".to_string()],
-        };
-        let msg = startup_failure_error(failure).to_string();
-        assert!(msg.contains("exited during startup"));
-        assert!(msg.contains("codex-app-server.log"));
-        assert!(msg.contains("os error 10048"));
-        assert!(
-            msg.contains("port 18081, or 0 to pick a free port automatically"),
-            "should suggest the next port or an automatic one: {msg}"
-        );
-    }
-
-    #[test]
-    fn host_log_cap_triggers_just_past_the_threshold() {
-        assert!(!over_log_cap(0));
-        assert!(!over_log_cap(MAX_HOST_LOG_BYTES), "at the cap is still fine");
-        assert!(over_log_cap(MAX_HOST_LOG_BYTES + 1), "one byte over trips it");
-        // The threshold itself is a size rather than a time window on purpose:
-        // the burst that prompted this peaked at 72 MB/min, so "keep the last
-        // six hours" would permit ~25 GB. Asserting the constant's value here
-        // would be a tautology (clippy rightly flags it) — the guard that keeps
-        // it honest is that this cap is measured in bytes at all.
-    }
-
-    #[test]
-    fn truncating_a_live_host_log_frees_it_in_place() {
-        let dir = std::env::temp_dir().join(format!("pcx-logcap-{}", std::process::id()));
-        // This test can run before every other runtime-using test. Initialize
-        // explicitly instead of depending on the test runner's random order.
-        runtime::init(std::env::temp_dir()).expect("init runtime");
-        std::fs::create_dir_all(&dir).expect("tmp dir");
-        let log = dir.join("codex-default.log");
-        std::fs::write(&log, vec![b'x'; 1024]).expect("write");
-
-        // Hold the file open the way the spawned child does, so this exercises
-        // the case that rules out `remove_file`.
-        let writer = std::fs::OpenOptions::new()
-            .append(true)
-            .open(&log)
-            .expect("open writer");
-
-        assert!(runtime::runtime().block_on(truncate_host_log(&log)));
-        assert_eq!(std::fs::metadata(&log).expect("meta").len(), 0, "space is freed now");
-
-        // The still-open writer keeps working, and its next append lands at 0 —
-        // which the tailer's `len < pos` branch resyncs to.
-        use std::io::Write as _;
-        let mut writer = writer;
-        writer.write_all(b"after\n").expect("append after truncate");
-        writer.flush().expect("flush");
-        assert_eq!(std::fs::read(&log).expect("read"), b"after\n");
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn built_in_engine_is_rejected_before_loading_configuration() {
-        let err = serve_start(0, None, None, None, true).expect_err("built-in unavailable");
-        assert!(err
-            .to_string()
-            .contains("built-in engine is not implemented"));
-    }
-
-    #[test]
-    fn self_host_start_is_not_gated_on_an_account() {
-        // A support dir of its own holding only a self-host configuration
-        // (relay + key, no account), independent of the process-global
-        // support dir and of what other tests left there. The start must get
-        // past configuration to binary resolution (and fail there, before
-        // spawning or touching any relay) instead of demanding a GitHub
-        // sign-in as it once did. This proves only the gate; hosting two
-        // instances side by side needs a real codex and is not exercised.
-        use pocket_codex_core::config::Config;
-
-        use crate::engine::config::save_config;
-
-        let support = tempfile::tempdir().expect("support dir");
-        let mut config = Config::default();
-        config.set_relay("relay.invalid:7666");
-        config.set_relay_key("k".repeat(32));
-        save_config(support.path(), &config).expect("save self-host config");
-        let saved = std::fs::read(support.path().join("config.toml")).ok();
-        // Inside the support dir, which exists, so nothing outside is named.
-        let missing = support.path().join("no-codex-here").join("codex");
-        let err = serve_start_in(
-            support.path(),
-            0,
-            Some(missing.display().to_string()),
-            Some("self-host-gate".into()),
-            None,
-        )
-        .expect_err("no codex at that path");
-        let msg = err.to_string();
-        assert!(msg.contains("could not find the codex binary"), "{msg}");
-        assert!(!msg.contains("sign in"), "{msg}");
-        assert!(!hosts_locked().contains_key("self-host-gate"), "nothing was recorded");
-        assert_eq!(
-            std::fs::read(support.path().join("config.toml")).ok(),
-            saved,
-            "a missing binary is not saved as the codex path"
-        );
-    }
-
-    #[test]
-    fn hosts_locked_recovers_a_poisoned_lock() {
-        // Poison the process-global host mutex the way a real panic-while-holding
-        // would: a thread panics with the guard held. (Quiet the hook so the
-        // intentional panic doesn't spam the test log.)
-        let prev = std::panic::take_hook();
-        std::panic::set_hook(Box::new(|_| {}));
-        let _ = std::thread::spawn(|| {
-            let _guard = hosts().lock().expect("acquire before poisoning");
-            panic!("intentional: poison the hosts mutex");
-        })
-        .join();
-        std::panic::set_hook(prev);
-
-        // The raw lock is now poisoned...
-        assert!(hosts().lock().is_err(), "the mutex should be poisoned after the panic");
-        // ...but the recovering accessor still hands back a usable guard instead
-        // of panicking (which, cascading across every serve/status/stop call,
-        // is what would take hosting down after one unlucky panic).
-        let mut guard = hosts_locked();
-        let before = guard.len();
-        // It's a normal, mutable map — prove it's fully usable post-recovery.
-        guard.retain(|_, _| true);
-        assert_eq!(guard.len(), before);
-    }
-}
+#[path = "serve_tests.rs"]
+mod tests;

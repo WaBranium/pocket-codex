@@ -27,6 +27,8 @@ pub mod client;
 /// Spawn / inspect / stop the supervised `codex app-server` process.
 pub mod process;
 
+mod output;
+
 #[cfg(any(target_os = "macos", all(test, target_os = "linux")))]
 mod shell_environment;
 
@@ -43,6 +45,10 @@ pub mod rollout;
 /// onboarding UI.
 pub mod setup;
 
+/// Per-instance model service of a Codex host: child-only `-c` overrides
+/// and secret environment.
+pub mod provider_launch;
+
 /// Detect whether a session's rollout is currently held open by a live
 /// process, and enumerate codex app-server processes.
 pub mod liveness;
@@ -52,8 +58,8 @@ pub mod liveness;
 pub mod takeover;
 
 pub use process::{
-    locate_binary, spawn, status, stop, ListenSpec, SpawnOptions, SpawnReport, StatusReport,
-    StopOutcome,
+    locate_binary, spawn, spawn_with_env, spawn_with_env_redacted, status, still_owned, stop,
+    ListenSpec, ProcessIdentity, SecretEnv, SpawnOptions, SpawnReport, StatusReport, StopOutcome,
 };
 
 /// The `PATH` to search for, and hand to, other external tool executables a
@@ -74,7 +80,8 @@ pub fn external_tool_path() -> Option<std::ffi::OsString> {
     }
 }
 pub use readiness::{
-    spawn_ready, verify_ready, wait_for_readyz, SpawnReadyError, StartupFailure, READY_TIMEOUT,
+    spawn_ready, spawn_ready_redacted, spawn_ready_with_env, verify_ready, wait_for_readyz,
+    SpawnReadyError, StartupFailure, READY_TIMEOUT,
 };
 
 /// Whether the child process `pid` of this process has exited, **without

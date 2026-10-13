@@ -63,6 +63,18 @@ class _AcpHostDetailsState extends ConsumerState<AcpHostDetails> {
         _ => reason ?? '',
       };
 
+  String _routeReason(AppLocalizations l10n, String reason) => switch (reason) {
+    'model' => l10n.acpRouteReasonModel,
+    'small-model' => l10n.acpRouteReasonSmallModel,
+    'agent-model' => l10n.acpRouteReasonAgentModel,
+    'provider' => l10n.acpRouteReasonProvider,
+    'enabled-providers' => l10n.acpRouteReasonEnabled,
+    'disabled-providers' => l10n.acpRouteReasonDisabled,
+    'missing' => l10n.acpRouteReasonMissing,
+    'key' => l10n.acpRouteReasonKey,
+    _ => _catalogReason(l10n, reason),
+  };
+
   /// The model catalog: one line per provider, so a full listing, a bounded
   /// one and a failed one read differently.
   Widget _catalog(
@@ -78,6 +90,46 @@ class _AcpHostDetailsState extends ConsumerState<AcpHostDetails> {
       ),
       const SizedBox(height: 4),
     ];
+    final route = catalog.routeState;
+    if (route != null) {
+      final reasons = catalog.routeReasons
+          .map((r) => _routeReason(l10n, r))
+          .join(', ');
+      final (text, warn) = switch (route) {
+        'selected' => (l10n.acpRouteSelected, false),
+        'enforced' => (l10n.acpRouteEnforced(reasons), false),
+        'overridden' => (l10n.acpRouteOverridden(reasons), true),
+        'unverified' => (l10n.acpRouteUnverified(reasons), true),
+        'refused' => (l10n.acpRouteRefused, true),
+        _ => (l10n.acpRouteWaiting, false),
+      };
+      lines.add(
+        Text(
+          text,
+          key: const Key('acp-catalog-route'),
+          style: warn ? style?.copyWith(color: scheme.error) : style,
+        ),
+      );
+      if (catalog.routeProjects.isNotEmpty) {
+        lines.add(
+          Text(
+            l10n.acpRouteProjects(catalog.routeProjects.join(', ')),
+            key: const Key('acp-catalog-route-projects'),
+            style: style,
+          ),
+        );
+      }
+      // What the hook cannot reach, so "selected" is not read as more.
+      if (route == 'selected' || route == 'enforced') {
+        lines.add(
+          Text(
+            l10n.acpRouteScope,
+            key: const Key('acp-catalog-route-scope'),
+            style: style,
+          ),
+        );
+      }
+    }
     if (catalog.state == 'waiting') {
       lines.add(Text(l10n.acpCatalogWaiting, style: style));
     } else if (catalog.state != 'reported') {

@@ -99,6 +99,16 @@ pub struct CodexSetupStatus {
     pub needs_setup: bool,
     /// Which system-prompt variant is active.
     pub prompt_variant: String,
+    /// `config.toml`'s top-level `model_provider`, when set.
+    pub selected_provider: Option<String>,
+    /// `config.toml` exists but could not be read or parsed.
+    pub config_error: bool,
+    /// What a host inheriting this configuration would use: `custom` (a
+    /// selected provider defined under `[model_providers]`, which wins over
+    /// any `auth.json`), `account` (a credential for the built-in provider),
+    /// `none`, or `invalid` (unreadable configuration). A configured source
+    /// is not a verified connection.
+    pub effective_source: &'static str,
 }
 
 /// Path to `$CODEX_HOME/config.toml`.
@@ -170,8 +180,20 @@ pub fn setup_status() -> Result<CodexSetupStatus> {
         .map(|v| !v.is_empty())
         .unwrap_or(false);
     let auth_mode = if auth_on_disk { read_auth_mode(&auth_file) } else { None };
-    let has_custom_provider = document_selects_custom_provider(&home);
+    let (selected_provider, has_custom_provider, config_error) = match load_document(&home) {
+        Ok(doc) => (selected_provider(&doc).map(str::to_string), selects_custom(&doc), false),
+        Err(_) => (None, false, true),
+    };
     let has_auth = auth_on_disk || has_env_token;
+    let effective_source = if config_error {
+        "invalid"
+    } else if has_custom_provider {
+        "custom"
+    } else if has_auth {
+        "account"
+    } else {
+        "none"
+    };
     Ok(CodexSetupStatus {
         codex_home: home.display().to_string(),
         has_config,
@@ -180,6 +202,9 @@ pub fn setup_status() -> Result<CodexSetupStatus> {
         auth_mode,
         needs_setup: !has_auth && !has_custom_provider,
         prompt_variant: prompt_variant(&home).as_str().to_string(),
+        selected_provider,
+        config_error,
+        effective_source,
     })
 }
 
@@ -209,15 +234,19 @@ pub fn has_custom_provider() -> bool {
 /// isn't the built-in OpenAI/ChatGPT one — i.e. a provider defined in
 /// `[model_providers.*]`, which brings its own credentials.
 fn document_selects_custom_provider(home: &Path) -> bool {
-    let Ok(doc) = load_document(home) else {
-        return false;
-    };
-    let Some(selected) = doc
-        .get("model_provider")
+    load_document(home).is_ok_and(|doc| selects_custom(&doc))
+}
+
+/// The document's top-level `model_provider`, when set.
+fn selected_provider(doc: &DocumentMut) -> Option<&str> {
+    doc.get("model_provider")
         .and_then(Item::as_str)
         .map(str::trim)
         .filter(|s| !s.is_empty())
-    else {
+}
+
+fn selects_custom(doc: &DocumentMut) -> bool {
+    let Some(selected) = selected_provider(doc) else {
         return false;
     };
     // The built-in openai provider still needs auth.json / a token; only a
@@ -519,8 +548,34 @@ mod tests {
         assert!(!status.has_auth);
         assert!(!status.has_custom_provider);
         assert!(status.needs_setup);
+        assert_eq!(status.effective_source, "none");
         if let Some(v) = prev {
             std::env::set_var("CODEX_ACCESS_TOKEN", v);
         }
+    }
+
+    #[test]
+    fn a_selected_custom_provider_wins_over_an_account() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let home = TempHome::new("effective");
+        std::fs::write(home.dir.join("auth.json"), "{\"auth_mode\":\"chatgpt\"}").expect("auth");
+        assert_eq!(setup_status().expect("status").effective_source, "account");
+        write_provider_config("https://api.example.com/v1", "sk-3", None).expect("provider");
+        let status = setup_status().expect("status");
+        assert!(status.has_auth);
+        assert_eq!(status.selected_provider.as_deref(), Some(POCKET_PROVIDER_ID));
+        assert_eq!(status.effective_source, "custom");
+    }
+
+    #[test]
+    fn an_unreadable_config_is_reported_not_guessed() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let home = TempHome::new("malformed");
+        std::fs::write(home.dir.join("config.toml"), "model_provider = [unclosed").expect("seed");
+        let status = setup_status().expect("status");
+        assert!(status.config_error);
+        assert!(!status.has_custom_provider);
+        assert_eq!(status.effective_source, "invalid");
+        assert_eq!(status.selected_provider, None);
     }
 }

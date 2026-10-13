@@ -83,10 +83,12 @@ pub struct Preset {
 }
 
 /// Built-in presets. OpenCode documents `opencode acp` as its stdio ACP
-/// agent; Claude is reached through the separately installed
-/// `@agentclientprotocol/claude-agent-acp` adapter, whose `claude-agent-acp`
-/// binary speaks ACP on stdio without arguments. Nothing else about either
-/// agent's ACP feature set is assumed: capabilities are negotiated.
+/// agent; Claude is reached through the `@agentclientprotocol/claude-agent-acp`
+/// adapter, whose `claude-agent-acp` binary speaks ACP on stdio without
+/// arguments — never through the native `claude` CLI, which the adapter
+/// drives itself. How the adapter, its Node.js runtime and that CLI are
+/// found is [`super::claude`]'s. Nothing else about either agent's ACP
+/// feature set is assumed: capabilities are negotiated.
 pub const PRESETS: &[Preset] = &[
     Preset {
         id: "opencode",
@@ -160,15 +162,17 @@ fn is_explicit_path(program: &str) -> bool {
     program.contains('/') || (cfg!(windows) && program.contains('\\'))
 }
 
+/// Whether `path` is an executable file (following symlinks).
 #[cfg(unix)]
-fn is_executable(path: &Path) -> bool {
+pub(crate) fn is_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     std::fs::metadata(path)
         .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
 }
 
+/// Whether `path` is an executable file.
 #[cfg(not(unix))]
-fn is_executable(path: &Path) -> bool {
+pub(crate) fn is_executable(path: &Path) -> bool {
     path.is_file()
 }
 

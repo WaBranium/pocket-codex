@@ -9,6 +9,7 @@ import 'package:pocket_codex/src/bridge_api_rust.dart';
 import 'package:pocket_codex/src/desktop_tray.dart';
 import 'package:pocket_codex/src/log_manager.dart';
 import 'package:pocket_codex/src/providers.dart';
+import 'package:pocket_codex/src/quit_status.dart';
 import 'package:pocket_codex/src/router.dart';
 import 'package:pocket_codex/src/theme.dart';
 import 'package:pocket_codex/src/theme_transition.dart';
@@ -168,7 +169,21 @@ class _PocketCodexAppState extends ConsumerState<PocketCodexApp> {
         }
         // The light/dark cross-fade captures this subtree; see
         // ThemeTransition.
-        return ThemeTransitionHost(child: child ?? const SizedBox.shrink());
+        final page = ThemeTransitionHost(
+          child: child ?? const SizedBox.shrink(),
+        );
+        if (!DesktopTray.supported) return page;
+        // A quit in progress, or one that could not stop every hosted
+        // service (the app then stays open), above every page.
+        return Column(
+          children: [
+            QuitStatusBanner(
+              status: DesktopTray.instance.quitStatus,
+              onRetry: DesktopTray.instance.quit,
+            ),
+            Expanded(child: page),
+          ],
+        );
       },
       routerConfig: _router,
     );

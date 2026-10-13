@@ -175,6 +175,18 @@ impl AgentProcess {
         }
         self.group = None;
     }
+
+    /// After the leader exited on its own (see [`leader_exited`]): kill what
+    /// is left of its group, then reap the leader and return how it exited.
+    /// `None` when the status could not be read.
+    pub async fn finish(mut self) -> Option<std::process::ExitStatus> {
+        #[cfg(unix)]
+        self.signal_group(nix::sys::signal::Signal::SIGKILL);
+        let mut child = self.child.take()?;
+        let status = tokio::time::timeout(Duration::from_secs(5), child.wait()).await;
+        self.group = None;
+        status.ok()?.ok()
+    }
 }
 
 impl Drop for AgentProcess {

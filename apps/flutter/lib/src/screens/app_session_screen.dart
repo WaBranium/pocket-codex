@@ -27,6 +27,7 @@ import 'package:pocket_codex/src/desktop_theme.dart';
 import 'package:pocket_codex/src/error_format.dart';
 import 'package:pocket_codex/src/fonts.dart';
 import 'package:pocket_codex/src/git_diff.dart';
+import 'package:pocket_codex/src/hosting/host_editor_page.dart';
 import 'package:pocket_codex/src/ide_context.dart';
 import 'package:pocket_codex/src/image_attachments.dart';
 import 'package:pocket_codex/src/providers.dart';
@@ -214,12 +215,52 @@ class _Queued {
   final String text; // the raw composer text, as typed
   final List<_Attachment> attachments;
 
+  /// Being sent: it stays first in the queue until the host admits it, so a
+  /// refusal keeps its place; meanwhile it cannot be dequeued or discarded.
+  bool inFlight = false;
+
+  /// Its send failed in a way that leaves open whether the host admitted
+  /// it (the request or its answer was lost). It stays first, the queue
+  /// holds behind it, and it is never sent again by itself — not after a
+  /// reload, reconnect or turn end: only the user's explicit Retry sends it
+  /// again (see `_resendUncertain`); the user may also edit (tap) or remove
+  /// it.
+  bool uncertain = false;
+
+  /// Why its last send failed, while it is held at the head of a paused
+  /// queue: the Retry its banner offered is offered again after a reload,
+  /// reconnect or reopening cleared that banner (see `_offerHeldQueue`).
+  String? failure;
+
   /// One-line preview for the queued-messages strip.
   String get preview {
     final t = text.trim();
     if (t.isNotEmpty) return t;
     return attachments.isEmpty ? '' : attachments.first.name;
   }
+}
+
+/// One admitted turn whose `turn/started` has not arrived (see
+/// `_AppSessionState._awaitedStart`): the draft and thread it was sent from.
+/// The instance itself is the admission's token.
+class _AwaitedStart {
+  _AwaitedStart({required this.draft, required this.threadId});
+  final _ComposerDraft draft;
+  final String threadId;
+}
+
+/// The host connection a send began on was lost or replaced before the send
+/// completed (see `_AppSessionState._linkEpoch`).
+class _LinkMoved implements Exception {
+  const _LinkMoved();
+}
+
+/// The exact wire content of one send (text with file references, image
+/// data URLs), kept by its retry.
+class _Resend {
+  const _Resend({required this.text, required this.images});
+  final String text;
+  final List<String> images;
 }
 
 /// One entry in an option-picker bottom sheet (model / permission / effort).
@@ -284,6 +325,19 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
   // Moves whenever cached capabilities are dropped; agent option changes
   // and prepared sessions are bound to it (see [_AgentTarget]).
   int _capsEpoch = 0;
+
+  /// The host connection this view's requests went to. It moves when that
+  /// connection may have been lost or replaced — the event stream closed,
+  /// the agent host was lost or replaced, or it reported a new generation —
+  /// and not when a reload merely re-reads capabilities ([_capsEpoch]). An
+  /// answer to a request of an older connection never applies its history,
+  /// settles an admission, adopts a send's outcome or drains the queue.
+  int _linkEpoch = 0;
+
+  /// The [_linkEpoch] of the last history read that was applied as the
+  /// host's answer. A reconnect is ready only once this equals the current
+  /// link: a read the link outran applied nothing.
+  int? _historyAppliedLink;
   AppCapabilities get _caps {
     final cached = _capsCache;
     if (_capsKey != widget.serviceKey ||
@@ -790,7 +844,54 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
   bool _externalWriterLegacy = false;
   int _externalWriterEpoch = 0;
   bool _takingOver = false;
-  bool _localSending = false;
+
+  /// The local operation (a send, a supplement, an answer) holding the
+  /// composer's send lock. Each releases only its own hold, so a superseded
+  /// operation finishing late never unlocks a newer one; leaving the
+  /// conversation drops whatever holds it.
+  Object? _localSendOwner;
+  bool get _localSending => _localSendOwner != null;
+
+  /// Moves with every composer operation that takes the send lock, and
+  /// never moves back: an operation is the latest only while nothing began
+  /// after it — even when that newer one has already finished and released
+  /// the lock (a free lock proves nothing about what came since).
+  int _composerOp = 0;
+
+  /// A notice of an operation whose outcome is unknown (a supplement answer
+  /// that arrived after its connection moved), kept for its draft and
+  /// conversation so a reload or reconnect clearing the banner offers it
+  /// again. Dropped when dismissed or when a newer operation begins.
+  ({_ComposerDraft draft, String threadId, int op, String text})? _heldNotice;
+
+  /// Take the send lock for [owner]; a new operation begins.
+  void _holdSend(Object owner) {
+    _localSendOwner = owner;
+    _composerOp++;
+  }
+
+  /// Release the send lock if [owner] still holds it.
+  void _releaseSend(Object owner) {
+    if (identical(_localSendOwner, owner)) _localSendOwner = null;
+  }
+
+  /// A turn was just admitted and its `turn/started` has not arrived yet:
+  /// the session is busy although nothing streams, so the queue waits and a
+  /// new message queues behind it. Cleared by that turn's events, by
+  /// leaving the conversation, or — when nothing arrived within
+  /// [_turnStartGrace] — by the host's own account of the session (see
+  /// [_reconcileAwaitedStart]); elapsed time alone never releases it. The
+  /// token identifies the admission, so a reconciliation of an older one
+  /// can never release a newer one.
+  _AwaitedStart? _awaitedStart;
+  bool get _awaitingTurnStart => _awaitedStart != null;
+  Timer? _turnStartTimer;
+  static const _turnStartGrace = Duration(seconds: 20);
+
+  /// Turns this view saw end, newest last (bounded): a terminal event of one
+  /// of them arriving again while the next turn is awaited is not that
+  /// turn's end.
+  final List<String> _endedTurns = [];
   // Navigation clears local operations, but cannot unlock a draft's send.
   bool get _sending => _localSending || _draft.sendPending;
   bool _atBottom = true; // is the list scrolled to the latest message?
@@ -844,7 +945,9 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
   bool _historySyncing = false;
   bool _showingCachedHistory = false;
   bool _reconnecting = false;
-  Stopwatch? _lastReconnectAt;
+  // Running for 3 s after an automatic reconnect began (its debounce); a
+  // timer, so the window follows the app's clock rather than a stopwatch.
+  Timer? _reconnectCooldown;
   int _reconnectEpoch = 0;
   bool _foreground = true;
   bool _restoringSettings = false;
@@ -1088,7 +1191,8 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
     if (state == AppLifecycleState.inactive) return;
     _foreground = state == AppLifecycleState.resumed;
     if (_foreground) {
-      _lastReconnectAt = null;
+      _reconnectCooldown?.cancel();
+      _reconnectCooldown = null;
       if (_connectionLost ||
           !ref.read(bridgeApiProvider).appIsConnected(widget.serviceKey)) {
         unawaited(_autoReconnect());
@@ -1688,7 +1792,9 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
       _supplement = false;
       _sendRequest = null;
       _supplementRequest = null;
-      _localSending = false;
+      _localSendOwner = null;
+      _turnStartSeen();
+      _endedTurns.clear();
       _plan = false;
       _planToggledByUser = false;
       // Drop the previous thread's effort (pending pick + active) so an unsent
@@ -1769,6 +1875,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
       ..onTakeEnded = null
       ..dispose();
     _healthTimer?.cancel();
+    _reconnectCooldown?.cancel();
     _externalHistoryTimer?.cancel();
     _externalWriterReconnect?.cancel();
     final externalWriterSub = _externalWriterSub;
@@ -1778,6 +1885,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
     }
     _threadsRefreshTimer?.cancel();
     _elapsedTicker?.cancel();
+    _turnStartTimer?.cancel();
     _sub?.cancel();
     _input.removeListener(_saveDraft);
     _input.dispose();
@@ -2009,6 +2117,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
 
   void _onStreamClosed() {
     if (!mounted) return;
+    _linkEpoch++;
     // The socket may still be alive when the bridge closes a lagged event feed.
     // Both cases need a new subscription and a history read to recover gaps.
     setState(() {
@@ -2464,7 +2573,15 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
   }
 
   /// Attach to an existing thread for live events and turns, then load history.
-  Future<void> _resumeAndLoad({bool propagateErrors = false}) async {
+  ///
+  /// The read counts only for the conversation and host connection
+  /// ([_linkEpoch]) it was asked of, and only while no newer load replaced
+  /// it. A [displayOnly] refresh just shows what the host holds: it keeps
+  /// the shown notice, settles no admission and does not drain the queue.
+  Future<void> _resumeAndLoad({
+    bool propagateErrors = false,
+    bool displayOnly = false,
+  }) async {
     // Guard: a stale event (e.g. thread/compacted from a prior thread) can
     // arrive after switching to a new, unsaved conversation — don't `_threadId!`
     // through a null here.
@@ -2473,19 +2590,36 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
       _loading = _items.isEmpty;
       _historySyncing = true;
       _restoringSettings = true;
-      _error = null;
-      _retry = null;
+      if (!displayOnly) {
+        _error = null;
+        _retry = null;
+      }
     });
     var restoringMetadata = false;
     final startTid = _threadId!;
     final generation = ++_threadLoadGeneration;
+    final link = _linkEpoch;
     final turnStateRevision = _turnStateRevision;
+    // An admission armed before this read began: the read's authoritative
+    // answer settles it (see [_reconcileAwaitedStart]).
+    final awaited = displayOnly ? null : _awaitedStart;
     final liveItems = <String, TranscriptItem>{};
     final partialItems = <String>{};
     _historyLiveItems = liveItems;
     _historyPartialItems = partialItems;
     bool current() =>
-        mounted && _threadId == startTid && generation == _threadLoadGeneration;
+        mounted &&
+        _threadId == startTid &&
+        generation == _threadLoadGeneration &&
+        link == _linkEpoch;
+    // Still this conversation's latest load, but its connection moved and
+    // nothing replaced it: the loading flags it raised are its own to drop
+    // (the reconnect, or the next read, asks the current host again).
+    bool abandoned() =>
+        mounted &&
+        _threadId == startTid &&
+        generation == _threadLoadGeneration &&
+        link != _linkEpoch;
     try {
       final api = ref.read(bridgeApiProvider);
       unawaited(
@@ -2557,6 +2691,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
           ? _captureHistoryAnchor()
           : null;
       setState(() {
+        _historyAppliedLink = link;
         _historySyncing = false;
         _showingCachedHistory = false;
         _historyEpoch = history.historyEpoch;
@@ -2595,6 +2730,14 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
               _turnStartedAt != null;
           _streaming = history.running;
           _turnId = activeTurnId;
+          // An admission armed before this read is settled by it either
+          // way — running, the turn shows; idle, it ended unseen. A newer
+          // admission (armed during the read, which may predate it) is left
+          // to its own events or reconciliation, and a display-only refresh
+          // settles none.
+          if (awaited != null && identical(_awaitedStart, awaited)) {
+            _turnStartSeen();
+          }
           // A resumed turn has nothing in this composer to un-send with Esc.
           _outputStarted = history.running;
           if (!keepClock) {
@@ -2683,7 +2826,10 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
         } finally {
           if (current()) {
             setState(() => _restoringSettings = false);
-            _maybeFlushQueue();
+            if (!displayOnly) _maybeFlushQueue();
+            _offerHeldQueue();
+          } else if (abandoned()) {
+            setState(() => _restoringSettings = false);
           }
         }
       }());
@@ -2696,13 +2842,22 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
       }
       setState(() {
         _loading = false;
-        _error = friendlyError(e);
-        _retry = _resumeAndLoad;
+        // A display-only refresh leaves the notice it was started for.
+        if (!displayOnly || _error == null) {
+          _error = friendlyError(e);
+          _retry = _resumeAndLoad;
+        }
       });
       if (propagateErrors) rethrow;
     } finally {
       if (current() && !restoringMetadata) {
         setState(() => _restoringSettings = false);
+      } else if (abandoned() && !restoringMetadata) {
+        setState(() {
+          _historySyncing = false;
+          _restoringSettings = false;
+          _loading = false;
+        });
       }
       if (identical(_historyLiveItems, liveItems)) {
         _historyLiveItems = null;
@@ -3175,8 +3330,19 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
       final decoded = jsonDecode(e.raw);
       if (decoded is Map) raw = decoded;
     } catch (_) {}
+    final known = _capsCache;
+    final generation = raw['generation'];
+    final lost = raw['connected'] == false || raw['replaced'] == true;
+    final moved =
+        lost ||
+        (generation is int &&
+            known != null &&
+            known.negotiated &&
+            generation != known.generation);
+    // Whatever the previous connection still answers is not this one's.
+    if (moved) _linkEpoch++;
     setState(_invalidateCaps);
-    if (raw['connected'] == false || raw['replaced'] == true) {
+    if (lost) {
       // The host attachments were granted for is gone (or another one
       // answers): nothing still being picked, read or uploaded may reach
       // whichever host the reconnect finds.
@@ -3187,8 +3353,18 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
       return;
     }
     if (raw['replaced'] == true) {
+      // Not current until a reconnect re-reads the conversation. When none
+      // can start now (debounced, backgrounded), the health check or the
+      // return to the foreground starts it; one already running finds this
+      // flag after its (now obsolete) reload and tries again.
+      setState(() => _connectionLost = true);
       _autoReconnect();
       return;
+    }
+    // A history read of the previous generation was dropped: read again
+    // from this one.
+    if (moved && _historySyncing && _threadId != null && !_reconnecting) {
+      unawaited(_resumeAndLoad());
     }
     _refreshAgentSettings();
   }
@@ -3325,6 +3501,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
     switch (e.kind) {
       case 'turn/started':
         _turnStateRevision++;
+        _turnStartSeen();
         // A fresh turn supersedes any prior plan: re-enable the implement
         // prompt so a new plan (if this turn produces one) can offer it again.
         // Capture the turn id so the stop button can interrupt this turn.
@@ -3368,8 +3545,9 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
       case 'turn/completed':
         // The end of an earlier turn (reported late, e.g. by a recovery)
         // must not end the one running now.
-        if (_endsAnotherTurn(e.raw)) return;
+        if (_endsAnotherTurn(e.raw) || _endsAnEndedTurn(e.raw)) return;
         _turnStateRevision++;
+        _turnEnded(e.raw);
         // Terminal notifications can carry errors on failed or interrupted turns.
         final failure = _turnFailureText(e.raw);
         setState(() {
@@ -3397,8 +3575,9 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
         // permanently stale for the thread the user is actually working in.
         _invalidateSummary(e.threadId);
       case 'turn/failed':
-        if (_endsAnotherTurn(e.raw)) return;
+        if (_endsAnotherTurn(e.raw) || _endsAnEndedTurn(e.raw)) return;
         _turnStateRevision++;
+        _turnEnded(e.raw);
         setState(() {
           _streaming = false;
           _supplement = false;
@@ -3456,6 +3635,75 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
     } catch (_) {
       return null;
     }
+  }
+
+  /// While the next turn is awaited, a repeated terminal event of a turn
+  /// this view already saw end (a recovery re-announcing it) is not the new
+  /// turn's end: it must neither release the queue nor reset anything.
+  bool _endsAnEndedTurn(String raw) {
+    if (!_awaitingTurnStart) return false;
+    final ended = _parseTurnId(raw);
+    return ended != null && _endedTurns.contains(ended);
+  }
+
+  /// A turn of this view ended: remember it, stop awaiting a start, and
+  /// re-read the agent's session state, which may still name it as running
+  /// and so hold the controls it gates.
+  void _turnEnded(String raw) {
+    final ended = _parseTurnId(raw);
+    if (ended != null && !_endedTurns.contains(ended)) {
+      _endedTurns.add(ended);
+      if (_endedTurns.length > 16) _endedTurns.removeAt(0);
+    }
+    _turnStartSeen();
+    if (_caps.sessionConfig) _refreshAgentSettings();
+  }
+
+  /// The admitted turn has not announced itself yet (see
+  /// [_awaitingTurnStart]).
+  void _expectTurnStart(_ComposerDraft draft, String threadId) {
+    _armTurnStart(_AwaitedStart(draft: draft, threadId: threadId));
+  }
+
+  void _armTurnStart(_AwaitedStart awaited) {
+    _awaitedStart = awaited;
+    _turnStartTimer?.cancel();
+    _turnStartTimer = Timer(_turnStartGrace, () {
+      if (mounted && identical(_awaitedStart, awaited)) {
+        unawaited(_reconcileAwaitedStart(awaited));
+      }
+    });
+  }
+
+  /// Whether [awaited] is still this view's admission: the same token (a
+  /// newer admission replaces it), draft and thread. A history reload of the
+  /// same conversation keeps it; leaving the conversation drops it.
+  bool _ownsAwaitedStart(_AwaitedStart awaited) =>
+      mounted &&
+      identical(_awaitedStart, awaited) &&
+      identical(_draft, awaited.draft) &&
+      _threadId == awaited.threadId;
+
+  /// The admitted turn's events never arrived: reload the conversation. Only
+  /// an authoritative history of this conversation from the current host
+  /// connection, read after the admission, releases it (see
+  /// [_resumeAndLoad]): running, the turn is shown and followed; idle, it
+  /// ended unseen and the reload's completion lets the queue continue. A
+  /// failed, obsolete, cached-only or display-only reload, one of a host
+  /// connection lost or replaced meanwhile (the reconnect's own reload
+  /// answers instead), or one overtaken by live turn events, releases
+  /// nothing, and a still-owned admission is asked again after another grace
+  /// period; elapsed time alone never releases it.
+  Future<void> _reconcileAwaitedStart(_AwaitedStart awaited) async {
+    if (!_ownsAwaitedStart(awaited)) return;
+    await _resumeAndLoad();
+    if (_ownsAwaitedStart(awaited)) _armTurnStart(awaited);
+  }
+
+  void _turnStartSeen() {
+    _awaitedStart = null;
+    _turnStartTimer?.cancel();
+    _turnStartTimer = null;
   }
 
   /// Whether a terminal event names a turn other than the one this view
@@ -3582,9 +3830,12 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
     bool retry = false,
     String? overrideText,
     _Queued? queued,
+    _Resend? resend,
   }) async {
+    // A retry re-sends exactly what its failed send put on the wire (its own
+    // captured copy; the last-sent fields move with every later send).
     final typed = retry
-        ? (_lastUserText ?? '')
+        ? (resend?.text ?? _lastUserText ?? '')
         : (queued?.text.trim() ?? overrideText ?? _input.text.trim());
     // Attachments ride an ordinary composer send only: a programmatic send
     // (e.g. "implement the plan") must not consume them, and a retry re-sends
@@ -3594,7 +3845,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
       queued?.attachments ?? _attachments,
     );
     final images = retry
-        ? _lastUserImages
+        ? (resend?.images ?? _lastUserImages)
         : !ordinary
         ? const <String>[]
         : [
@@ -3612,11 +3863,13 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
           ]
         : const <String>[];
     final text = appendFileRefs(typed, filePaths);
+    final again = _Resend(text: text, images: images);
     // Block sends while reconnecting — a reconnect reloads history and would
     // wipe an optimistic message added mid-flight.
     if (_externalWriterMode ||
         (text.isEmpty && images.isEmpty) ||
         _sending ||
+        (queued != null && (queued.inFlight || queued.uncertain)) ||
         _reconnecting ||
         _historySyncing ||
         _restoringSettings ||
@@ -3643,10 +3896,19 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
     final sendingDraft = _draft;
     final request = Object();
     _sendRequest = request;
-    bool current() =>
+    // The whole send goes to the service and host connection it began on:
+    // nothing is dispatched once that connection was lost or replaced, and
+    // an answer arriving after that is not adopted (see [_LinkMoved]).
+    final service = widget.serviceKey;
+    final link = _linkEpoch;
+    bool sameLink() => _linkEpoch == link;
+    // This view still shows the request's draft (navigation and a newer
+    // send replace the request).
+    bool shown() =>
         mounted &&
         identical(_sendRequest, request) &&
         identical(_draft, sendingDraft);
+    bool current() => shown() && sameLink();
     var targetThread = _threadId;
     final targetCwd = _cwd;
     final isNewThread = targetThread == null;
@@ -3662,26 +3924,47 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
     // nothing rather than a Codex preset they would have to interpret.
     final presets = _caps.permissionPresets;
     final tier = _caps.fast ? _requestedServiceTier : null;
+    // A queued message keeps its place until the host admits it.
     setState(() {
-      _localSending = true;
-      if (queued != null) _queue.remove(queued);
+      _holdSend(request);
+      queued?.inFlight = true;
     });
+    // Leaving before the send starts releases only what this request holds.
+    void abandon() {
+      queued?.inFlight = false;
+      if (!mounted) return;
+      setState(() => _releaseSend(request));
+    }
+
     // Retry safety: a send can commit server-side just before the socket drops
     // (we reconnect with reload:false to keep the optimistic bubble for a
     // one-tap retry). Re-sending a committed turn records the prompt twice —
     // which both shows a duplicate user bubble and leaves a trailing duplicate
     // that hides the plan-implement choice. So on retry, ask the server first;
     // if this prompt is already the latest user turn, just reload its (possibly
-    // in-progress) history instead of sending again.
+    // in-progress) history instead of sending again. An unreadable history
+    // decides nothing: the retry stays offered and nothing is sent.
     if (retry) {
+      // An answer of a connection that changed meanwhile is null (unverified).
       final committed = await _turnAlreadyCommitted(text, images);
-      if (!current()) return;
-      if (committed) {
-        setState(() => _localSending = false);
+      if (!shown()) {
+        abandon();
+        return;
+      }
+      if (committed != false) {
+        abandon();
+        if (committed == null) {
+          setState(() {
+            _error = l10n.retryUnverified;
+            _retry = () => _send(retry: true, resend: again);
+          });
+          return;
+        }
         await _resumeAndLoad();
         return;
       }
     }
+    String? bubble;
     setState(() {
       _error = null;
       _retry = null;
@@ -3689,6 +3972,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
       _lastUserImages = images;
       if (!retry) {
         final id = 'local-user-${_localSeq++}';
+        bubble = id;
         _itemIndex[id] = _items.length;
         _items.add(
           TranscriptItem(
@@ -3718,6 +4002,63 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
     _scrollToEnd(force: true);
     var dropped = false;
     var sent = false;
+    // Whether turn/start was put on the wire: an error before it admitted
+    // nothing.
+    var dispatched = false;
+    // A failed queued message keeps its text and attachments at the head of
+    // its queue, which pauses until the user acts: it is never replayed by
+    // itself. A proven refusal (nothing was admitted) may simply be retried;
+    // an [uncertain] one is sent again only by the user's explicit Retry
+    // (see [_resendUncertain]).
+    var requeued = false;
+    void holdQueued(String message, {required bool uncertain}) {
+      final entry = queued;
+      if (entry == null) return;
+      requeued = true;
+      entry.inFlight = false;
+      entry.uncertain = uncertain;
+      entry.failure = message;
+      sendingDraft.queuePaused = true;
+      if (!mounted || !identical(_draft, sendingDraft)) return;
+      setState(() {
+        final index = bubble == null ? -1 : _itemIndex[bubble] ?? -1;
+        if (index >= 0 && index < _items.length && _items[index].id == bubble) {
+          _items.removeAt(index);
+          _rebuildItemIndex();
+          _cachedRows = null;
+        }
+        _undoableDraft = null;
+        // The banner belongs to this request's view; otherwise the next
+        // reload or reconnect of the conversation offers it (see
+        // [_offerHeldQueue]).
+        if (shown()) {
+          _error = uncertain
+              ? '$message\n${l10n.queuedUncertainRetry}'
+              : message;
+          _retry = uncertain ? () => _resendUncertain(entry) : _resumeQueue;
+        }
+      });
+    }
+
+    // The host connection moved before this send could complete. Its input
+    // goes back to its own draft with the reason — nothing is resent on the
+    // user's behalf — and its optimistic copy is withdrawn (the reconnect's
+    // reload shows what the host holds).
+    void returnToDraft(String message) {
+      _restoreDraft(typed, sendAttachments, into: sendingDraft);
+      if (!mounted || !identical(_draft, sendingDraft)) return;
+      setState(() {
+        final index = bubble == null ? -1 : _itemIndex[bubble] ?? -1;
+        if (index >= 0 && index < _items.length && _items[index].id == bubble) {
+          _items.removeAt(index);
+          _rebuildItemIndex();
+          _cachedRows = null;
+        }
+        _undoableDraft = null;
+      });
+      showToast(context, '$message ${l10n.sendReturnedToDraft}');
+    }
+
     sendingDraft.sendPending = true;
     _drafts.save(sendingDraft, changed: true);
     try {
@@ -3736,7 +4077,10 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
       // id; resolve one (and reflect it in the chip) if left on "default".
       var modelId = _model?.id;
       if (collab != null && modelId == null) {
-        final models = await api.appModelList(widget.serviceKey);
+        final models = await api.appModelList(service);
+        // An answer of a connection that moved names nothing for this one,
+        // and nothing more is asked of whichever host answers now.
+        if (!sameLink()) throw const _LinkMoved();
         if (models.isNotEmpty) {
           modelId = models.first.id;
           if (current()) setState(() => _model = models.first);
@@ -3747,10 +4091,12 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
       // flip _planActive below — a silent UI/server divergence. Refuse instead so
       // the switch (enter/leave plan mode) never appears to succeed when it can't.
       if (collab != null && modelId == null) {
-        if (current()) {
+        if (queued != null) {
+          holdQueued(l10n.noModelForMode, uncertain: false);
+        } else if (shown()) {
           setState(() {
             _error = l10n.noModelForMode;
-            _retry = () => _send(retry: true);
+            _retry = () => _send(retry: true, resend: again);
           });
         } else if (ordinary) {
           _restoreDraft(typed, sendAttachments, into: sendingDraft);
@@ -3758,7 +4104,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
         return;
       }
       targetThread ??= await api.appThreadStart(
-        widget.serviceKey,
+        service,
         model: modelId,
         cwd: targetCwd,
         approvalPolicy: presets ? mode.approval : null,
@@ -3766,14 +4112,21 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
         serviceTier: tier,
         sandbox: presets ? mode.sandbox : null,
       );
+      // A session created through a connection that moved since (lost,
+      // replaced, another generation or source) is not known to be the
+      // current host's: nothing adopts or records it, and the input stays
+      // in its own unsent draft.
+      if (!sameLink()) throw const _LinkMoved();
       if (isNewThread) {
+        // The session exists for its draft even if the view moved on within
+        // the same connection; only that draft adopts it.
         _drafts.adoptThread(sendingDraft, targetThread);
         // The user may have reopened this same draft while thread/start waited.
         if (mounted && identical(_draft, sendingDraft)) {
           _threadId = targetThread;
           ref
               .read(uiPrefsProvider.notifier)
-              .setLastThread(widget.serviceKey, targetThread);
+              .setLastThread(service, targetThread);
           // A new ACP session reports its own options (if any).
           if (_caps.sessionConfig) _refreshAgentSettings();
         }
@@ -3812,8 +4165,13 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
       // Pass the current model + permission + collaboration mode every turn:
       // turn/start overrides apply to this and subsequent turns, so switching
       // works mid-conversation.
+      final turnRevision = _turnStateRevision;
+      // The model list or thread start above may have outlived the
+      // connection: nothing goes to whichever host answers now.
+      if (!sameLink()) throw const _LinkMoved();
+      dispatched = true;
       await api.appTurnStart(
-        widget.serviceKey,
+        service,
         targetThread,
         text,
         images: images,
@@ -3829,7 +4187,16 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
         // thread's sticky effort. null only when no effort has ever been set.
         reasoningEffort: effort?.wire,
       );
+      // Accepted by a connection that is gone now: whether the turn lives on
+      // is open, so nothing is adopted (no queue removal, no admission).
+      if (!sameLink()) throw const _LinkMoved();
       sent = true;
+      if (queued != null) sendingDraft.queue.remove(queued);
+      // Admitted, but its start may not have arrived: until it does the
+      // session is busy and the queue must not send the next message.
+      if (current() && !_streaming && _turnStateRevision == turnRevision) {
+        _expectTurnStart(sendingDraft, targetThread);
+      }
       if (current()) {
         setState(() {
           _planActive = _plan;
@@ -3861,24 +4228,43 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
         _refreshRuntimeFromCache();
       }
     } catch (e) {
-      final msg = friendlyError(e);
-      if (current()) {
-        setState(() {
-          _error = msg;
-          _retry = () => _send(retry: true);
-        });
-      } else if (ordinary) {
-        _restoreDraft(typed, sendAttachments, into: sendingDraft);
+      final moved = e is _LinkMoved;
+      final msg = !moved
+          ? friendlyError(e)
+          : dispatched
+          ? l10n.sendAnswerStale
+          : l10n.sendHostChanged;
+      final refused =
+          !sent && (!dispatched || (!moved && _definitelyRefused(msg)));
+      if (queued != null && !sent) {
+        // Its text and attachments stay queued either way; only a proven
+        // refusal may be retried without asking the host first.
+        holdQueued(msg, uncertain: !refused);
+      } else if (moved && ordinary) {
+        returnToDraft(msg);
+      } else {
+        if (shown()) {
+          setState(() {
+            _error = msg;
+            _retry = () => _send(retry: true, resend: again);
+          });
+        } else if (ordinary) {
+          // This view moved on: the input goes back to its own draft (it is
+          // never sent from there by itself).
+          _restoreDraft(typed, sendAttachments, into: sendingDraft);
+        }
+        if (shown() && !moved && _looksDisconnected(msg)) dropped = true;
       }
-      if (current() && _looksDisconnected(msg)) dropped = true;
     } finally {
+      if (queued != null && !requeued) queued.inFlight = false;
       sendingDraft.sendPending = false;
       _drafts.save(sendingDraft, changed: true);
-      if (current()) {
-        setState(() => _localSending = false);
-      }
+      if (mounted) setState(() => _releaseSend(request));
+      // Only an idle session drains; an admitted turn ends first (see
+      // [_awaitingTurnStart]).
       if (sent &&
           mounted &&
+          sameLink() &&
           identical(_draft, sendingDraft) &&
           _error == null &&
           !dropped) {
@@ -3890,24 +4276,28 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
     // committed server-side before the socket dropped, and resending would
     // duplicate it; the user retries with one tap instead. `reload: false`
     // keeps the optimistic message visible (and the plan toggle) for that retry.
-    if (dropped && current()) {
+    if (dropped && shown()) {
       await _autoReconnect(reload: false);
       // _autoReconnect cleared the error; re-offer the retry now that the
-      // connection is back (retry reuses _lastUserText + the existing bubble).
-      if (current() && !_connectionLost) {
+      // connection is back (retry re-sends this send's copy into the existing
+      // bubble).
+      if (shown() && !_connectionLost) {
         setState(() {
           _error = AppLocalizations.of(context).turnFailed;
-          _retry = () => _send(retry: true);
+          _retry = () => _send(retry: true, resend: again);
         });
       }
     }
   }
 
   /// Whether the server already recorded [text] as the latest user turn — i.e.
-  /// a send committed before the socket dropped. Makes retry idempotent so a
-  /// dropped-but-committed turn isn't sent (and recorded) twice. Returns false
-  /// if the host can't be reached, so an indeterminate case falls through to a
-  /// normal re-send (the prior, less-safe behaviour) rather than losing the turn.
+  /// a send committed before the socket dropped — so the user's explicit
+  /// Retry reloads instead of recording it twice. This only avoids the common
+  /// duplicate: a missing match is no proof that the send never arrived
+  /// (another writer, a bounded tail), which is why only the user's own Retry
+  /// acts on it. Returns null when the answer cannot be trusted: the history
+  /// was unreadable, or the conversation, connection or host changed while
+  /// it was read; the caller then keeps the message and sends nothing.
   ///
   /// Idempotency compares the full message content — text AND the image URL
   /// list (history echoes the data URLs we sent verbatim): if the user
@@ -3918,23 +4308,63 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
   /// would swallow a retry of a *different* photo. Accepted edge — avoiding a
   /// duplicate (costly) turn is preferred over re-sending a rare identical
   /// consecutive prompt.
-  Future<bool> _turnAlreadyCommitted(String text, List<String> images) async {
+  Future<bool?> _turnAlreadyCommitted(String text, List<String> images) async {
     final tid = _threadId;
     if (tid == null) return false;
+    // The answer counts only for the conversation, connection and host it
+    // was asked of.
+    final service = widget.serviceKey;
+    final link = _linkEpoch;
+    final hostGeneration = _caps.generation;
+    bool unchanged() =>
+        mounted &&
+        _threadId == tid &&
+        _linkEpoch == link &&
+        _caps.generation == hostGeneration;
     try {
       final api = ref.read(bridgeApiProvider);
-      await api.appThreadResume(widget.serviceKey, tid);
-      final history = await api.appThreadRead(widget.serviceKey, tid);
+      await api.appThreadResume(service, tid);
+      if (!unchanged()) return null;
+      final history = await api.appThreadRead(service, tid);
+      if (!unchanged()) return null;
       final want = text.trim();
       for (final i in history.items.reversed) {
         if (i.itemType == 'userMessage') {
           return i.text.trim() == want && listEquals(i.images, images);
         }
       }
+      return false;
     } catch (_) {
-      // Indeterminate (host unreachable) — fall through to a normal re-send.
+      return null;
     }
-    return false;
+  }
+
+  /// The user's explicit Retry of a queued message whose send may already
+  /// have reached the host. Nothing can prove it did not (the protocol has
+  /// no request identity, and history is bounded and shared with other
+  /// writers), so it is never resolved or sent by itself: this is the one
+  /// way it is sent again, exactly as queued (text and attachments) and
+  /// still first in line. Synchronous: it acts only on the head of the
+  /// shown conversation's queue while nothing else is being sent.
+  void _resendUncertain(_Queued entry) {
+    if (!mounted ||
+        _queue.isEmpty ||
+        !identical(_queue.first, entry) ||
+        !entry.uncertain ||
+        entry.inFlight ||
+        _sending ||
+        _connectionLost ||
+        _reconnecting) {
+      return;
+    }
+    setState(() {
+      entry.uncertain = false;
+      _draft.queuePaused = false;
+      _error = null;
+      _retry = null;
+    });
+    _saveDraft();
+    _maybeFlushQueue();
   }
 
   /// Carry out the plan the model just produced: leave plan mode and start a
@@ -3992,14 +4422,63 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
       unawaited(_sendSupplement());
       return;
     }
-    if (_streaming || _sending || _queue.isNotEmpty) {
+    if (_streaming || _sending || _awaitingTurnStart || _queue.isNotEmpty) {
       _enqueue();
+      // Sending again is the user's go-ahead for a paused queue.
+      _draft.queuePaused = false;
       // Idle with a residual backlog (e.g. a flush skipped during a reconnect):
       // drain it now so nothing stays stuck.
       if (!_streaming && !_sending) _maybeFlushQueue();
     } else {
       _send();
     }
+  }
+
+  /// A queued message held by a failed send keeps its explicit recovery:
+  /// when the banner that offered its Retry was cleared (a reload,
+  /// reconnect or reopening clears the banner), it is offered again —
+  /// unless another notice is shown. Nothing is sent from here. Otherwise a
+  /// held unknown-outcome notice ([_heldNotice]) of this conversation is
+  /// shown again, while no newer operation began.
+  void _offerHeldQueue() {
+    if (!mounted || _error != null) return;
+    final head = _queue.firstOrNull;
+    final failure = head?.failure;
+    if (head == null ||
+        failure == null ||
+        head.inFlight ||
+        !_draft.queuePaused) {
+      final held = _heldNotice;
+      if (held == null) return;
+      if (held.op != _composerOp) {
+        _heldNotice = null;
+        return;
+      }
+      if (identical(held.draft, _draft) && held.threadId == _threadId) {
+        setState(() {
+          _error = held.text;
+          _retry = null;
+        });
+      }
+      return;
+    }
+    final l10n = AppLocalizations.of(context);
+    setState(() {
+      _error = head.uncertain
+          ? '$failure\n${l10n.queuedUncertainRetry}'
+          : failure;
+      _retry = head.uncertain ? () => _resendUncertain(head) : _resumeQueue;
+    });
+  }
+
+  /// Retry of a refused queued message: resume the queue from its head.
+  void _resumeQueue() {
+    setState(() {
+      _draft.queuePaused = false;
+      _error = null;
+      _retry = null;
+    });
+    _maybeFlushQueue();
   }
 
   Future<void> _sendSupplement() async {
@@ -4025,27 +4504,60 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
         if (!attachment.isFile) ?attachment.processed?.dataUrl,
     ];
     final turnId = _turnId;
-    final generation = _threadLoadGeneration;
+    // The answer belongs to what asked: this service and host connection
+    // (capabilities move with every host change or reconnect), this thread
+    // view and its draft, and this request (leaving the conversation drops
+    // it, so returning to the same thread does not revive it).
+    final serviceKey = widget.serviceKey;
+    final link = _linkEpoch;
+    final hostGeneration = _caps.generation;
+    final historyGeneration = _historyGeneration;
     final request = Object();
     _supplementRequest = request;
-    bool current() =>
-        mounted && _threadId == tid && identical(_supplementRequest, request);
-    setState(() => _localSending = true);
+    bool visible() =>
+        mounted &&
+        _threadId == tid &&
+        identical(_draft, sendingDraft) &&
+        identical(_supplementRequest, request);
+    // Not [_capsEpoch]: a reload re-reading the agent's options moves it
+    // without any change of host.
+    setState(() => _holdSend(request));
+    // This operation's place in the composer's history: anything begun
+    // after it (finished or not) owns the view from then on.
+    final op = _composerOp;
+    bool owned() =>
+        visible() &&
+        _composerOp == op &&
+        widget.serviceKey == serviceKey &&
+        _linkEpoch == link &&
+        _caps.generation == hostGeneration &&
+        !_connectionLost &&
+        !_reconnecting;
     try {
-      final acceptedTurnId = await ref
+      final outcome = await ref
           .read(bridgeApiProvider)
-          .appTurnSteer(widget.serviceKey, tid, turnId, text, images: images);
-      if (sendingDraft.value.text == draft) {
-        sendingDraft.value = TextEditingValue.empty;
+          .appTurnSupplement(serviceKey, tid, turnId, text, images: images);
+      // Decided before anything is changed: an answer that no longer owns
+      // its input leaves the draft, its attachments and the queue alone.
+      if (!owned()) {
+        _supplementAnswerStale(
+          op,
+          tid,
+          sendingDraft,
+          injected: outcome.injected,
+        );
+        return;
       }
-      sendingDraft.attachments.removeWhere(
-        (a) => attachments.any((sent) => sent.id == a.id),
-      );
-      if (mounted && identical(_draft, sendingDraft)) {
-        _input.value = sendingDraft.value;
+      if (!outcome.injected) {
+        _supplementNotConsumed(sendingDraft, draft, attachments);
+        return;
       }
-      _drafts.save(sendingDraft, changed: true);
-      if (!current()) return;
+      final acceptedTurnId = outcome.turnId ?? turnId ?? '';
+      _takeSupplemented(sendingDraft, draft, attachments);
+      // A history read since the request may already hold the input; a
+      // reload then shows it once instead of adding a second copy.
+      final reload =
+          _historyGeneration != historyGeneration || _historyLoad != null;
       setState(() {
         final item = TranscriptItem(
           id: 'local-user-${_localSeq++}',
@@ -4055,7 +4567,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
           imageUrls: images,
           turnId: acceptedTurnId,
         );
-        if (generation == _threadLoadGeneration) {
+        if (!reload) {
           if (_streaming && _turnId == turnId) _turnId = acceptedTurnId;
           _itemIndex[item.id] = _items.length;
           _items.add(item);
@@ -4064,28 +4576,138 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
         _error = null;
         _retry = null;
       });
-      if (generation != _threadLoadGeneration) {
+      if (reload) {
         unawaited(_resumeAndLoad());
       } else {
         _scrollToEnd(force: true);
       }
     } catch (error) {
-      if (!current()) return;
+      // A failure seen after the connection moved (or after a newer
+      // operation began) proves nothing about what the host consumed: it
+      // gets the unknown-outcome notice when nothing newer owns the view,
+      // never "the turn ended".
+      if (!owned()) {
+        _supplementAnswerStale(op, tid, sendingDraft, injected: false);
+        return;
+      }
+      final message = friendlyError(error);
       setState(() {
-        _error = !_streaming || _turnId != turnId
+        // An answer that leaves the outcome open says so; otherwise a turn
+        // that moved on explains why the draft is kept.
+        _error =
+            !message.contains('may or may not') &&
+                (!_streaming || _turnId != turnId)
             ? AppLocalizations.of(context).steerTurnEnded
-            : friendlyError(error);
+            : message;
         _retry = null;
       });
     } finally {
-      if (current()) {
+      // Only a request that still owns its view and connection lets the
+      // queue continue; an obsolete one releases its own hold and no more.
+      final flush = owned();
+      if (mounted) {
         setState(() {
-          _localSending = false;
-          _supplementRequest = null;
+          _releaseSend(request);
+          if (identical(_supplementRequest, request)) {
+            _supplementRequest = null;
+          }
         });
-        _maybeFlushQueue();
       }
+      if (flush) _maybeFlushQueue();
     }
+  }
+
+  /// A supplement answer that no longer owns its input (the host or
+  /// connection changed, the conversation was left, or a newer request took
+  /// over): the draft, its attachments, the composer's mode and the queue
+  /// stay exactly as they are, and nothing is sent in its place. Only when
+  /// the same conversation shows the same draft and nothing newer (another
+  /// supplement or send) owns that view does a notice say so; when the host
+  /// reported the input added, a display-only refresh then shows what
+  /// arrived — keeping the notice, settling no admission, draining nothing.
+  void _supplementAnswerStale(
+    int op,
+    String threadId,
+    _ComposerDraft sendingDraft, {
+    required bool injected,
+  }) {
+    // Any operation begun after this one — pending or already finished —
+    // owns the view: its mode, notice, Retry and lock stay as they are.
+    if (!mounted ||
+        _composerOp != op ||
+        _threadId != threadId ||
+        !identical(_draft, sendingDraft) ||
+        sendingDraft.sendPending) {
+      return;
+    }
+    final text = AppLocalizations.of(context).steerAnswerStale;
+    setState(() {
+      _error = text;
+      _retry = null;
+      _heldNotice = (
+        draft: sendingDraft,
+        threadId: threadId,
+        op: op,
+        text: text,
+      );
+    });
+    // A reload already running, or a reconnect's, shows it anyway.
+    if (injected && !_historySyncing && !_reconnecting && !_connectionLost) {
+      unawaited(_resumeAndLoad(displayOnly: true));
+    }
+  }
+
+  /// The input reached the host: take exactly what was sent out of its
+  /// draft (the shown one) — the text only if it is unchanged, and the sent
+  /// attachments — leaving anything added or edited since in place.
+  void _takeSupplemented(
+    _ComposerDraft sendingDraft,
+    String draft,
+    List<_Attachment> attachments,
+  ) {
+    if (_input.text == draft) {
+      sendingDraft.value = TextEditingValue.empty;
+      _input.value = sendingDraft.value;
+    }
+    sendingDraft.attachments.removeWhere(
+      (a) => attachments.any((sent) => sent.id == a.id),
+    );
+    _drafts.save(sendingDraft, changed: true);
+  }
+
+  /// The turn ended before the supplement reached it, and nothing was
+  /// consumed: the input becomes the next turn, ahead of anything already
+  /// queued, and is sent once that turn's end is confirmed. Called only for
+  /// an owned answer (see [_sendSupplement]); only an exactly unchanged
+  /// input — the same text and the same attachments, none added, removed or
+  /// replaced — is queued; anything else stays in the composer, untouched.
+  void _supplementNotConsumed(
+    _ComposerDraft sendingDraft,
+    String draft,
+    List<_Attachment> attachments,
+  ) {
+    final unchanged =
+        _input.text == draft &&
+        sendingDraft.attachments.length == attachments.length &&
+        attachments.every(sendingDraft.attachments.contains);
+    if (!unchanged) {
+      setState(() {
+        _supplement = false;
+        _error = AppLocalizations.of(context).steerTurnEnded;
+        _retry = null;
+      });
+      return;
+    }
+    sendingDraft.queue.insert(
+      0,
+      _Queued(id: _drafts.nextQueueId++, text: draft, attachments: attachments),
+    );
+    sendingDraft.value = TextEditingValue.empty;
+    sendingDraft.attachments.removeWhere(attachments.contains);
+    _drafts.save(sendingDraft, changed: true);
+    _input.value = sendingDraft.value;
+    setState(() => _supplement = false);
+    showToast(context, AppLocalizations.of(context).steerQueuedAfterEnd);
   }
 
   /// Snapshot the composer (text + its ready attachments) into the queue and
@@ -4114,8 +4736,14 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
   /// text without replacing a newer draft still in the composer.
   void _maybeFlushQueue() {
     if (_queue.isEmpty ||
+        _draft.queuePaused ||
+        _queue.first.inFlight ||
+        // Only the user's explicit Retry sends it again (see
+        // [_resendUncertain]); nothing here asks the host about it.
+        _queue.first.uncertain ||
         _streaming ||
         _sending ||
+        _awaitingTurnStart ||
         _reconnecting ||
         _connectionLost ||
         _historySyncing ||
@@ -4130,7 +4758,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
   bool _onEscape() {
     // 1. A queued message is the most recent thing the user did — hand the last
     //    one back to the composer before touching the running turn.
-    if (_queue.isNotEmpty) {
+    if (_queue.any((q) => !q.inFlight)) {
       _dequeueLast();
       return true;
     }
@@ -4149,12 +4777,15 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
 
   /// Pop the most recently queued message back into the composer (Esc).
   void _dequeueLast() {
-    if (_queue.isNotEmpty) _restoreQueued(_queue.last);
+    final last = _queue.where((q) => !q.inFlight).lastOrNull;
+    if (last != null) _restoreQueued(last);
   }
 
   /// Take a queued message out of the queue and back into the composer so the
   /// user can edit/resend it (Esc, or tapping its chip), preserving newer input.
   void _restoreQueued(_Queued q) {
+    // One being sent belongs to its send now.
+    if (q.inFlight) return;
     setState(() => _queue.removeWhere((e) => e.id == q.id));
     _restoreDraft(q.text, q.attachments);
   }
@@ -4190,7 +4821,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
   /// Discard a specific queued message (the ✕ on its chip). Unlike Esc, this
   /// drops it rather than restoring it — the user explicitly removed it.
   void _discardQueued(int id) {
-    setState(() => _queue.removeWhere((q) => q.id == id));
+    setState(() => _queue.removeWhere((q) => q.id == id && !q.inFlight));
     _saveDraft();
   }
 
@@ -4523,11 +5154,8 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
     if (!mounted || !_foreground || _reconnecting) return;
     // Debounce: a flapping socket (connect succeeds then drops) could otherwise
     // spin reconnect attempts. The periodic health check is the backstop.
-    if (_lastReconnectAt != null &&
-        _lastReconnectAt!.elapsed < const Duration(seconds: 3)) {
-      return;
-    }
-    _lastReconnectAt = Stopwatch()..start();
+    if (_reconnectCooldown?.isActive ?? false) return;
+    _reconnectCooldown = Timer(const Duration(seconds: 3), () {});
     final epoch = ++_reconnectEpoch;
     final elapsed = Stopwatch()..start();
     bool current() => mounted && _foreground && epoch == _reconnectEpoch;
@@ -4571,6 +5199,15 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
           }
         }
         if (!current()) return;
+        // The connection moved while its read was out (another generation,
+        // or lost/replaced): that read applied nothing, so this attempt is
+        // not ready — ask the current host again rather than report it.
+        if (reload &&
+            _threadId != null &&
+            !_externalWriterMode &&
+            _historyAppliedLink != _linkEpoch) {
+          throw StateError('history read outlived its host connection');
+        }
         record('history-ready', attempt + 1);
         // Re-list too, not just the open transcript. `_loadThreads` runs once at
         // initState and is best-effort: if the host wasn't reachable then (it
@@ -4612,6 +5249,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
         }
         record('ready', attempt + 1);
         _maybeFlushQueue();
+        _offerHeldQueue();
         return;
       } catch (error) {
         if (!current()) return;
@@ -4632,6 +5270,24 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
       });
       _publishLinkState(down: true);
     }
+  }
+
+  /// Whether a dispatched turn/start failed with one of the agent host's own
+  /// refusals, each given before a turn is admitted. Every other failure —
+  /// a lost request or answer, a timeout, any phrasing not listed here —
+  /// leaves open whether the turn was admitted.
+  bool _definitelyRefused(String msg) {
+    final m = msg.toLowerCase();
+    return const [
+      'the agent is not running',
+      'the agent host changed',
+      'unknown session',
+      'a turn is already running in this session',
+      'the session is still loading',
+      'too many sessions are busy',
+      'too many pending operations',
+      'invalid request:',
+    ].any(m.startsWith);
   }
 
   /// Whether an error message looks like the app-server connection dropped, so
@@ -4850,7 +5506,8 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
       return;
     }
     final text = prompt.answerText(answers);
-    setState(() => _localSending = true);
+    final hold = Object();
+    setState(() => _holdSend(hold));
     try {
       final api = ref.read(bridgeApiProvider);
       if (_streaming) {
@@ -4870,7 +5527,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
         setState(() => _error = friendlyError(e));
       }
     } finally {
-      if (mounted) setState(() => _localSending = false);
+      if (mounted) setState(() => _releaseSend(hold));
     }
   }
 
@@ -5755,24 +6412,42 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
     // Only a provider whose sessions live on this device's Codex install
     // (local rollouts) has a Codex login to set up.
     if (!_caps.localSessions) return false;
-    final locals = watch
-        ? ref.watch(localServeListProvider)
-        : ref.read(localServeListProvider);
-    final isLocal = (locals.valueOrNull ?? const <AppServeStatus>[]).any(
-      (h) => h.appServiceKey == widget.serviceKey,
-    );
-    if (!isLocal) return false;
+    final host = _localHost(watch: watch);
+    if (host == null) return false;
+    // Launched with its own provider, the host does not use Codex's own
+    // setup at all.
+    if (host.configSource == 'custom') return false;
     final status = watch
         ? ref.watch(codexSetupStatusProvider)
         : ref.read(codexSetupStatusProvider);
     return status.valueOrNull?.needsSetup ?? false;
   }
 
-  /// Open the setup wizard, refreshing the status on return so the banner /
-  /// send-guard clear once codex is configured.
+  /// This conversation's host when it is one of this device's own hosts.
+  AppServeStatus? _localHost({required bool watch}) {
+    final locals = watch
+        ? ref.watch(localServeListProvider)
+        : ref.read(localServeListProvider);
+    return (locals.valueOrNull ?? const <AppServeStatus>[])
+        .where((h) => h.appServiceKey == widget.serviceKey)
+        .firstOrNull;
+  }
+
+  /// Open this host's model service in the hosting editor (sign-in or a
+  /// custom provider for exactly this host), or the Codex setup page where
+  /// this device cannot host. Nothing is saved or restarted by opening it;
+  /// the status is re-read on return so the banner / send-guard clear once
+  /// the host can make model calls.
   void _openCodexSetup() {
-    context.push('/setup/codex').then((_) {
-      if (mounted) ref.invalidate(codexSetupStatusProvider);
+    final host = _localHost(watch: false);
+    final Future<Object?> opened = host != null && isDesktop
+        ? showHostingEditor(context, existing: host)
+        : context.push('/setup/codex');
+    opened.then((_) {
+      if (!mounted) return;
+      ref
+        ..invalidate(codexSetupStatusProvider)
+        ..invalidate(localServeListProvider);
     });
   }
 
@@ -5810,7 +6485,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
                 TextButton(
                   key: const Key('codex-chat-setup-btn'),
                   onPressed: _openCodexSetup,
-                  child: Text(l10n.codexSetup),
+                  child: Text(l10n.hostSectionModel),
                 ),
               ],
             ),
@@ -9161,8 +9836,14 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
           else if (_retry != null)
             TextButton(onPressed: _retry, child: Text(l10n.retry)),
           IconButton(
+            key: const Key('session-error-dismiss'),
             icon: const Icon(Icons.close, size: 18),
-            onPressed: () => setState(() => _error = null),
+            tooltip: MaterialLocalizations.of(context).closeButtonTooltip,
+            onPressed: () => setState(() {
+              _error = null;
+              // Dismissing a held notice ends it.
+              _heldNotice = null;
+            }),
           ),
         ],
       ),
@@ -9781,6 +10462,20 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    if (q.uncertain)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 4),
+                        child: Tooltip(
+                          message: l10n.queuedUncertain,
+                          child: Icon(
+                            Icons.help_outline,
+                            key: Key('queued-uncertain-${q.id}'),
+                            size: 14,
+                            color: scheme.onSurfaceVariant,
+                            semanticLabel: l10n.queuedUncertain,
+                          ),
+                        ),
+                      ),
                     Flexible(
                       // Tapping a chip pulls it back into the composer to edit —
                       // the recover path on mobile, where there's no Esc.
@@ -10055,6 +10750,16 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
           onSelected: _sending
               ? null
               : (selected) => setState(() => _supplement = selected),
+        ),
+      // An ACP agent that did not advertise steering: say so instead of
+      // hiding the option; messages sent now queue for the next turn.
+      if (_streaming && !_caps.steer && _caps.isAcp)
+        turnChip(
+          key: const Key('supplement-unavailable'),
+          tooltip: l10n.steerUnavailableHint,
+          label: l10n.steerMessage,
+          selected: false,
+          onSelected: null,
         ),
     ];
 
@@ -11120,6 +11825,8 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
               ? l10n.restoringSessionSettings
               : _streaming
               ? (_supplement ? l10n.steerMessage : l10n.queueNextTurn)
+              : _awaitingTurnStart
+              ? l10n.queueNextTurn
               : l10n.send,
           style: IconButton.styleFrom(
             minimumSize: Size(side, side),
@@ -11132,7 +11839,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
             shape: const CircleBorder(),
           ),
           icon: Icon(
-            _streaming && !_supplement
+            (_streaming && !_supplement) || _awaitingTurnStart
                 ? Icons.playlist_add
                 : Icons.arrow_upward_rounded,
             size: touch ? 20 : 18,

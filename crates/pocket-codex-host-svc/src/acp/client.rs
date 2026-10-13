@@ -9,7 +9,7 @@ use reqwest::{Method, RequestBuilder};
 use serde_json::{json, Value};
 use url::Url;
 
-use super::host::Identity;
+use super::{host::Identity, schema::SteerOutcome};
 
 /// `body` plus the identity fields a mutation carries (see the gateway
 /// docs): the host incarnation and generation the caller acted on.
@@ -220,6 +220,34 @@ impl GatewayClient {
             .as_str()
             .map(str::to_string)
             .ok_or(ClientError::Protocol)
+    }
+
+    /// `POST sessions/steer`: add to the running turn (`turn` only, when
+    /// given). The answer names the outcome; an outcome this client does
+    /// not know is a [`ClientError::Protocol`] (what happened is unknown).
+    pub async fn steer(
+        &self,
+        session: &str,
+        turn: Option<&str>,
+        text: &str,
+        images: &[String],
+        expected: Option<&Identity>,
+    ) -> Result<(SteerOutcome, Option<String>), ClientError> {
+        let answer = self
+            .post(
+                "acp/v1/sessions/steer",
+                with_identity(
+                    json!({"sessionId": session, "turnId": turn, "text": text, "images": images}),
+                    expected,
+                ),
+            )
+            .await?;
+        let outcome = match answer["outcome"].as_str() {
+            Some("injected") => SteerOutcome::Injected,
+            Some("promptRequired") => SteerOutcome::PromptRequired,
+            _ => return Err(ClientError::Protocol),
+        };
+        Ok((outcome, answer["turnId"].as_str().map(str::to_string)))
     }
 
     /// `POST sessions/cancel`.

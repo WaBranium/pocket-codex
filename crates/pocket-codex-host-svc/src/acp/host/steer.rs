@@ -1,0 +1,141 @@
+//! Supplements: user input added to the running turn through the
+//! `_session/steering` extension, when the agent advertised it.
+//!
+//! The request opts into the `promptRequired` idle behaviour, so an idle
+//! agent answers that it consumed nothing instead of starting a turn by
+//! itself; the caller then sends an ordinary prompt. Which turn runs is
+//! checked before the dispatch lane and again under it, and the request is
+//! written under the lane, so it can never reach a turn admitted after the
+//! one it was meant for (see the parent module docs). Any answer other than
+//! `injected` / `promptRequired`, and any failure after the write, leaves
+//! the outcome unknown: it is reported, never retried and never turned into
+//! a prompt.
+
+use super::{
+    schema::{steering_params, SteerOutcome, STEERING_METHOD},
+    turns::{check_message, content_blocks},
+    *,
+};
+
+impl AgentHost {
+    /// Add `text` / `images` to the running turn of `session` (to
+    /// `expected_turn` only, when given). Returns the outcome and the turn
+    /// the input went to; [`SteerOutcome::PromptRequired`] (no turn: the
+    /// input was not consumed) comes without a turn.
+    pub async fn steer(
+        &self,
+        session: &str,
+        expected_turn: Option<&str>,
+        text: &str,
+        images: &[String],
+        expected: Option<&Identity>,
+    ) -> Result<(SteerOutcome, Option<String>), HostError> {
+        valid_id(session)?;
+        if let Some(turn) = expected_turn {
+            valid_id(turn)?;
+        }
+        check_message(text, images)?;
+        // The control budget covers the lane and the write.
+        let deadline = Instant::now() + self.budgets().control;
+        let (generation, peer, caps) = self.ready_for(expected)?;
+        if !caps.steering {
+            return Err(HostError::Unsupported(
+                "this agent cannot add to a running turn; queue the message instead".into(),
+            ));
+        }
+        let blocks = content_blocks(text, images, &caps)?;
+        let Some(turn) = self.steer_target(generation, session, expected_turn, false)? else {
+            return Ok((SteerOutcome::PromptRequired, None));
+        };
+        let Ok(lane) = tokio::time::timeout_at(deadline, self.inner.dispatch.lock()).await else {
+            // Nothing was written: the agent never saw it.
+            return Err(HostError::Timeout);
+        };
+        if self
+            .steer_target(generation, session, Some(&turn), true)?
+            .is_none()
+        {
+            // It ended while this waited for the lane.
+            return Ok((SteerOutcome::PromptRequired, None));
+        }
+        let call = peer
+            .send_request(STEERING_METHOD, steering_params(session, blocks), Some(deadline))
+            .await
+            .map_err(|error| self.call_error(generation, error))?;
+        drop(lane);
+        let answer = call
+            .wait(Some(self.budgets().answer))
+            .await
+            .map_err(|error| self.call_error(generation, error))?;
+        let outcome = SteerOutcome::from_result(&answer).ok_or_else(|| {
+            HostError::Agent(
+                "it answered in an unrecognized way, so the message may or may not have been added"
+                    .into(),
+            )
+        })?;
+        match outcome {
+            SteerOutcome::Injected => {
+                self.record_supplement(generation, session, &turn, text, images.len());
+                Ok((outcome, Some(turn)))
+            },
+            SteerOutcome::PromptRequired => Ok((outcome, None)),
+        }
+    }
+
+    /// The turn a supplement goes to: `None` when the session is idle (the
+    /// input is to be sent as a prompt). A different turn than `expected`,
+    /// one being cancelled, or — under the lane (`dispatched_only`) — one
+    /// not yet sent to the agent is refused.
+    fn steer_target(
+        &self,
+        generation: u64,
+        session: &str,
+        expected: Option<&str>,
+        dispatched_only: bool,
+    ) -> Result<Option<String>, HostError> {
+        let state = self.state();
+        if state.generation != generation {
+            return Err(HostError::NotReady);
+        }
+        let entry = state
+            .sessions
+            .get(session)
+            .ok_or(HostError::UnknownSession)?;
+        if entry.pending {
+            return Err(HostError::Loading);
+        }
+        let Some(active) = entry.active.as_ref() else { return Ok(None) };
+        if expected.is_some_and(|turn| turn != active.id)
+            || active.cancel_requested
+            || (dispatched_only && !active.dispatched)
+        {
+            return Err(HostError::TurnChanged);
+        }
+        Ok(Some(active.id.clone()))
+    }
+
+    /// Record an accepted supplement in `turn`'s transcript and tell the
+    /// controllers, whose folds add the same item (see
+    /// `Transcript::supplement`).
+    fn record_supplement(
+        &self,
+        generation: u64,
+        session: &str,
+        turn: &str,
+        text: &str,
+        images: usize,
+    ) {
+        let mut state = self.state();
+        if state.generation != generation {
+            return;
+        }
+        let text = clip(text, MAX_PROMPT_TEXT);
+        if let Some(transcript) = state.transcript_mut(session) {
+            transcript.supplement(turn, &text, images);
+        }
+        state.event(json!({
+            "type": "supplement", "sessionId": session, "turnId": turn,
+            "text": text, "imageCount": images,
+        }));
+    }
+}

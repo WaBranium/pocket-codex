@@ -16,6 +16,7 @@ import 'package:pocket_codex/src/bridge_api_rust.dart';
 import 'package:pocket_codex/src/providers.dart';
 import 'package:pocket_codex/src/screens/codex_setup_screen.dart';
 import 'package:pocket_codex/src/rust/api/bridge.dart' as frb;
+import 'package:pocket_codex/src/rust/api/bridge/codex_setup.dart' as frb;
 import 'package:pocket_codex/src/rust/frb_generated.dart';
 
 /// True when CODEX_HOME is an isolated temp dir we may freely write to.
@@ -90,14 +91,18 @@ void main() {
     expect(back, contains('[model_providers.pocket]'));
   });
 
-  testWidgets('CodexSetupScreen drives the real bridge to write a provider', (
-    tester,
-  ) async {
+  testWidgets('CodexSetupScreen reports the provider the real bridge reads, '
+      'and writes nothing', (tester) async {
     if (!_isolatedCodexHome) return;
     final codexHome = Platform.environment['CODEX_HOME']!;
     final configFile = File('$codexHome${Platform.pathSeparator}config.toml');
-    // Start clean so this test's assertion is unambiguous.
-    if (await configFile.exists()) await configFile.delete();
+    // A global provider written through the bridge (the page no longer has
+    // a form for it: a provider is set per host in the hosting editor).
+    await frb.codexSetupProvider(
+      baseUrl: 'https://ui.example.com/v1',
+      apiKey: 'sk-ui-secret',
+    );
+    final before = await configFile.readAsString();
 
     await tester.pumpWidget(
       ProviderScope(
@@ -111,22 +116,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.enterText(
-      find.byKey(const Key('codex-base-url')),
-      'https://ui.example.com/v1',
-    );
-    await tester.enterText(
-      find.byKey(const Key('codex-api-key')),
-      'sk-ui-secret',
-    );
-    await tester.tap(find.byKey(const Key('codex-save-provider')));
-    await tester.pumpAndSettle();
-
-    // The success line renders...
-    expect(find.byKey(const Key('codex-setup-info')), findsOneWidget);
-    // ...and the provider actually reached CODEX_HOME through the real bridge.
-    final config = await configFile.readAsString();
-    expect(config, contains('experimental_bearer_token = "sk-ui-secret"'));
-    expect(config, contains('base_url = "https://ui.example.com/v1"'));
+    // Reported from the real status, with no fields to edit it...
+    expect(find.byKey(const Key('codex-global-provider')), findsOneWidget);
+    expect(find.byKey(const Key('codex-base-url')), findsNothing);
+    expect(find.byKey(const Key('codex-save-provider')), findsNothing);
+    // ...and opening the page changed nothing on disk.
+    expect(await configFile.readAsString(), before);
   });
 }

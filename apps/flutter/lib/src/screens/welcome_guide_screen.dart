@@ -71,10 +71,7 @@ class _WelcomeGuideScreenState extends ConsumerState<WelcomeGuideScreen> {
   void _enterChat() => context.go('/');
 
   Future<void> _startHosting() async {
-    await showDialog<void>(
-      context: context,
-      builder: (_) => const LocalHostDialog(),
-    );
+    await showHostingEditor(context);
     if (!mounted) return;
     ref.invalidate(localServeListProvider);
     ref.invalidate(servicesProvider);

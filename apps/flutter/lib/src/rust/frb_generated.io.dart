@@ -4,6 +4,16 @@
 // ignore_for_file: unused_import, unused_element, unnecessary_import, duplicate_ignore, invalid_use_of_internal_member, annotate_overrides, non_constant_identifier_names, curly_braces_in_flow_control_structures, prefer_const_literals_to_create_immutables, unused_field
 
 import 'api/bridge.dart';
+import 'api/bridge/codex_setup.dart';
+import 'api/bridge/connection.dart';
+import 'api/bridge/events.dart';
+import 'api/bridge/host_config.dart';
+import 'api/bridge/host_sessions.dart';
+import 'api/bridge/hosted_account.dart';
+import 'api/bridge/hosting.dart';
+import 'api/bridge/services.dart';
+import 'api/bridge/session_config.dart';
+import 'api/bridge/threads.dart';
 import 'api/simple.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -63,6 +73,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   AcpCatalogStatusDto dco_decode_acp_catalog_status_dto(dynamic raw);
 
   @protected
+  AcpClaudeSetupDto dco_decode_acp_claude_setup_dto(dynamic raw);
+
+  @protected
+  AcpClaudeStatusDto dco_decode_acp_claude_status_dto(dynamic raw);
+
+  @protected
   AcpPresetDto dco_decode_acp_preset_dto(dynamic raw);
 
   @protected
@@ -81,6 +97,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   AppServeStatusDto dco_decode_app_serve_status_dto(dynamic raw);
 
   @protected
+  AppTurnSupplementDto dco_decode_app_turn_supplement_dto(dynamic raw);
+
+  @protected
   bool dco_decode_bool(dynamic raw);
 
   @protected
@@ -96,6 +115,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   bool dco_decode_box_autoadd_bool(dynamic raw);
+
+  @protected
+  HostActiveDto dco_decode_box_autoadd_host_active_dto(dynamic raw);
+
+  @protected
+  HostConfigInputDto dco_decode_box_autoadd_host_config_input_dto(dynamic raw);
+
+  @protected
+  HostRuntimeDto dco_decode_box_autoadd_host_runtime_dto(dynamic raw);
 
   @protected
   PlatformInt64 dco_decode_box_autoadd_i_64(dynamic raw);
@@ -118,7 +146,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int dco_decode_box_autoadd_u_32(dynamic raw);
 
   @protected
+  BigInt dco_decode_box_autoadd_u_64(dynamic raw);
+
+  @protected
   CodexAuthStatusDto dco_decode_codex_auth_status_dto(dynamic raw);
+
+  @protected
+  CodexLocalAuthDto dco_decode_codex_local_auth_dto(dynamic raw);
 
   @protected
   CodexLoginStartDto dco_decode_codex_login_start_dto(dynamic raw);
@@ -149,6 +183,27 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   HolderDto dco_decode_holder_dto(dynamic raw);
+
+  @protected
+  HostActiveDto dco_decode_host_active_dto(dynamic raw);
+
+  @protected
+  HostApplyDto dco_decode_host_apply_dto(dynamic raw);
+
+  @protected
+  HostConfigDto dco_decode_host_config_dto(dynamic raw);
+
+  @protected
+  HostConfigInputDto dco_decode_host_config_input_dto(dynamic raw);
+
+  @protected
+  HostConfigSupportDto dco_decode_host_config_support_dto(dynamic raw);
+
+  @protected
+  HostRuntimeDto dco_decode_host_runtime_dto(dynamic raw);
+
+  @protected
+  HostStartedDto dco_decode_host_started_dto(dynamic raw);
 
   @protected
   PlatformInt64 dco_decode_i_64(dynamic raw);
@@ -241,12 +296,21 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   AccountUserDto? dco_decode_opt_box_autoadd_account_user_dto(dynamic raw);
 
   @protected
+  AcpAgentSpecDto? dco_decode_opt_box_autoadd_acp_agent_spec_dto(dynamic raw);
+
+  @protected
   AcpCatalogStatusDto? dco_decode_opt_box_autoadd_acp_catalog_status_dto(
     dynamic raw,
   );
 
   @protected
   bool? dco_decode_opt_box_autoadd_bool(dynamic raw);
+
+  @protected
+  HostActiveDto? dco_decode_opt_box_autoadd_host_active_dto(dynamic raw);
+
+  @protected
+  HostRuntimeDto? dco_decode_opt_box_autoadd_host_runtime_dto(dynamic raw);
 
   @protected
   PlatformInt64? dco_decode_opt_box_autoadd_i_64(dynamic raw);
@@ -266,6 +330,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   int? dco_decode_opt_box_autoadd_u_32(dynamic raw);
+
+  @protected
+  BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw);
 
   @protected
   List<String>? dco_decode_opt_list_String(dynamic raw);
@@ -391,6 +458,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  AcpClaudeSetupDto sse_decode_acp_claude_setup_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  AcpClaudeStatusDto sse_decode_acp_claude_status_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   AcpPresetDto sse_decode_acp_preset_dto(SseDeserializer deserializer);
 
   @protected
@@ -409,6 +486,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   AppServeStatusDto sse_decode_app_serve_status_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  AppTurnSupplementDto sse_decode_app_turn_supplement_dto(
     SseDeserializer deserializer,
   );
 
@@ -432,6 +514,21 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   bool sse_decode_box_autoadd_bool(SseDeserializer deserializer);
+
+  @protected
+  HostActiveDto sse_decode_box_autoadd_host_active_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  HostConfigInputDto sse_decode_box_autoadd_host_config_input_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  HostRuntimeDto sse_decode_box_autoadd_host_runtime_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   PlatformInt64 sse_decode_box_autoadd_i_64(SseDeserializer deserializer);
@@ -460,7 +557,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int sse_decode_box_autoadd_u_32(SseDeserializer deserializer);
 
   @protected
+  BigInt sse_decode_box_autoadd_u_64(SseDeserializer deserializer);
+
+  @protected
   CodexAuthStatusDto sse_decode_codex_auth_status_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  CodexLocalAuthDto sse_decode_codex_local_auth_dto(
     SseDeserializer deserializer,
   );
 
@@ -501,6 +606,31 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   HolderDto sse_decode_holder_dto(SseDeserializer deserializer);
+
+  @protected
+  HostActiveDto sse_decode_host_active_dto(SseDeserializer deserializer);
+
+  @protected
+  HostApplyDto sse_decode_host_apply_dto(SseDeserializer deserializer);
+
+  @protected
+  HostConfigDto sse_decode_host_config_dto(SseDeserializer deserializer);
+
+  @protected
+  HostConfigInputDto sse_decode_host_config_input_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  HostConfigSupportDto sse_decode_host_config_support_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  HostRuntimeDto sse_decode_host_runtime_dto(SseDeserializer deserializer);
+
+  @protected
+  HostStartedDto sse_decode_host_started_dto(SseDeserializer deserializer);
 
   @protected
   PlatformInt64 sse_decode_i_64(SseDeserializer deserializer);
@@ -621,12 +751,27 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  AcpAgentSpecDto? sse_decode_opt_box_autoadd_acp_agent_spec_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   AcpCatalogStatusDto? sse_decode_opt_box_autoadd_acp_catalog_status_dto(
     SseDeserializer deserializer,
   );
 
   @protected
   bool? sse_decode_opt_box_autoadd_bool(SseDeserializer deserializer);
+
+  @protected
+  HostActiveDto? sse_decode_opt_box_autoadd_host_active_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  HostRuntimeDto? sse_decode_opt_box_autoadd_host_runtime_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   PlatformInt64? sse_decode_opt_box_autoadd_i_64(SseDeserializer deserializer);
@@ -648,6 +793,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   int? sse_decode_opt_box_autoadd_u_32(SseDeserializer deserializer);
+
+  @protected
+  BigInt? sse_decode_opt_box_autoadd_u_64(SseDeserializer deserializer);
 
   @protected
   List<String>? sse_decode_opt_list_String(SseDeserializer deserializer);
@@ -806,6 +954,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_acp_claude_setup_dto(
+    AcpClaudeSetupDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_acp_claude_status_dto(
+    AcpClaudeStatusDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_acp_preset_dto(AcpPresetDto self, SseSerializer serializer);
 
   @protected
@@ -826,6 +986,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_app_serve_status_dto(
     AppServeStatusDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_app_turn_supplement_dto(
+    AppTurnSupplementDto self,
     SseSerializer serializer,
   );
 
@@ -852,6 +1018,24 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_box_autoadd_bool(bool self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_host_active_dto(
+    HostActiveDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_host_config_input_dto(
+    HostConfigInputDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_host_runtime_dto(
+    HostRuntimeDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_i_64(
@@ -887,8 +1071,17 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_box_autoadd_u_32(int self, SseSerializer serializer);
 
   @protected
+  void sse_encode_box_autoadd_u_64(BigInt self, SseSerializer serializer);
+
+  @protected
   void sse_encode_codex_auth_status_dto(
     CodexAuthStatusDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_codex_local_auth_dto(
+    CodexLocalAuthDto self,
     SseSerializer serializer,
   );
 
@@ -936,6 +1129,39 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_holder_dto(HolderDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_host_active_dto(HostActiveDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_host_apply_dto(HostApplyDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_host_config_dto(HostConfigDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_host_config_input_dto(
+    HostConfigInputDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_host_config_support_dto(
+    HostConfigSupportDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_host_runtime_dto(
+    HostRuntimeDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_host_started_dto(
+    HostStartedDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer);
@@ -1085,6 +1311,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_acp_agent_spec_dto(
+    AcpAgentSpecDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_acp_catalog_status_dto(
     AcpCatalogStatusDto? self,
     SseSerializer serializer,
@@ -1092,6 +1324,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_opt_box_autoadd_bool(bool? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_host_active_dto(
+    HostActiveDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_host_runtime_dto(
+    HostRuntimeDto? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_box_autoadd_i_64(
@@ -1119,6 +1363,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_opt_box_autoadd_u_32(int? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_u_64(BigInt? self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_list_String(List<String>? self, SseSerializer serializer);

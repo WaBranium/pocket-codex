@@ -452,6 +452,7 @@
   "localHostUnresponsive": "Not responding",
   "startHosting": "Start hosting",
   "stopHosting": "Stop hosting",
+  "localHostStopFailed": "Did not stop: stop again",
   "localHostPort": "Port",
   "localHostName": "Instance name",
   "codexBinaryPath": "codex binary path",
@@ -666,9 +667,9 @@
   "welcomeEnterChat": "Enter the chat",
   "welcomeSkip": "Skip the guide",
   "codexSetup": "Configure Codex",
-  "codexChatNeedsSetup": "Model access isn't set up yet — configure Codex before chatting.",
+  "codexChatNeedsSetup": "Model access isn't set up yet — set this host's model service before chatting.",
   "codexSetupStepTitle": "Configure Codex model access",
-  "codexSetupStepDesc": "Fill in a provider (URL + API Key) or sign in with ChatGPT, and optionally switch on the non-degraded system prompt.",
+  "codexSetupStepDesc": "Sign in with ChatGPT, or give a host its own provider when you host it, and optionally switch on the non-degraded system prompt.",
   "codexSetupProviderSection": "Custom provider",
   "codexSetupProviderDesc": "Point codex at a third-party or self-hosted model service with its Base URL and API key.",
   "codexSetupModelLabel": "Model (optional, default gpt-5.5)",
@@ -709,6 +710,17 @@
   "codexSetupStatusReadyHint": "codex can make model calls.",
   "codexSetupCodexHomeLabel": "Config directory",
   "codexSetupCredentialExists": "credential present",
+  "codexSetupProviderPerHost": "Set per host: each host's own model service can use a custom provider.",
+  "codexSetupProviderScope": "This page sets up Codex itself (its config directory below): the ChatGPT sign-in and the prompt option. Hosts set to \"Existing configuration\" use it. A host's own custom provider or official account is chosen in that host's editor.",
+  "codexSetupGlobalProvider": "Codex's own configuration already selects a custom provider. Hosts set to \"Existing configuration\" keep using it.",
+  "codexSetupConfigureHost": "Configure a host",
+  "codexSetupHostingDesktopOnly": "Hosting runs on a desktop; set a host's provider there.",
+  "settingsHosting": "Hosting and model service",
+  "settingsHostingDesc": "A host's agent, model service and sign-in",
+  "hostPickTitle": "Configure which host?",
+  "hostPickHint": "Each host keeps its own model service. Choosing one only opens its editor. Save keeps a running host as it is; its saved configuration takes effect only after Apply and restart.",
+  "hostPickNew": "New host",
+  "hostPickLoadFailed": "The running hosts could not be read. You can still set up a new host.",
   "resizeComposer": "Drag to resize; double-click to reset",
   "historyGap": "Load messages in this gap",
   "reviewRequest": "Automatic review request",
@@ -802,6 +814,15 @@
   "steerMessageHint": "Add to the current turn at its next step. Otherwise, queue for the next turn.",
   "queueNextTurn": "Queue for next turn",
   "steerTurnEnded": "The turn changed or ended. Your draft is kept; send it as a new turn.",
+  "steerUnavailableHint": "This agent cannot add to a running turn. Messages you send now are queued for the next turn.",
+  "steerQueuedAfterEnd": "The turn had already ended, so your supplement will be sent as the next turn.",
+  "retryUnverified": "Could not check whether the host received this message, so it was not sent again. Retry when the host is reachable.",
+  "queuedUncertain": "May already have been sent. It is sent again only if you retry it.",
+  "queuedUncertainRetry": "It may already have reached the host, so it stays queued and is not sent by itself. Check the conversation: Retry sends it again, tapping it lets you edit it.",
+  "steerAnswerStale": "The answer arrived after this conversation's host or view changed, so your draft is kept as it was. Check the conversation before sending it again.",
+  "sendHostChanged": "The host connection changed before this message was sent, so nothing was sent.",
+  "sendAnswerStale": "The host answered after its connection changed, so it is unknown whether this message arrived.",
+  "sendReturnedToDraft": "It is back in the composer; check the conversation before sending it again.",
   "advancedSettings": "Advanced settings",
   "planModeDescription": "Plan first without implementing. Normal mode is recommended for most tasks.",
   "imageGenerating": "Generating image…",
@@ -928,6 +949,61 @@
   },
   "acpSecretsNote": "Saved agents are stored on this device in plain text. Avoid secrets in arguments; prefer the agent's own sign-in.",
   "acpProgramNotFound": "This program was not found on this device.",
+  "claudeEnvTitle": "Claude on this computer",
+  "claudeAdapterInstalled": "ACP adapter: {path}",
+  "@claudeAdapterInstalled": {
+    "placeholders": { "path": { "type": "String" } }
+  },
+  "claudeAdapterPrepared": "ACP adapter (prepared by this app): {path}",
+  "@claudeAdapterPrepared": {
+    "placeholders": { "path": { "type": "String" } }
+  },
+  "claudeAdapterWillPrepare": "The ACP adapter is not installed. Start downloads {package} from npm into this app's cache (nothing global changes), then starts Claude.",
+  "@claudeAdapterWillPrepare": {
+    "placeholders": { "package": { "type": "String" } }
+  },
+  "claudeAdapterMissing": "The ACP adapter ({package}) is not installed, and it cannot be prepared here.",
+  "@claudeAdapterMissing": {
+    "placeholders": { "package": { "type": "String" } }
+  },
+  "claudeNodeFound": "Node.js {version}: {path}",
+  "@claudeNodeFound": {
+    "placeholders": { "version": { "type": "String" }, "path": { "type": "String" } }
+  },
+  "claudeNodeTooOld": "Node.js {version} is too old; the adapter needs Node.js 22 or newer.",
+  "@claudeNodeTooOld": {
+    "placeholders": { "version": { "type": "String" } }
+  },
+  "claudeNodeMissing": "Node.js 22 or newer was not found.",
+  "claudeCliFound": "Claude Code: {path}",
+  "@claudeCliFound": {
+    "placeholders": { "path": { "type": "String" } }
+  },
+  "claudeCliInherited": "Claude Code: as set in CLAUDE_CODE_EXECUTABLE",
+  "claudeCliBundled": "Claude Code was not found; the adapter uses its bundled copy.",
+  "claudeEnvRecheck": "Check again",
+  "claudePreparing": "Preparing the Claude ACP adapter… {seconds} s",
+  "@claudePreparing": {
+    "placeholders": { "seconds": { "type": "int" } }
+  },
+  "claudePrepareVerifying": "Checking the downloaded adapter… {seconds} s",
+  "@claudePrepareVerifying": {
+    "placeholders": { "seconds": { "type": "int" } }
+  },
+  "claudePrepareCancel": "Stop preparing",
+  "claudePrepareStopWaiting": "Stop waiting",
+  "claudePrepareJoined": "Another window started this preparation; this page only follows it.",
+  "claudePrepareLeftRunning": "Stopped waiting. The preparation started elsewhere keeps running.",
+  "claudePrepareReplaced": "Another preparation replaced the one this page followed, so its result is not shown here. Start again to retry.",
+  "quitStopping": "Stopping hosted agents before quitting…",
+  "quitBlocked": "The app stays open because hosting could not be stopped safely: {error}",
+  "@quitBlocked": {"placeholders": {"error": {"type": "String"}}},
+  "quitRetry": "Quit again",
+  "claudePrepareFailed": "Preparing the Claude ACP adapter failed: {error}",
+  "@claudePrepareFailed": {
+    "placeholders": { "error": { "type": "String" } }
+  },
+  "claudePrepareCancelled": "Preparing the Claude ACP adapter was stopped. Start tries again.",
   "acpProgramFound": "Found: {path}",
   "@acpProgramFound": {
     "placeholders": { "path": { "type": "String" } }
@@ -945,6 +1021,26 @@
   "acpFeatures": "Agent features",
   "acpCatalog": "Model catalog",
   "acpCatalogWaiting": "The agent's model catalog is listed when its first session opens.",
+  "acpRouteWaiting": "Whether OpenCode uses this host's provider is checked when its first session opens.",
+  "acpRouteSelected": "OpenCode uses this host's provider and model.",
+  "acpRouteOverridden": "Another OpenCode configuration overrides this host's provider: {reasons}. Requests may go elsewhere.",
+  "@acpRouteOverridden": {"placeholders": {"reasons": {"type": "String"}}},
+  "acpRouteUnverified": "Whether OpenCode uses this host's provider cannot be checked: {reasons}.",
+  "@acpRouteUnverified": {"placeholders": {"reasons": {"type": "String"}}},
+  "acpRouteReasonModel": "it selects another model",
+  "acpRouteReasonEnabled": "enabled_providers leaves it out",
+  "acpRouteReasonDisabled": "disabled_providers names it",
+  "acpRouteReasonMissing": "the provider is missing from the merged configuration",
+  "acpRouteReasonSmallModel": "small_model names another provider",
+  "acpRouteReasonAgentModel": "an agent or mode model names another provider",
+  "acpRouteReasonProvider": "another layer changed the provider's definition",
+  "acpRouteEnforced": "Other OpenCode configuration differed and was reset to this host's provider: {reasons}.",
+  "@acpRouteEnforced": {"placeholders": {"reasons": {"type": "String"}}},
+  "acpRouteRefused": "OpenCode was given no usable provider: this host's key is missing in the agent's environment, so no prompt can be sent. Save the key again and restart the host.",
+  "acpRouteReasonKey": "the host's key is missing in the agent",
+  "acpRouteProjects": "Projects checked, as the plugin input names them (not verified against OpenCode's source): {projects}",
+  "@acpRouteProjects": {"placeholders": {"projects": {"type": "String"}}},
+  "acpRouteScope": "This covers OpenCode's merged configuration, with this host's key pinned over a key saved for the same provider with `opencode auth login`. Another plugin's provider or auth loader for the same provider, or a later plugin's hook, is not covered.",
   "acpCatalogUnavailable": "The model catalog could not be added to the agent: {reason}",
   "@acpCatalogUnavailable": {"placeholders": {"reason": {"type": "String"}}},
   "acpCatalogReasonPluginsDisabled": "the agent runs with plugins disabled (--pure or OPENCODE_PURE)",
@@ -1002,5 +1098,97 @@
   "omittedLocations": "file locations",
   "omittedPlan": "plan steps",
   "omittedContent": "some output",
-  "omittedSeparator": ", "
+  "omittedSeparator": ", ",
+  "hostEditorTitle": "Host {name}",
+  "@hostEditorTitle": {
+    "placeholders": { "name": { "type": "String" } }
+  },
+  "hostSectionAgent": "Agent",
+  "hostSectionStatus": "Status",
+  "hostSectionModel": "Model service",
+  "hostSectionModelHint": "Where this host's agent sends model requests. Saved per host on this device.",
+  "hostSourceInherited": "Existing configuration",
+  "hostSourceOfficial": "Official account",
+  "hostSourceCustom": "Custom provider",
+  "hostInheritedOnly": "This agent is launched with its own configuration. Pocket-Codex does not know a provider setting it supports.",
+  "hostInheritedAcp": "The agent uses its own configuration files and environment, unchanged.",
+  "hostInheritedCodexCustom": "Codex's config.toml already selects provider {provider}. Nothing more is needed.",
+  "@hostInheritedCodexCustom": {
+    "placeholders": { "provider": { "type": "String" } }
+  },
+  "hostInheritedCodexAccount": "Codex is already signed in. Nothing more is needed.",
+  "hostInheritedCodexInvalid": "Codex's config.toml could not be read. Fix it, or choose an option below.",
+  "hostInheritedCodexNone": "Codex has no sign-in or provider yet. Sign in or add a custom provider.",
+  "hostInheritedCodexHome": "Configuration directory: {path}",
+  "@hostInheritedCodexHome": {
+    "placeholders": { "path": { "type": "String" } }
+  },
+  "hostProtocolLabel": "API type",
+  "hostProtocolResponses": "OpenAI Responses",
+  "hostProtocolAnthropic": "Anthropic Messages",
+  "hostProtocolChat": "OpenAI Chat Completions",
+  "hostBaseUrl": "Base URL",
+  "hostApiKey": "API key",
+  "hostApiKeyStored": "A key is stored. Leave empty to keep it.",
+  "hostKeyEnvNote": "Stored only on this device and handed to the agent when it starts, never on its command line.",
+  "hostApiKeyRemove": "Remove stored key",
+  "hostModelOptional": "Model (optional)",
+  "hostBaseUrlRequired": "Enter the provider's base URL.",
+  "hostSaveConfig": "Save",
+  "hostConfigSaved": "Saved. The running host keeps its current configuration until it restarts.",
+  "hostConfigPending": "Saved changes are not active yet. Restart the host to apply them.",
+  "hostApplyRestart": "Apply and restart",
+  "hostSaveAndRestart": "Save and restart",
+  "hostApplyNote": "Restarting stops the agent briefly and disconnects open sessions. If the new configuration fails to start, the previous one is restored.",
+  "hostApplied": "Restarted with the new configuration.",
+  "hostApplyRestored": "The new configuration failed, so the previous one was restored: {error}",
+  "@hostApplyRestored": {
+    "placeholders": { "error": { "type": "String" } }
+  },
+  "hostApplyFailed": "Restart failed and the host is stopped: {error}",
+  "@hostApplyFailed": {
+    "placeholders": { "error": { "type": "String" } }
+  },
+  "hostOfficialNote": "Sign-in runs on a private local Codex server, so no host needs to be running.",
+  "hostAgentEditNote": "Changing the launch command takes effect on restart.",
+  "hostCodexRuntimeFixed": "What the host runs now. Edit the runtime below, save, then apply to restart with it.",
+  "hostLoginRefreshFailed": "Could not check the sign-in; retrying: {error}",
+  "@hostLoginRefreshFailed": {
+    "placeholders": { "error": { "type": "String" } }
+  },
+  "hostLoginNotOfficial": "Codex finished the login, but not with a ChatGPT account. Sign in again.",
+  "hostLoginFailed": "Sign-in failed: {error}",
+  "@hostLoginFailed": {
+    "placeholders": { "error": { "type": "String" } }
+  },
+  "hostSourceUnsupported": "The saved model service cannot be used with this agent. Choose another one.",
+  "hostModelRequired": "Enter the default model this provider should use.",
+  "hostKeyRequired": "Enter the provider's API key.",
+  "hostModelDefault": "Default model",
+  "hostModelDefaultNote": "The provider's model for new sessions. A conversation's own model choice is made in the conversation and is not stored here.",
+  "hostLeaveTitle": "Discard unsaved changes?",
+  "hostLeaveBody": "Your changes to this host have not been saved.",
+  "hostLeaveStay": "Keep editing",
+  "hostLeaveDiscard": "Discard",
+  "hostApplyConfirmTitle": "Restart {name}?",
+  "@hostApplyConfirmTitle": {
+    "placeholders": { "name": { "type": "String" } }
+  },
+  "hostApplyConfirmBody": "The host stops and starts again with its saved configuration. A running turn is interrupted and open conversations reconnect. Drafts, attachments and queued messages on this device are kept. Other hosts are not affected.",
+  "hostReplaced": "This host was restarted elsewhere since this page read it. Reload before applying.",
+  "hostApplyStopped": "The new configuration failed ({error}) and restoring the previous one failed too ({restoreError}). The host is stopped.",
+  "@hostApplyStopped": {
+    "placeholders": { "error": { "type": "String" }, "restoreError": { "type": "String" } }
+  },
+  "hostGone": "This host is no longer running.",
+  "hostConfigReload": "Reload",
+  "hostConfigNewer": "A newer saved configuration exists. Reload to see it (your edits are discarded).",
+  "hostConfigLoadFailedTitle": "Configuration unavailable",
+  "hostConfigLoadFailed": "Could not read this host's saved configuration: {error}",
+  "@hostConfigLoadFailed": {
+    "placeholders": { "error": { "type": "String" } }
+  },
+  "hostRuntimeEditNote": "Saved changes take effect when you apply them; the name stays.",
+  "hostAgentUnknown": "This host does not report its agent, so it cannot be edited here.",
+  "hostApiProxyNote": "This host also publishes a separate Responses API service (api:<name>). It always uses this device's official Codex sign-in, not the provider chosen here."
 }

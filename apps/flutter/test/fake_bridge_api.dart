@@ -332,6 +332,9 @@ class FakeBridgeApi implements BridgeApi {
   /// When set, [codexLocate] waits for it (then clears it).
   Completer<void>? codexLocateGate;
 
+  /// How many times [codexLocate] was asked.
+  int codexLocateCalls = 0;
+
   /// When set, [appServeStart] waits for it (then clears it).
   Completer<void>? serveStartGate;
 
@@ -358,6 +361,7 @@ class FakeBridgeApi implements BridgeApi {
     final appKey = 'pcx:$device:app:$n';
     final apiKey = 'pcx:$device:api:$n';
     final metaKey = 'pcx:$device:meta:$n';
+    activeRuntimes.remove(n);
     serveHosts
       ..removeWhere((h) => h.name == n)
       ..add(
@@ -464,6 +468,10 @@ class FakeBridgeApi implements BridgeApi {
   /// When set, [appServeStop] waits for it (then clears it).
   Completer<void>? serveStopGate;
 
+  /// How many more [appServeStop] calls fail as the bridge does when a
+  /// host's codex did not exit (the host stays listed).
+  int serveStopFailures = 0;
+
   @override
   Future<void> appServeStop(String name) async {
     final gate = serveStopGate;
@@ -471,14 +479,25 @@ class FakeBridgeApi implements BridgeApi {
       serveStopGate = null;
       await gate.future;
     }
+    if (serveStopFailures > 0) {
+      serveStopFailures--;
+      throw StateError(
+        "an earlier codex of `$name` did not exit; stop the host again",
+      );
+    }
     serveHosts.removeWhere((h) => h.name == name);
+    activeRuntimes.remove(name);
   }
 
   @override
-  Future<void> appServeStopAll() async => serveHosts.clear();
+  Future<void> appServeStopAll() async {
+    serveHosts.clear();
+    activeRuntimes.clear();
+  }
 
   @override
   Future<String?> codexLocate() async {
+    codexLocateCalls++;
     final gate = codexLocateGate;
     if (gate != null) {
       codexLocateGate = null;
@@ -560,6 +579,138 @@ class FakeBridgeApi implements BridgeApi {
     return program.startsWith('/') ? program : acpPrograms[program];
   }
 
+  /// What [acpClaudeStatus] reports.
+  AcpClaudeStatus claudeStatus = const AcpClaudeStatus(
+    ready: true,
+    adapter: 'installed',
+    adapterPath: '/Users/me/.npm-global/bin/claude-agent-acp',
+    runtime: 'found',
+    runtimeVersion: '22.11.0',
+    runtimePath: '/usr/local/bin/node',
+    cli: 'found',
+    cliPath: '/Users/me/.local/bin/claude',
+    canPrepare: false,
+    package: '@agentclientprotocol/claude-agent-acp@0.89.1',
+  );
+
+  /// How many times [acpClaudeStatus] was asked.
+  int claudeStatusCalls = 0;
+
+  @override
+  Future<AcpClaudeStatus> acpClaudeStatus() async {
+    claudeStatusCalls++;
+    final gate = claudeStatusGate;
+    if (gate != null) {
+      claudeStatusGate = null;
+      await gate.future;
+    }
+    return claudeStatus;
+  }
+
+  /// Holds the next [acpClaudeStatus] answer until completed (then cleared).
+  Completer<void>? claudeStatusGate;
+
+  /// Holds the next [acpClaudePrepareStart] answer until completed (then
+  /// cleared).
+  Completer<void>? claudePrepareGate;
+
+  /// What the next [acpClaudePrepareStart] answers at once instead of a
+  /// running preparation (then cleared), e.g. `done`; it gets the new run.
+  AcpClaudeSetup? claudePrepareAnswer;
+
+  /// The adapter preparation as the fake reports it (a state snapshot, so
+  /// never `started`); tests move it along with [settleClaudePrepare], or
+  /// set another caller's run directly.
+  AcpClaudeSetup claudeSetup = const AcpClaudeSetup(state: 'idle');
+
+  /// How many preparations were started (a running one is joined, not
+  /// counted again).
+  int claudePrepareStarts = 0;
+
+  /// Thrown by the next [acpClaudePrepareStart] (then cleared).
+  Object? claudePrepareError;
+
+  /// How many times [acpClaudePrepareCancel] was called.
+  int claudePrepareCancels = 0;
+
+  /// Every run [acpClaudePrepareCancelRun] was asked to stop.
+  final List<int> claudeCancelledRuns = [];
+
+  /// End the current run as [state] (`done`, `failed`, `cancelled`),
+  /// keeping its run number as the bridge does.
+  void settleClaudePrepare(String state, {String? error}) {
+    claudeSetup = AcpClaudeSetup(
+      state: state,
+      error: error,
+      run: claudeSetup.run,
+    );
+  }
+
+  /// Start another caller's run (a later one replaces this page's).
+  void startOtherClaudePrepare() {
+    claudeSetup = AcpClaudeSetup(
+      state: 'running',
+      stage: 'installing',
+      run: claudeSetup.run + 1,
+    );
+  }
+
+  @override
+  Future<AcpClaudeSetup> acpClaudePrepareStart() async {
+    final error = claudePrepareError;
+    if (error != null) {
+      claudePrepareError = null;
+      throw error;
+    }
+    // Captured at admission, as the bridge answers: `started` only for the
+    // call that started its run; a join is a plain snapshot.
+    final AcpClaudeSetup response;
+    if (claudeSetup.running) {
+      response = claudeSetup;
+    } else {
+      claudePrepareStarts++;
+      final run = claudeSetup.run + 1;
+      final answer = claudePrepareAnswer;
+      claudePrepareAnswer = null;
+      claudeSetup = AcpClaudeSetup(
+        state: answer?.state ?? 'running',
+        stage: answer == null ? 'installing' : answer.stage,
+        error: answer?.error,
+        run: run,
+      );
+      response = AcpClaudeSetup(
+        state: claudeSetup.state,
+        stage: claudeSetup.stage,
+        error: claudeSetup.error,
+        run: run,
+        started: true,
+      );
+    }
+    final gate = claudePrepareGate;
+    if (gate != null) {
+      claudePrepareGate = null;
+      await gate.future;
+    }
+    return response;
+  }
+
+  @override
+  AcpClaudeSetup acpClaudePrepareState() => claudeSetup;
+
+  @override
+  AcpClaudeSetup acpClaudePrepareCancel() =>
+      acpClaudePrepareCancelRun(claudeSetup.run);
+
+  @override
+  AcpClaudeSetup acpClaudePrepareCancelRun(int run) {
+    claudePrepareCancels++;
+    claudeCancelledRuns.add(run);
+    if (claudeSetup.running && claudeSetup.run == run) {
+      claudeSetup = AcpClaudeSetup(state: 'cancelled', run: run);
+    }
+    return claudeSetup;
+  }
+
   /// Every [appServeStartAcp] call as `(name, spec)`.
   final List<(String?, AcpAgentSpec)> acpServeCalls = [];
 
@@ -592,6 +743,7 @@ class FakeBridgeApi implements BridgeApi {
     const device = 'local';
     final key = 'pcx:$device:acp:$n';
     final metaKey = 'pcx:$device:meta:$n';
+    activeRuntimes.remove(n);
     serveHosts
       ..removeWhere((h) => h.name == n)
       ..add(
@@ -652,6 +804,472 @@ class FakeBridgeApi implements BridgeApi {
       acpRestartError = null;
       throw error;
     }
+  }
+
+  // --- Per-host model service ---
+
+  /// Saved configurations, keyed by instance name ([HostConfig.active] is
+  /// derived from [serveHosts] on read, as the bridge does).
+  final Map<String, HostConfig> hostConfigs = {};
+
+  /// Every [hostConfigSave] call as `(name, input, keyAction, key, spec)`.
+  final List<(String, HostConfigInput, HostKeyAction, String?, AcpAgentSpec?)>
+  hostConfigSaves = [];
+
+  /// The runtime of every [hostConfigSave] call, in the same order.
+  final List<HostRuntime?> hostConfigSaveRuntimes = [];
+
+  /// Thrown by the next [hostConfigSave] (then cleared).
+  Object? hostConfigSaveError;
+
+  /// When set, [hostConfigSave] waits for it (then clears it).
+  Completer<void>? hostConfigSaveGate;
+
+  /// When set, [hostConfigGet] waits for it (then clears it).
+  Completer<void>? hostConfigGetGate;
+
+  /// Thrown by the next [hostConfigGet] (then cleared).
+  Object? hostConfigGetError;
+
+  /// How many times [hostConfigGet] was called.
+  int hostConfigGets = 0;
+
+  int _incarnations = 0;
+
+  /// A fresh run identity for a started host.
+  String nextIncarnation() => 'inc-${++_incarnations}';
+
+  /// The exact runtime each host was (re)launched with here, when known
+  /// (an ACP agent's arguments are not in its status row).
+  final Map<String, HostRuntime> activeRuntimes = {};
+
+  /// What host [h] runs, as the bridge reports it.
+  HostActive? activeOf(AppServeStatus? h) {
+    if (h == null) return null;
+    final runtime =
+        activeRuntimes[h.name] ??
+        (h.isAcp
+            ? HostRuntime.acp(
+                AcpAgentSpec(
+                  profileId: h.profileId ?? '',
+                  displayName: h.providerName,
+                  program: h.codexBinary ?? '',
+                ),
+              )
+            : HostRuntime.codex(
+                binary: h.codexBinary,
+                port:
+                    int.tryParse(
+                      h.appListenAddr.substring(
+                        h.appListenAddr.indexOf(':') + 1,
+                      ),
+                    ) ??
+                    0,
+                proxy: h.proxy,
+              ));
+    return HostActive(
+      incarnation: h.incarnation ?? 'inc-${h.name}',
+      runtime: runtime,
+      source: h.configSource ?? 'inherited',
+      revision: h.configRevision ?? 0,
+    );
+  }
+
+  HostConfig _withActive(HostConfig c, String name) => HostConfig(
+    source: c.source,
+    protocol: c.protocol,
+    baseUrl: c.baseUrl,
+    model: c.model,
+    keySet: c.keySet,
+    revision: c.revision,
+    runtime: c.runtime,
+    problem: c.problem,
+    active: activeOf(serveHosts.where((h) => h.name == name).firstOrNull),
+  );
+
+  @override
+  Future<HostConfig> hostConfigGet(String name) async {
+    hostConfigGets++;
+    final gate = hostConfigGetGate;
+    if (gate != null) {
+      hostConfigGetGate = null;
+      await gate.future;
+    }
+    final err = hostConfigGetError;
+    if (err != null) {
+      hostConfigGetError = null;
+      throw err;
+    }
+    return _withActive(hostConfigs[name] ?? const HostConfig(), name);
+  }
+
+  @override
+  HostConfigSupport hostConfigSupported({AcpAgentSpec? spec}) {
+    // Mirrors the bridge's matrix (`host_config_supported`).
+    if (spec == null) {
+      return const HostConfigSupport(
+        sources: ['inherited', 'official', 'custom'],
+        protocols: ['responses'],
+      );
+    }
+    return switch (spec.profileId) {
+      'opencode' => const HostConfigSupport(
+        sources: ['inherited', 'custom'],
+        protocols: ['responses', 'anthropic-messages', 'chat-completions'],
+        modelRequired: true,
+      ),
+      'claude' => const HostConfigSupport(
+        sources: ['inherited', 'custom'],
+        protocols: ['anthropic-messages'],
+        keyRequired: true,
+      ),
+      _ => const HostConfigSupport(),
+    };
+  }
+
+  HostConfig _store(
+    String name,
+    HostConfigInput input,
+    HostKeyAction keyAction,
+    int? expectedRevision,
+    AcpAgentSpec? spec,
+    HostRuntime? runtime,
+  ) {
+    final current = hostConfigs[name] ?? const HostConfig();
+    if (expectedRevision != null && expectedRevision != current.revision) {
+      throw StateError('changed elsewhere');
+    }
+    final support = hostConfigSupported(spec: runtime?.agent ?? spec);
+    if (!support.sources.contains(input.source) ||
+        (input.source == 'custom' &&
+            (!support.protocols.contains(input.protocol) ||
+                (input.baseUrl ?? '').trim().isEmpty))) {
+      throw StateError('unsupported configuration');
+    }
+    final custom = input.source == 'custom';
+    final saved = HostConfig(
+      source: input.source,
+      protocol: input.protocol,
+      baseUrl: input.baseUrl?.trim(),
+      model: input.model,
+      keySet:
+          custom &&
+          switch (keyAction) {
+            HostKeyAction.keep => current.keySet,
+            HostKeyAction.replace => true,
+            HostKeyAction.remove => false,
+          },
+      revision: current.revision + 1,
+      runtime: runtime ?? current.runtime,
+    );
+    hostConfigs[name] = saved;
+    return saved;
+  }
+
+  @override
+  Future<HostConfig> hostConfigSave({
+    required String name,
+    required HostConfigInput input,
+    required HostKeyAction keyAction,
+    String? key,
+    int? expectedRevision,
+    AcpAgentSpec? spec,
+    HostRuntime? runtime,
+  }) async {
+    hostConfigSaves.add((name, input, keyAction, key, spec));
+    hostConfigSaveRuntimes.add(runtime);
+    final gate = hostConfigSaveGate;
+    if (gate != null) {
+      hostConfigSaveGate = null;
+      await gate.future;
+    }
+    final err = hostConfigSaveError;
+    if (err != null) {
+      hostConfigSaveError = null;
+      throw err;
+    }
+    final saved = _store(
+      name,
+      input,
+      keyAction,
+      expectedRevision,
+      spec,
+      runtime,
+    );
+    return _withActive(saved, name);
+  }
+
+  /// Host [h] as relaunched: a new incarnation, [runtime] and [config].
+  AppServeStatus relaunched(
+    AppServeStatus h, {
+    HostRuntime? runtime,
+    HostConfig? config,
+  }) {
+    final agent = runtime?.agent;
+    if (runtime != null) activeRuntimes[h.name] = runtime;
+    return AppServeStatus(
+      name: h.name,
+      device: h.device,
+      pid: h.pid,
+      alive: h.alive,
+      appListenAddr: runtime != null && runtime.isCodex
+          ? '127.0.0.1:${runtime.port}'
+          : h.appListenAddr,
+      appServiceKey: h.appServiceKey,
+      appRegistered: h.appRegistered,
+      apiListenAddr: h.apiListenAddr,
+      apiServiceKey: h.apiServiceKey,
+      apiRegistered: h.apiRegistered,
+      metaListenAddr: h.metaListenAddr,
+      metaServiceKey: h.metaServiceKey,
+      metaRegistered: h.metaRegistered,
+      codexBinary: agent?.program ?? runtime?.binary ?? h.codexBinary,
+      proxy: runtime == null || !runtime.isCodex ? h.proxy : runtime.proxy,
+      provider: h.provider,
+      providerVersion: h.providerVersion,
+      protocol: h.protocol,
+      providerName: agent?.displayName ?? h.providerName,
+      profileId: agent?.profileId ?? h.profileId,
+      agentPhase: h.agentPhase,
+      configSource: config?.source ?? h.configSource ?? 'inherited',
+      configRevision: config?.revision ?? h.configRevision ?? 0,
+      incarnation: nextIncarnation(),
+    );
+  }
+
+  /// Every [appServeApply] call as `(name, incarnation, revision)`.
+  final List<(String, String?, int?)> applyCalls = [];
+
+  /// When set, [appServeApply] waits for it (then clears it).
+  Completer<void>? applyGate;
+
+  /// Returned by the next [appServeApply] instead of success (then cleared).
+  HostApplyResult? applyResult;
+
+  @override
+  Future<HostApplyResult> appServeApply(
+    String name, {
+    String? expectedIncarnation,
+    int? expectedRevision,
+  }) async {
+    applyCalls.add((name, expectedIncarnation, expectedRevision));
+    final gate = applyGate;
+    if (gate != null) {
+      applyGate = null;
+      await gate.future;
+    }
+    final i = serveHosts.indexWhere((h) => h.name == name);
+    if (i < 0) throw StateError('`$name` is not hosting');
+    final config = hostConfigs[name] ?? const HostConfig();
+    final running = activeOf(serveHosts[i])!;
+    if (expectedIncarnation != null &&
+        expectedIncarnation != running.incarnation) {
+      throw StateError('`$name` was restarted since; reload it');
+    }
+    if (expectedRevision != null && expectedRevision != config.revision) {
+      throw StateError('the saved configuration changed; reload it');
+    }
+    final result = applyResult;
+    if (result != null) {
+      applyResult = null;
+      return result;
+    }
+    serveHosts[i] = relaunched(
+      serveHosts[i],
+      runtime: config.runtime,
+      config: config,
+    );
+    return HostApplyResult(
+      name: name,
+      applied: true,
+      revision: config.revision,
+    );
+  }
+
+  /// Every [appServeStartConfigured] call as `(name, runtime, input,
+  /// keyAction, key)`.
+  final List<(String?, HostRuntime, HostConfigInput, HostKeyAction, String?)>
+  startConfiguredCalls = [];
+
+  @override
+  Future<HostStartResult> appServeStartConfigured({
+    String? name,
+    required HostRuntime runtime,
+    required HostConfigInput input,
+    required HostKeyAction keyAction,
+    String? key,
+  }) async {
+    startConfiguredCalls.add((name, runtime, input, keyAction, key));
+    final agent = runtime.agent;
+    final n = (name == null || name.trim().isEmpty)
+        ? (agent?.profileId ?? 'default')
+        : name.trim();
+    if (serveHosts.any((h) => h.name == n)) {
+      throw StateError(
+        '`$n` is already hosting; edit it instead, or choose another name',
+      );
+    }
+    final previous = hostConfigs[n];
+    hostConfigs.remove(n);
+    final saved = _store(n, input, keyAction, null, agent, runtime);
+    try {
+      if (agent != null) {
+        final r = await appServeStartAcp(name: name, spec: agent);
+        final i = serveHosts.indexWhere((h) => h.name == r.name);
+        serveHosts[i] = relaunched(
+          serveHosts[i],
+          runtime: runtime,
+          config: saved,
+        );
+        return HostStartResult(
+          name: r.name,
+          provider: 'acp',
+          serviceKey: r.serviceKey,
+          reused: r.reused,
+        );
+      }
+      final r = await appServeStart(
+        port: runtime.port,
+        binaryOverride: runtime.binary,
+        name: name,
+        proxy: runtime.proxy,
+        embedded: false,
+      );
+      final i = serveHosts.indexWhere((h) => h.name == r.name);
+      serveHosts[i] = relaunched(
+        serveHosts[i],
+        runtime: runtime,
+        config: saved,
+      );
+      return HostStartResult(
+        name: r.name,
+        provider: 'codex',
+        serviceKey: r.appServiceKey,
+        reused: r.reused,
+      );
+    } catch (_) {
+      // A failed start puts the previous saved configuration back.
+      if (previous == null) {
+        hostConfigs.remove(n);
+      } else {
+        hostConfigs[n] = previous;
+      }
+      rethrow;
+    }
+  }
+
+  /// Open private sign-in sessions, in order (closed ones are removed).
+  final List<String> signInSessions = [];
+
+  /// Every closed private sign-in session.
+  final List<String> closedSignInSessions = [];
+
+  /// Thrown by the next [codexLocalSessionOpen] (then cleared).
+  Object? signInOpenError;
+
+  /// When set, the next [codexLocalSessionOpen] waits for it (then clears).
+  Completer<void>? localSessionGate;
+
+  /// Every [codexLocalSessionOpen] proxy argument.
+  final List<String?> localSessionProxies = [];
+
+  /// Every [codexLocalSessionOpen] binary argument.
+  final List<String?> localSessionBinaries = [];
+
+  /// Every logout, by session.
+  final List<String> localLogoutSessions = [];
+
+  /// Every cancelled login as `(session, loginId)`.
+  final List<(String, String)> localCancels = [];
+
+  /// What [codexLocalAuthStatus] answers, per session (else not signed in,
+  /// login not finished).
+  final Map<String, CodexAuthStatus> localAuth = {};
+
+  /// Thrown by the next [codexLocalAuthStatus] (then cleared).
+  Object? localAuthError;
+
+  /// Holds a session's next [codexLocalAuthStatus] answer until completed
+  /// (then cleared), by session.
+  final Map<String, Completer<void>> localAuthGates = {};
+
+  /// Holds the next [codexLocalLogout] until completed (then cleared).
+  Completer<void>? localLogoutGate;
+
+  @override
+  Future<String> codexLocalSessionOpen({String? binary, String? proxy}) async {
+    localSessionProxies.add(proxy);
+    localSessionBinaries.add(binary);
+    final gate = localSessionGate;
+    if (gate != null) {
+      localSessionGate = null;
+      await gate.future;
+    }
+    final err = signInOpenError;
+    if (err != null) {
+      signInOpenError = null;
+      throw err;
+    }
+    // Sessions are independent, as in the bridge: opening one never closes
+    // another.
+    final id = 'local-${signInSessions.length + closedSignInSessions.length}';
+    signInSessions.add(id);
+    return id;
+  }
+
+  @override
+  Future<void> codexLocalSessionClose(String sessionId) async {
+    if (signInSessions.remove(sessionId)) closedSignInSessions.add(sessionId);
+  }
+
+  void _requireLocal(String sessionId) {
+    if (!signInSessions.contains(sessionId)) {
+      throw StateError('this sign-in was closed; open it again');
+    }
+  }
+
+  @override
+  Future<CodexLoginStart> codexLocalLoginStart(String sessionId) async {
+    _requireLocal(sessionId);
+    return codexLoginChatgptStart(sessionId);
+  }
+
+  @override
+  Future<CodexAuthStatus> codexLocalAuthStatus(
+    String sessionId, {
+    String? loginId,
+  }) async {
+    _requireLocal(sessionId);
+    final gate = localAuthGates.remove(sessionId);
+    if (gate != null) await gate.future;
+    final err = localAuthError;
+    if (err != null) {
+      localAuthError = null;
+      throw err;
+    }
+    return localAuth[sessionId] ?? const CodexAuthStatus(authenticated: false);
+  }
+
+  @override
+  Future<void> codexLocalLoginCancel(String sessionId, String loginId) async {
+    _requireLocal(sessionId);
+    localCancels.add((sessionId, loginId));
+  }
+
+  /// How many times [codexLocalLogout] signed out.
+  int localLogouts = 0;
+
+  @override
+  Future<void> codexLocalLogout(String sessionId) async {
+    _requireLocal(sessionId);
+    final gate = localLogoutGate;
+    if (gate != null) {
+      localLogoutGate = null;
+      await gate.future;
+    }
+    localLogouts++;
+    localLogoutSessions.add(sessionId);
+    codexAuth = const CodexAuthStatus(authenticated: false);
   }
 
   /// Per-session ACP settings, keyed `'$serviceKey|$threadId'`.
@@ -1148,6 +1766,18 @@ class FakeBridgeApi implements BridgeApi {
   /// while a turn is "in flight". Complete it to let the turn finish.
   Completer<void>? turnStartGate;
 
+  /// Thrown by the next [appTurnStart] before anything is admitted (then
+  /// cleared), as a host refusal is.
+  Object? turnStartError;
+
+  /// Thrown by the next [appTurnStart] after it was admitted (its params
+  /// are recorded, no event is sent), then cleared: the answer was lost.
+  Object? turnStartLostAnswer;
+
+  /// Whether [appTurnStart] announces `turn/started` itself; off, the test
+  /// sends it (or not) to model a start that arrives late.
+  bool announceTurnStart = true;
+
   /// When false, [appTurnStart] emits ONLY `turn/started` (no reply delta, no
   /// completion) — leaving the turn "streaming with no output yet" so a test can
   /// drive the rest (deltas / completion / interrupt) precisely via [pushEvent].
@@ -1156,6 +1786,10 @@ class FakeBridgeApi implements BridgeApi {
 
   /// Thread id of the last [appTurnStart].
   String? lastTurnThread;
+
+  /// Every [appTurnStart] call as `(serviceKey, threadId, text, images)`,
+  /// refused ones included.
+  final List<(String, String, String, List<String>)> turnStartCalls = [];
 
   /// Echoes a streamed agent reply so widget tests can assert rendering.
   @override
@@ -1173,6 +1807,12 @@ class FakeBridgeApi implements BridgeApi {
     String? reasoningEffort,
   }) async {
     turnStartCount++;
+    turnStartCalls.add((serviceKey, threadId, text, images));
+    final refusal = turnStartError;
+    if (refusal != null) {
+      turnStartError = null;
+      throw refusal;
+    }
     lastTurnThread = threadId;
     lastTurnModel = model;
     lastTurnText = text;
@@ -1183,9 +1823,15 @@ class FakeBridgeApi implements BridgeApi {
     lastSandbox = sandbox;
     lastCollaborationMode = collaborationMode;
     lastReasoningEffort = reasoningEffort;
+    final lost = turnStartLostAnswer;
+    if (lost != null) {
+      turnStartLostAnswer = null;
+      throw lost;
+    }
     if (turnStartGate != null) await turnStartGate!.future;
     final c = _appEvents[serviceKey];
     if (c == null) return;
+    if (!announceTurnStart) return;
     c.add(AppEvent(kind: 'turn/started', threadId: threadId, raw: '{}'));
     // Leave the turn running with no output when the test wants to drive the
     // reply/completion itself (Esc state-machine + queue tests).
@@ -1224,6 +1870,56 @@ class FakeBridgeApi implements BridgeApi {
     lastSteerTurnId = turnId;
     if (steerGate != null) await steerGate!.future;
     return turnId ?? resolvedSteerTurnId;
+  }
+
+  /// Every [appTurnSupplement] call as `(threadId, turnId, text, images)`.
+  final List<(String, String?, String, List<String>)> supplementCalls = [];
+
+  /// Holds the next [appTurnSupplement] until completed (then cleared).
+  Completer<void>? supplementGate;
+
+  /// Thrown by the next [appTurnSupplement] (then cleared).
+  Object? supplementError;
+
+  /// When `false`, [appTurnSupplement] answers that nothing was consumed
+  /// (no turn was running). ACP only: a native supplement is a steer.
+  bool supplementInjects = true;
+
+  @override
+  Future<TurnSupplement> appTurnSupplement(
+    String serviceKey,
+    String threadId,
+    String? turnId,
+    String text, {
+    List<String> images = const [],
+  }) async {
+    supplementCalls.add((threadId, turnId, text, images));
+    final gate = supplementGate;
+    if (gate != null) {
+      supplementGate = null;
+      await gate.future;
+    }
+    final error = supplementError;
+    if (error != null) {
+      supplementError = null;
+      throw error;
+    }
+    if (!isAcpKey(serviceKey)) {
+      // Native Codex: the bridge's supplement is `turn/steer` (the
+      // `SessionEngine::turn_supplement` default), with its failures, its
+      // accepted turn and never "no turn running".
+      final turn = await appTurnSteer(
+        serviceKey,
+        threadId,
+        turnId,
+        text,
+        images: images,
+      );
+      return TurnSupplement(injected: true, turnId: turn);
+    }
+    return supplementInjects
+        ? TurnSupplement(injected: true, turnId: turnId ?? resolvedSteerTurnId)
+        : const TurnSupplement(injected: false);
   }
 
   /// Records the last turn id passed to [appTurnInterrupt].

@@ -31,4 +31,13 @@ pub mod service;
 /// Provider-independent, restart-safe history window synchronization.
 pub mod history_sync;
 
+/// Custom model providers (protocol, base URL, key) for agent hosts.
+pub mod provider;
+
+/// Keeping a supplied key out of child output shown or logged.
+pub mod redact;
+
+/// Which processes hold the listening sockets a local TCP endpoint reaches.
+pub mod listener;
+
 pub use error::{Error, Result};

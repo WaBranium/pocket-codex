@@ -20,6 +20,26 @@
 // Every outcome is written, without URL, key, headers or response text, to
 // the report file named in the plugin options; the host shows it. Nothing
 // is printed (stdout is the ACP channel) and nothing is cached.
+//
+// When the options name the instance's own provider (`route`), the hook
+// first puts that route back into the merged configuration (`enforce`):
+// OpenCode reads `cfg.provider`, `enabled_providers` and `disabled_providers`
+// only after every plugin's `config` hook ran (provider.ts, "load plugins
+// first so config() hook runs before reading cfg.provider"), and `model`,
+// `small_model` and agent models whenever it picks one. The provider's
+// credential is pinned in memory as `options.apiKey` (the supplied key, read
+// from the child-only variable its `env` names, or empty without one): the
+// SDK options take `options.apiKey` before `provider.key`, the field a key
+// stored with `opencode auth login` for the same id overwrites (provider.ts
+// "load apikeys", and `resolveSDK`), and config options are applied last
+// ("load config - re-apply"). A route whose key is missing in this process is
+// refused: no provider stays usable. The key is never written anywhere (not
+// into a layer, the report or arguments). The report says what had to be
+// reset, per project directory as the plugin input names it (the pinned
+// public source has no plugin loader, so that name is not verified). Outside
+// this hook's reach: another plugin's own provider or auth loader for the
+// same id (its options other than the key), and a later plugin's `config`
+// hook.
 
 const PROVIDER_TIMEOUT_MS = 8000
 const TOTAL_TIMEOUT_MS = 15000
@@ -28,6 +48,8 @@ const MAX_PROVIDERS = 32
 const MAX_PAGES = 20
 const MAX_MODELS = 2000
 const MAX_BODY_BYTES = 4 * 1024 * 1024
+// Project verdicts kept in one report (the host reads at most this many).
+const MAX_ROUTES = 32
 
 // Listing `type`s that name a chat model. `chat` is what OpenAI-compatible
 // gateways report, `model` is the Anthropic API's object type. Any other
@@ -319,12 +341,101 @@ export async function apply(cfg, env, fetchImpl, limits = {}) {
   return report
 }
 
+/** `value` as JSON with sorted keys, so merged objects compare by content. */
+function canonical(value) {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`
+  if (isRecord(value)) {
+    const keys = Object.keys(value).sort()
+    return `{${keys.map((k) => `${JSON.stringify(k)}:${canonical(value[k])}`).join(",")}}`
+  }
+  return JSON.stringify(value) ?? "null"
+}
+
+function own(provider, model) {
+  return typeof model === "string" && model.startsWith(`${provider}/`)
+}
+
+/**
+ * Put the instance's own route (`route`: `{provider, model, definition}`
+ * from the host's layer) back into the merged configuration `cfg`, in place:
+ * the default and small model, every agent or mode model naming another
+ * provider, the provider entry itself (exactly the host's definition, so no
+ * other layer's endpoint, key, headers or per-model route remains, with its
+ * credential pinned as `options.apiKey` from `env`, see the header), and the
+ * provider lists (only this provider enabled, it not disabled). Answers
+ * `{state, reasons}`: `selected` when nothing had to change, `enforced` with
+ * what was reset, `refused` (`key`) when the definition names a key variable
+ * `env` does not hold — the entry is then removed, so no provider is usable.
+ * Undefined without a well-formed route or configuration.
+ */
+export function enforce(cfg, route, env = {}) {
+  if (!isRecord(route) || typeof route.provider !== "string" || !own(route.provider, route.model)) return undefined
+  if (!isRecord(route.definition) || !isRecord(cfg)) return undefined
+  const id = route.provider
+  const names = route.definition.env ?? []
+  const variable = Array.isArray(names) && names.length === 1 ? names[0] : undefined
+  const keyed = !(Array.isArray(names) && names.length === 0)
+  const key = typeof variable === "string" && typeof env[variable] === "string" ? env[variable] : ""
+  const reasons = []
+  if (cfg.model !== route.model) {
+    cfg.model = route.model
+    reasons.push("model")
+  }
+  if (cfg.small_model !== undefined && !own(id, cfg.small_model)) {
+    cfg.small_model = route.model
+    reasons.push("small-model")
+  }
+  for (const group of [cfg.agent, cfg.mode]) {
+    if (!isRecord(group)) continue
+    for (const agent of Object.values(group)) {
+      if (!isRecord(agent) || agent.model === undefined || own(id, agent.model)) continue
+      agent.model = route.model
+      if (!reasons.includes("agent-model")) reasons.push("agent-model")
+    }
+  }
+  const enabled = cfg.enabled_providers
+  if (enabled !== undefined && !(Array.isArray(enabled) && enabled.length === 1 && enabled[0] === id)) {
+    reasons.push("enabled-providers")
+  }
+  // Only this provider: one OpenCode found through env variables or a
+  // stored login could otherwise serve a model chosen in a session.
+  cfg.enabled_providers = [id]
+  if (Array.isArray(cfg.disabled_providers) && cfg.disabled_providers.includes(id)) {
+    cfg.disabled_providers = cfg.disabled_providers.filter((p) => p !== id)
+    reasons.push("disabled-providers")
+  }
+  if (!isRecord(cfg.provider)) cfg.provider = {}
+  if (keyed && !key) {
+    // Without its key the provider would fall back to another credential:
+    // only it is enabled, and it is gone, so nothing can be prompted.
+    delete cfg.provider[id]
+    return { state: "refused", reasons: ["key"] }
+  }
+  const current = Object.hasOwn(cfg.provider, id) ? cfg.provider[id] : undefined
+  if (current === undefined) reasons.push("missing")
+  else if (canonical(current) !== canonical(route.definition)) reasons.push("provider")
+  const definition = structuredClone(route.definition)
+  definition.options = { ...(isRecord(definition.options) ? definition.options : {}), apiKey: key }
+  Object.defineProperty(cfg.provider, id, {
+    value: definition,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  })
+  return { state: reasons.length ? "enforced" : "selected", reasons }
+}
+
+// Each project's verdict, by the directory OpenCode loaded it for; one
+// OpenCode process loads the plugin once and runs `server` per project.
+const routes = new Map()
+let staged = 0
+
 /** Replace the report file atomically. Failures are ignored. */
 export async function writeReport(path, report) {
   if (typeof path !== "string" || !path) return
   try {
     const fs = await import("node:fs/promises")
-    const staging = `${path}.${process.pid}.${Date.now()}.tmp`
+    const staging = `${path}.${process.pid}.${Date.now()}.${staged++}.tmp`
     await fs.writeFile(staging, JSON.stringify(report), { mode: 0o600 })
     await fs.rename(staging, path)
   } catch {
@@ -334,9 +445,20 @@ export async function writeReport(path, report) {
 
 export default {
   id: "pocket-codex.model-catalog",
-  server: async (_input, options) => ({
+  server: async (input, options) => ({
     config: async (cfg) => {
+      const route = enforce(cfg, options?.route, process.env)
       const report = await apply(cfg, process.env, fetch)
+      if (route) {
+        const named = input?.directory
+        // What the host accepts: a bounded name without control characters.
+        const directory =
+          typeof named === "string" && named.length <= 4096 && !/\p{Cc}/u.test(named) ? named : undefined
+        routes.delete(directory ?? "")
+        routes.set(directory ?? "", { ...(directory === undefined ? {} : { directory }), ...route })
+        if (routes.size > MAX_ROUTES) routes.delete(routes.keys().next().value)
+        report.routes = [...routes.values()]
+      }
       await writeReport(options?.report, report)
     },
   }),

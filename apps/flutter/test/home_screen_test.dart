@@ -11,6 +11,7 @@ import 'package:go_router/go_router.dart';
 import 'package:pocket_codex/l10n/gen/app_localizations.dart';
 import 'package:pocket_codex/src/bridge_api.dart';
 import 'package:pocket_codex/src/dismissed_services.dart';
+import 'package:pocket_codex/src/hosting/host_editor_page.dart';
 import 'package:pocket_codex/src/providers.dart';
 import 'package:pocket_codex/src/screens/app_session_screen.dart';
 import 'package:pocket_codex/src/screens/home_screen.dart';
@@ -487,6 +488,28 @@ void main() {
       await _pumpHome(t, api);
       await t.pumpAndSettle();
       expect(find.byKey(const Key('home-start-hosting-btn')), findsOneWidget);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('the hero opens the hosting editor, which returns home', (
+    t,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    try {
+      final api = FakeBridgeApi(config: _accountConfig);
+      await _pumpHome(t, api);
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const Key('home-start-hosting-btn')));
+      await t.pumpAndSettle();
+      expect(find.byType(HostingEditor), findsOneWidget);
+      // Unedited: its own Close leaves without asking.
+      await t.tap(find.byKey(const Key('host-editor-close')));
+      await t.pumpAndSettle();
+      expect(find.byKey(const Key('host-leave-dialog')), findsNothing);
+      expect(find.byType(HostingEditor), findsNothing);
+      expect(find.byKey(const Key('home-hero-title')), findsOneWidget);
     } finally {
       debugDefaultTargetPlatformOverride = null;
     }

@@ -23,7 +23,10 @@ use std::{
 use chrono::Utc;
 use pocket_codex_core::{
     paths,
-    process::{find_codex_app_server, pid_alive, pid_running, send_sigterm, tcp_port_open},
+    process::{
+        endpoint_owner_under, find_codex_app_server, pid_alive, pid_running, process_start_time,
+        send_sigterm, tcp_port_open, EndpointOwner,
+    },
     state::{CodexProcessInfo, RuntimeState},
 };
 use tracing::{debug, info, warn};
@@ -168,14 +171,17 @@ fn resolve_auto_port(host: &str) -> std::io::Result<u16> {
     Ok(listener.local_addr()?.port())
 }
 
-/// After a spawn, poll until the listen port is served, then return the PID of
-/// the process that actually owns it (the native app-server, even when it sits
-/// behind an npm/node shim). Falls back to `spawn_pid` if the port never comes
-/// up within [`SPAWN_RESOLVE_TIMEOUT`], so status honestly reports a server
-/// that failed to start rather than silently mislabelling one.
+/// After a spawn, poll until the listen port's socket is held by a process
+/// this spawn started (the native app-server, even when it sits behind an
+/// npm/node shim, see [`owner`]) and return it. A port held by anything
+/// else is not this spawn's: the wait goes on (the child then usually dies
+/// on its bind error). Falls back to `spawn_pid` (and no owned server) if no
+/// such listener comes up within
+/// [`SPAWN_RESOLVE_TIMEOUT`], so status honestly reports a server that
+/// failed to start rather than silently mislabelling one.
 ///
-/// The second half of the pair is whether a listener was ever observed on the
-/// port — it feeds [`SpawnReport::listener_confirmed`], so a follow-up
+/// The second value is whether that listener was observed — it feeds
+/// [`SpawnReport::listener_confirmed`], so a follow-up
 /// [`crate::verify_ready`] knows this wait already ran dry and shrinks its
 /// own budget instead of re-waiting in full.
 ///
@@ -189,25 +195,39 @@ fn resolve_listener_pid(
     port: u16,
     listen_url: &str,
     spawn_pid: u32,
-    log_file: &std::path::Path,
-    log_offset: u64,
-) -> (u32, bool) {
+    spawned: Option<ProcessIdentity>,
+    log: (&std::path::Path, u64),
+) -> (u32, bool, Option<ProcessIdentity>) {
+    let (log_file, log_offset) = log;
     let deadline = Instant::now() + SPAWN_RESOLVE_TIMEOUT;
     let mut next_death_check = Instant::now() + crate::readiness::DEATH_CHECK_INTERVAL;
     loop {
         if tcp_port_open(host, port) {
-            return (find_codex_app_server(listen_url).unwrap_or(spawn_pid), true);
+            if let Some(EndpointOwner::Owned {
+                pid,
+                started,
+            }) = spawned.map(|root| owner(listen_url, root))
+            {
+                return (
+                    pid,
+                    true,
+                    Some(ProcessIdentity {
+                        pid,
+                        started,
+                    }),
+                );
+            }
         }
         if Instant::now() >= next_death_check {
             next_death_check = Instant::now() + crate::readiness::DEATH_CHECK_INTERVAL;
             if !pid_running(spawn_pid)
                 && crate::readiness::bind_failure_logged(log_file, log_offset)
             {
-                return (spawn_pid, false);
+                return (spawn_pid, false, None);
             }
         }
         if Instant::now() >= deadline {
-            return (spawn_pid, false);
+            return (spawn_pid, false, None);
         }
         thread::sleep(Duration::from_millis(150));
     }
@@ -314,6 +334,13 @@ pub struct SpawnOptions {
     pub proxy: Option<String>,
 }
 
+/// Child-only environment holding secrets (a custom provider's key read
+/// through its `env_key`), for [`spawn_with_env`]. Never logged: [`Secret`]
+/// redacts itself, and nothing here reaches the argument vector.
+///
+/// [`Secret`]: pocket_codex_core::provider::Secret
+pub type SecretEnv = [(String, pocket_codex_core::provider::Secret)];
+
 impl Default for SpawnOptions {
     fn default() -> Self {
         Self {
@@ -347,13 +374,81 @@ pub struct SpawnReport {
     pub log_offset: u64,
 
     /// Whether [`spawn`] observed the listen endpoint actually accepting
-    /// connections — an adopted live listener, or the fresh child's port
-    /// coming up within the spawn-time port wait. `false` means that wait
+    /// connections — an adopted live listener, or the fresh child's own
+    /// server ([`Self::owned`]) coming up within the spawn-time port wait (a
+    /// port served by anything else does not count). `false` means that wait
     /// already ran its full course without ever seeing a listener (the child
     /// most likely died silently during startup), so [`crate::verify_ready`]
     /// caps its own budget instead of re-waiting in full on top. Unix-socket
     /// transports have no TCP port to probe and always report `false`.
     pub listener_confirmed: bool,
+
+    /// The process [`spawn`] started, identified right after the spawn;
+    /// `None` when a running server was adopted (`reused`) or the child was
+    /// already gone before its start time could be read.
+    pub spawned: Option<ProcessIdentity>,
+
+    /// The process holding the listen address's socket, when only processes
+    /// this spawn started hold the sockets that address reaches:
+    /// [`Self::spawned`] itself or a descendant of it (an npm/node shim's
+    /// native binary), see
+    /// [`pocket_codex_core::process::endpoint_owner_under`]. A server
+    /// someone else started on the same address is never named here; `None`
+    /// when adopted or not attributed (and always for unix sockets).
+    pub owned: Option<ProcessIdentity>,
+}
+
+/// A process by id and start time
+/// ([`pocket_codex_core::process::process_start_time`]), so a later process
+/// reusing the id never matches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProcessIdentity {
+    /// Its process id.
+    pub pid: u32,
+    /// Its start time, only suitable for equality.
+    pub started: u64,
+}
+
+impl ProcessIdentity {
+    /// The process `pid` as it runs now; `None` when it does not run.
+    pub fn of(pid: u32) -> Option<Self> {
+        process_start_time(pid).map(|started| Self {
+            pid,
+            started,
+        })
+    }
+}
+
+/// Who holds the listening sockets connections to the websocket
+/// `listen_url` reach (its address and family, applicable wildcards),
+/// relative to the process `spawned` (see [`endpoint_owner_under`]);
+/// `Unknown` for any other transport.
+pub(crate) fn owner(listen_url: &str, spawned: ProcessIdentity) -> EndpointOwner {
+    match ws_host_port(listen_url) {
+        Some((_, port)) => endpoint_owner_under(port, listen_url, spawned.pid, spawned.started),
+        None => EndpointOwner::Unknown,
+    }
+}
+
+/// Whether the endpoint of a fresh websocket launch is, at this moment,
+/// held only by the exact server it owned ([`SpawnReport::owned`]).
+/// Checked again after the first requests over it. Two such checks are
+/// point-in-time observations of the same holder, not proof that every
+/// request between them reached it. `true` for an adopted server or a unix
+/// socket, which this launch never claims; `false` without an owned server
+/// or when the holder cannot be told.
+pub fn still_owned(report: &SpawnReport) -> bool {
+    if report.reused || ws_host_port(&report.info.listen).is_none() {
+        return true;
+    }
+    let (Some(spawned), Some(owned)) = (report.spawned, report.owned) else {
+        return false;
+    };
+    owner(&report.info.listen, spawned)
+        == EndpointOwner::Owned {
+            pid: owned.pid,
+            started: owned.started,
+        }
 }
 
 /// Spawn `codex app-server`, persist the resulting state and return a
@@ -361,7 +456,31 @@ pub struct SpawnReport {
 ///
 /// If the previous run is still alive (PID matches and process exists)
 /// the existing process is returned untouched.
-pub fn spawn(mut opts: SpawnOptions) -> pocket_codex_core::Result<SpawnReport> {
+pub fn spawn(opts: SpawnOptions) -> pocket_codex_core::Result<SpawnReport> {
+    spawn_with_env(opts, &[])
+}
+
+/// [`spawn`] with `secret_env` added to the child's environment only (an
+/// adopted, already-running server never sees it).
+pub fn spawn_with_env(
+    opts: SpawnOptions,
+    secret_env: &SecretEnv,
+) -> pocket_codex_core::Result<SpawnReport> {
+    spawn_with_env_redacted(opts, secret_env, None)
+}
+
+/// [`spawn_with_env`] for a launch with a supplied key (`redactor` holds
+/// one): the fresh child's raw stdout and stderr never reach its log file,
+/// which receives only this app's fixed notices instead (see
+/// [`crate::output`]). The child's output goes through pipes this process
+/// reads, so it needs this process alive (an app-owned host); without a key
+/// it is exactly [`spawn_with_env`].
+pub fn spawn_with_env_redacted(
+    mut opts: SpawnOptions,
+    secret_env: &SecretEnv,
+    redactor: Option<&pocket_codex_core::redact::Redactor>,
+) -> pocket_codex_core::Result<SpawnReport> {
+    let withheld = redactor.is_some_and(|r| !r.is_empty());
     let mut state = RuntimeState::load()?;
 
     // `--port 0` means "let the OS choose a free port". codex never reports the
@@ -453,6 +572,8 @@ pub fn spawn(mut opts: SpawnOptions) -> pocket_codex_core::Result<SpawnReport> {
                 reused: true,
                 log_offset,
                 listener_confirmed: true,
+                spawned: None,
+                owned: None,
             });
         },
         // Unix-socket transport has no TCP port to probe — keep PID-based
@@ -466,6 +587,8 @@ pub fn spawn(mut opts: SpawnOptions) -> pocket_codex_core::Result<SpawnReport> {
                         reused: true,
                         log_offset,
                         listener_confirmed: false,
+                        spawned: None,
+                        owned: None,
                     });
                 }
                 warn!(stale_pid = existing.pid, "previous codex process is gone, restarting");
@@ -501,22 +624,47 @@ pub fn spawn(mut opts: SpawnOptions) -> pocket_codex_core::Result<SpawnReport> {
 
     debug!(?binary, %listen_url, ?log_file, "spawning codex app-server");
 
-    let child = build_command(
+    let mut command = build_command(
         &binary,
         &listen_url,
         &opts.extra_args,
         opts.proxy.as_deref(),
         child_path.as_deref(),
-    )
-    .stdin(Stdio::null())
-    .stdout(Stdio::from(log_handle))
-    .stderr(Stdio::from(log_handle_dup))
-    .spawn()
-    .map_err(|e| {
+    );
+    for (key, value) in secret_env {
+        command.env(key, value.expose());
+    }
+    command.stdin(Stdio::null());
+    match withheld {
+        true => command.stdout(Stdio::piped()).stderr(Stdio::piped()),
+        false => command
+            .stdout(Stdio::from(log_handle.try_clone()?))
+            .stderr(Stdio::from(log_handle_dup.try_clone()?)),
+    };
+    let mut child = command.spawn().map_err(|e| {
         pocket_codex_core::Error::Config(format!("failed to spawn `{}`: {e}", binary.display()))
     })?;
+    if withheld {
+        // Only this app's own notices reach the log (see `crate::output`).
+        let piped = [
+            child
+                .stdout
+                .take()
+                .map(|out| crate::output::pump(out, log_handle, true)),
+            child
+                .stderr
+                .take()
+                .map(|err| crate::output::pump(err, log_handle_dup, false)),
+        ];
+        if piped.contains(&Some(false)) {
+            warn!("could not read codex output; a stream of it is discarded");
+        }
+    }
 
     let spawn_pid = child.id();
+    // The identity of exactly this child, read while its handle is held: the
+    // only process (with its descendants) this spawn may later call its own.
+    let spawned = ProcessIdentity::of(spawn_pid);
     // Drop the Child handle so the kernel keeps the process alive after this
     // CLI exits; we track it by pid from now on.
     drop(child);
@@ -524,11 +672,16 @@ pub fn spawn(mut opts: SpawnOptions) -> pocket_codex_core::Result<SpawnReport> {
     // The PID we just spawned may be a throwaway shim. Wait for the listener to
     // come up and record the PID that actually owns it, so status/stop target
     // the real app-server rather than a wrapper that has already exited.
-    let (pid, listener_confirmed) = match &endpoint {
-        Some((host, port)) => {
-            resolve_listener_pid(host, *port, &listen_url, spawn_pid, &log_file, log_offset)
-        },
-        None => (spawn_pid, false),
+    let (pid, listener_confirmed, owned) = match &endpoint {
+        Some((host, port)) => resolve_listener_pid(
+            host,
+            *port,
+            &listen_url,
+            spawn_pid,
+            spawned,
+            (&log_file, log_offset),
+        ),
+        None => (spawn_pid, false, None),
     };
 
     let info = CodexProcessInfo {
@@ -546,6 +699,8 @@ pub fn spawn(mut opts: SpawnOptions) -> pocket_codex_core::Result<SpawnReport> {
         reused: false,
         log_offset,
         listener_confirmed,
+        spawned,
+        owned,
     })
 }
 
@@ -725,194 +880,5 @@ pub fn stop() -> pocket_codex_core::Result<StopOutcome> {
 fn _proto_anchor(_msg: _ProtocolMessage) {}
 
 #[cfg(test)]
-mod tests {
-    use std::{
-        collections::HashMap,
-        ffi::{OsStr, OsString},
-        path::Path,
-    };
-
-    use super::*;
-
-    /// Collect the explicitly-set environment overrides on a `Command`.
-    /// `get_envs` yields only what we set via `.env(..)`, not the
-    /// inherited parent environment, so this isolates our injection.
-    fn explicit_envs(command: &Command) -> HashMap<OsString, Option<OsString>> {
-        command
-            .get_envs()
-            .map(|(k, v)| (k.to_owned(), v.map(ToOwned::to_owned)))
-            .collect()
-    }
-
-    #[test]
-    fn locate_binary_prefers_an_existing_explicit_path() {
-        // An explicit path that exists is used verbatim (here, the test binary).
-        let exe = std::env::current_exe().expect("current exe");
-        assert_eq!(locate_binary(Some(exe.to_str().expect("utf8 path"))), Some(exe.clone()));
-        // A missing explicit path resolves to nothing, so the UI can prompt.
-        assert_eq!(locate_binary(Some("/definitely/not/here/codex-xyz")), None);
-        // A blank override is treated as "not given" → PATH lookup (which may or
-        // may not find codex on the test host); assert only that it doesn't panic.
-        let _ = locate_binary(Some("   "));
-    }
-
-    #[test]
-    fn build_command_omits_subcommand_for_bundled_app_server() {
-        let args = |bin: &str| -> Vec<String> {
-            build_command(Path::new(bin), "ws://127.0.0.1:1", &[], None, None)
-                .get_args()
-                .map(|a| a.to_string_lossy().into_owned())
-                .collect()
-        };
-        // External `codex` exposes app-server as a subcommand.
-        assert_eq!(args("codex"), ["app-server", "--listen", "ws://127.0.0.1:1"]);
-        // The bundled standalone binary IS the app-server — no subcommand.
-        assert_eq!(args("codex-app-server"), ["--listen", "ws://127.0.0.1:1"]);
-        assert_eq!(args("codex-app-server.exe"), ["--listen", "ws://127.0.0.1:1"]);
-    }
-
-    #[test]
-    fn child_log_filter_only_silences_spans_when_a_level_is_set() {
-        // Unset / blank: codex's own default is already quiet, so touching
-        // RUST_LOG would start filtering something nobody asked to filter.
-        assert_eq!(child_log_filter(None), None);
-        assert_eq!(child_log_filter(Some(OsStr::new("   "))), None);
-
-        // A level IS set: keep it, and append the span silencer. A later
-        // directive wins in EnvFilter, so the append is what takes effect.
-        assert_eq!(
-            child_log_filter(Some(OsStr::new("info"))).as_deref(),
-            Some("info,codex_app_server::app_server_tracing=warn"),
-            "at info, FmtSpan::FULL writes an enter+exit line PER REQUEST — measured at 45.8 MB \
-             for 20 thread/list calls"
-        );
-        // The user's other directives survive; only the span module is muted.
-        assert_eq!(
-            child_log_filter(Some(OsStr::new("warn,codex_core=debug"))).as_deref(),
-            Some("warn,codex_core=debug,codex_app_server::app_server_tracing=warn")
-        );
-        // Already handled — don't stack a duplicate directive.
-        assert_eq!(
-            child_log_filter(Some(OsStr::new("info,codex_app_server::app_server_tracing=warn"))),
-            None
-        );
-    }
-
-    #[test]
-    fn build_command_applies_the_span_filter_it_computed() {
-        let command = build_command(Path::new("codex"), "ws://127.0.0.1:1", &[], None, None);
-        let set = explicit_envs(&command)
-            .get(&OsString::from("RUST_LOG"))
-            .and_then(|v| v.clone());
-        // Mirrors the ambient env, so this holds on a clean machine and under a
-        // developer's exported RUST_LOG alike.
-        match child_log_filter(std::env::var_os("RUST_LOG").as_deref()) {
-            Some(expected) => assert_eq!(set, Some(OsString::from(expected))),
-            None => assert_eq!(set, None),
-        }
-    }
-
-    #[test]
-    fn oversized_log_is_discarded_leaving_nothing_behind() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let log = dir.path().join("codex-default.log");
-
-        // Under the cap: left byte-for-byte, so a tailer's offset stays valid.
-        std::fs::write(&log, b"small").expect("write");
-        discard_log_if_oversized(&log);
-        assert_eq!(std::fs::read(&log).expect("read"), b"small");
-
-        // Over the cap: gone, and NOT rotated to a sibling. Nothing reads bytes
-        // from before the current run, so a kept generation would just be a
-        // second copy of the disk-space problem.
-        std::fs::write(&log, vec![b'x'; (MAX_LOG_BYTES + 1) as usize]).expect("write big");
-        discard_log_if_oversized(&log);
-        assert!(!log.exists(), "the oversized file is removed");
-        assert_eq!(
-            std::fs::read_dir(dir.path()).expect("dir").count(),
-            0,
-            "no .1 (or any other) copy is left holding the bytes"
-        );
-
-        // A missing file is a no-op, not an error — the first-ever spawn.
-        discard_log_if_oversized(&log);
-        assert!(!log.exists());
-    }
-
-    #[test]
-    fn build_command_injects_proxy_env_when_set() {
-        let command = build_command(
-            Path::new("codex"),
-            "ws://127.0.0.1:18080",
-            &[],
-            Some("http://127.0.0.1:11111"),
-            None,
-        );
-        let envs = explicit_envs(&command);
-
-        // Look up case-insensitively: Windows env keys are case-insensitive,
-        // so the upper/lowercase writes collapse to one entry there, while on
-        // unix both survive. Either way each logical var must carry the value.
-        let lookup = |name: &str| -> Option<Option<OsString>> {
-            envs.iter().find_map(|(k, v)| {
-                k.to_str()
-                    .is_some_and(|k| k.eq_ignore_ascii_case(name))
-                    .then(|| v.clone())
-            })
-        };
-        for key in ["HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY"] {
-            assert_eq!(
-                lookup(key),
-                Some(Some(OsString::from("http://127.0.0.1:11111"))),
-                "expected {key} to carry the proxy value"
-            );
-        }
-    }
-
-    #[test]
-    fn build_command_leaves_proxy_env_untouched_without_proxy() {
-        let command = build_command(Path::new("codex"), "ws://127.0.0.1:18080", &[], None, None);
-        let envs = explicit_envs(&command);
-
-        // No PROXY var is set when none was asked for; the child inherits the
-        // parent's. RUST_LOG is deliberately excluded from this claim — it is
-        // capped independently of the proxy (see `child_log_filter`), because an
-        // unfiltered child grows its log file without bound.
-        for key in [
-            "HTTPS_PROXY",
-            "https_proxy",
-            "HTTP_PROXY",
-            "http_proxy",
-            "ALL_PROXY",
-            "all_proxy",
-            "NO_PROXY",
-            "no_proxy",
-        ] {
-            assert!(
-                !envs.contains_key(&OsString::from(key)),
-                "{key} must not be set when proxy is None"
-            );
-        }
-    }
-
-    #[test]
-    fn resolve_auto_port_returns_a_bindable_free_port() {
-        // It must hand back a concrete (non-zero) port for the `--port 0` case…
-        let port = resolve_auto_port("127.0.0.1").expect("resolve a free port");
-        assert_ne!(port, 0, "auto-select must resolve to a concrete port, not 0");
-        // …and the listener must have been released, so codex can bind it next.
-        std::net::TcpListener::bind(("127.0.0.1", port))
-            .expect("the resolved port should be free to bind");
-    }
-
-    #[test]
-    fn ws_host_port_parses_websocket_urls_only() {
-        assert_eq!(ws_host_port("ws://127.0.0.1:18080"), Some(("127.0.0.1".to_string(), 18080)));
-        // Trailing path is ignored (authority only).
-        assert_eq!(ws_host_port("ws://0.0.0.0:9000/foo"), Some(("0.0.0.0".to_string(), 9000)));
-        // Unix sockets and missing/garbage ports have no TCP endpoint.
-        assert_eq!(ws_host_port("unix:///tmp/codex.sock"), None);
-        assert_eq!(ws_host_port("ws://127.0.0.1"), None);
-        assert_eq!(ws_host_port("ws://127.0.0.1:notaport"), None);
-    }
-}
+#[path = "process_tests.rs"]
+mod tests;

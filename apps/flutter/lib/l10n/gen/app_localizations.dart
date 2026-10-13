@@ -2120,6 +2120,12 @@ abstract class AppLocalizations {
   /// **'Stop hosting'**
   String get stopHosting;
 
+  /// No description provided for @localHostStopFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Did not stop: stop again'**
+  String get localHostStopFailed;
+
   /// No description provided for @localHostPort.
   ///
   /// In en, this message translates to:
@@ -3011,7 +3017,7 @@ abstract class AppLocalizations {
   /// No description provided for @codexChatNeedsSetup.
   ///
   /// In en, this message translates to:
-  /// **'Model access isn\'t set up yet — configure Codex before chatting.'**
+  /// **'Model access isn\'t set up yet — set this host\'s model service before chatting.'**
   String get codexChatNeedsSetup;
 
   /// No description provided for @codexSetupStepTitle.
@@ -3023,7 +3029,7 @@ abstract class AppLocalizations {
   /// No description provided for @codexSetupStepDesc.
   ///
   /// In en, this message translates to:
-  /// **'Fill in a provider (URL + API Key) or sign in with ChatGPT, and optionally switch on the non-degraded system prompt.'**
+  /// **'Sign in with ChatGPT, or give a host its own provider when you host it, and optionally switch on the non-degraded system prompt.'**
   String get codexSetupStepDesc;
 
   /// No description provided for @codexSetupProviderSection.
@@ -3229,6 +3235,72 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'credential present'**
   String get codexSetupCredentialExists;
+
+  /// No description provided for @codexSetupProviderPerHost.
+  ///
+  /// In en, this message translates to:
+  /// **'Set per host: each host\'s own model service can use a custom provider.'**
+  String get codexSetupProviderPerHost;
+
+  /// No description provided for @codexSetupProviderScope.
+  ///
+  /// In en, this message translates to:
+  /// **'This page sets up Codex itself (its config directory below): the ChatGPT sign-in and the prompt option. Hosts set to \"Existing configuration\" use it. A host\'s own custom provider or official account is chosen in that host\'s editor.'**
+  String get codexSetupProviderScope;
+
+  /// No description provided for @codexSetupGlobalProvider.
+  ///
+  /// In en, this message translates to:
+  /// **'Codex\'s own configuration already selects a custom provider. Hosts set to \"Existing configuration\" keep using it.'**
+  String get codexSetupGlobalProvider;
+
+  /// No description provided for @codexSetupConfigureHost.
+  ///
+  /// In en, this message translates to:
+  /// **'Configure a host'**
+  String get codexSetupConfigureHost;
+
+  /// No description provided for @codexSetupHostingDesktopOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Hosting runs on a desktop; set a host\'s provider there.'**
+  String get codexSetupHostingDesktopOnly;
+
+  /// No description provided for @settingsHosting.
+  ///
+  /// In en, this message translates to:
+  /// **'Hosting and model service'**
+  String get settingsHosting;
+
+  /// No description provided for @settingsHostingDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'A host\'s agent, model service and sign-in'**
+  String get settingsHostingDesc;
+
+  /// No description provided for @hostPickTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Configure which host?'**
+  String get hostPickTitle;
+
+  /// No description provided for @hostPickHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Each host keeps its own model service. Choosing one only opens its editor. Save keeps a running host as it is; its saved configuration takes effect only after Apply and restart.'**
+  String get hostPickHint;
+
+  /// No description provided for @hostPickNew.
+  ///
+  /// In en, this message translates to:
+  /// **'New host'**
+  String get hostPickNew;
+
+  /// No description provided for @hostPickLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The running hosts could not be read. You can still set up a new host.'**
+  String get hostPickLoadFailed;
 
   /// No description provided for @resizeComposer.
   ///
@@ -3463,6 +3535,60 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'The turn changed or ended. Your draft is kept; send it as a new turn.'**
   String get steerTurnEnded;
+
+  /// No description provided for @steerUnavailableHint.
+  ///
+  /// In en, this message translates to:
+  /// **'This agent cannot add to a running turn. Messages you send now are queued for the next turn.'**
+  String get steerUnavailableHint;
+
+  /// No description provided for @steerQueuedAfterEnd.
+  ///
+  /// In en, this message translates to:
+  /// **'The turn had already ended, so your supplement will be sent as the next turn.'**
+  String get steerQueuedAfterEnd;
+
+  /// No description provided for @retryUnverified.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not check whether the host received this message, so it was not sent again. Retry when the host is reachable.'**
+  String get retryUnverified;
+
+  /// No description provided for @queuedUncertain.
+  ///
+  /// In en, this message translates to:
+  /// **'May already have been sent. It is sent again only if you retry it.'**
+  String get queuedUncertain;
+
+  /// No description provided for @queuedUncertainRetry.
+  ///
+  /// In en, this message translates to:
+  /// **'It may already have reached the host, so it stays queued and is not sent by itself. Check the conversation: Retry sends it again, tapping it lets you edit it.'**
+  String get queuedUncertainRetry;
+
+  /// No description provided for @steerAnswerStale.
+  ///
+  /// In en, this message translates to:
+  /// **'The answer arrived after this conversation\'s host or view changed, so your draft is kept as it was. Check the conversation before sending it again.'**
+  String get steerAnswerStale;
+
+  /// No description provided for @sendHostChanged.
+  ///
+  /// In en, this message translates to:
+  /// **'The host connection changed before this message was sent, so nothing was sent.'**
+  String get sendHostChanged;
+
+  /// No description provided for @sendAnswerStale.
+  ///
+  /// In en, this message translates to:
+  /// **'The host answered after its connection changed, so it is unknown whether this message arrived.'**
+  String get sendAnswerStale;
+
+  /// No description provided for @sendReturnedToDraft.
+  ///
+  /// In en, this message translates to:
+  /// **'It is back in the composer; check the conversation before sending it again.'**
+  String get sendReturnedToDraft;
 
   /// No description provided for @advancedSettings.
   ///
@@ -4142,6 +4268,150 @@ abstract class AppLocalizations {
   /// **'This program was not found on this device.'**
   String get acpProgramNotFound;
 
+  /// No description provided for @claudeEnvTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Claude on this computer'**
+  String get claudeEnvTitle;
+
+  /// No description provided for @claudeAdapterInstalled.
+  ///
+  /// In en, this message translates to:
+  /// **'ACP adapter: {path}'**
+  String claudeAdapterInstalled(String path);
+
+  /// No description provided for @claudeAdapterPrepared.
+  ///
+  /// In en, this message translates to:
+  /// **'ACP adapter (prepared by this app): {path}'**
+  String claudeAdapterPrepared(String path);
+
+  /// No description provided for @claudeAdapterWillPrepare.
+  ///
+  /// In en, this message translates to:
+  /// **'The ACP adapter is not installed. Start downloads {package} from npm into this app\'s cache (nothing global changes), then starts Claude.'**
+  String claudeAdapterWillPrepare(String package);
+
+  /// No description provided for @claudeAdapterMissing.
+  ///
+  /// In en, this message translates to:
+  /// **'The ACP adapter ({package}) is not installed, and it cannot be prepared here.'**
+  String claudeAdapterMissing(String package);
+
+  /// No description provided for @claudeNodeFound.
+  ///
+  /// In en, this message translates to:
+  /// **'Node.js {version}: {path}'**
+  String claudeNodeFound(String version, String path);
+
+  /// No description provided for @claudeNodeTooOld.
+  ///
+  /// In en, this message translates to:
+  /// **'Node.js {version} is too old; the adapter needs Node.js 22 or newer.'**
+  String claudeNodeTooOld(String version);
+
+  /// No description provided for @claudeNodeMissing.
+  ///
+  /// In en, this message translates to:
+  /// **'Node.js 22 or newer was not found.'**
+  String get claudeNodeMissing;
+
+  /// No description provided for @claudeCliFound.
+  ///
+  /// In en, this message translates to:
+  /// **'Claude Code: {path}'**
+  String claudeCliFound(String path);
+
+  /// No description provided for @claudeCliInherited.
+  ///
+  /// In en, this message translates to:
+  /// **'Claude Code: as set in CLAUDE_CODE_EXECUTABLE'**
+  String get claudeCliInherited;
+
+  /// No description provided for @claudeCliBundled.
+  ///
+  /// In en, this message translates to:
+  /// **'Claude Code was not found; the adapter uses its bundled copy.'**
+  String get claudeCliBundled;
+
+  /// No description provided for @claudeEnvRecheck.
+  ///
+  /// In en, this message translates to:
+  /// **'Check again'**
+  String get claudeEnvRecheck;
+
+  /// No description provided for @claudePreparing.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing the Claude ACP adapter… {seconds} s'**
+  String claudePreparing(int seconds);
+
+  /// No description provided for @claudePrepareVerifying.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking the downloaded adapter… {seconds} s'**
+  String claudePrepareVerifying(int seconds);
+
+  /// No description provided for @claudePrepareCancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop preparing'**
+  String get claudePrepareCancel;
+
+  /// No description provided for @claudePrepareStopWaiting.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop waiting'**
+  String get claudePrepareStopWaiting;
+
+  /// No description provided for @claudePrepareJoined.
+  ///
+  /// In en, this message translates to:
+  /// **'Another window started this preparation; this page only follows it.'**
+  String get claudePrepareJoined;
+
+  /// No description provided for @claudePrepareLeftRunning.
+  ///
+  /// In en, this message translates to:
+  /// **'Stopped waiting. The preparation started elsewhere keeps running.'**
+  String get claudePrepareLeftRunning;
+
+  /// No description provided for @claudePrepareReplaced.
+  ///
+  /// In en, this message translates to:
+  /// **'Another preparation replaced the one this page followed, so its result is not shown here. Start again to retry.'**
+  String get claudePrepareReplaced;
+
+  /// No description provided for @quitStopping.
+  ///
+  /// In en, this message translates to:
+  /// **'Stopping hosted agents before quitting…'**
+  String get quitStopping;
+
+  /// No description provided for @quitBlocked.
+  ///
+  /// In en, this message translates to:
+  /// **'The app stays open because hosting could not be stopped safely: {error}'**
+  String quitBlocked(String error);
+
+  /// No description provided for @quitRetry.
+  ///
+  /// In en, this message translates to:
+  /// **'Quit again'**
+  String get quitRetry;
+
+  /// No description provided for @claudePrepareFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing the Claude ACP adapter failed: {error}'**
+  String claudePrepareFailed(String error);
+
+  /// No description provided for @claudePrepareCancelled.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing the Claude ACP adapter was stopped. Start tries again.'**
+  String get claudePrepareCancelled;
+
   /// No description provided for @acpProgramFound.
   ///
   /// In en, this message translates to:
@@ -4225,6 +4495,102 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'The agent\'s model catalog is listed when its first session opens.'**
   String get acpCatalogWaiting;
+
+  /// No description provided for @acpRouteWaiting.
+  ///
+  /// In en, this message translates to:
+  /// **'Whether OpenCode uses this host\'s provider is checked when its first session opens.'**
+  String get acpRouteWaiting;
+
+  /// No description provided for @acpRouteSelected.
+  ///
+  /// In en, this message translates to:
+  /// **'OpenCode uses this host\'s provider and model.'**
+  String get acpRouteSelected;
+
+  /// No description provided for @acpRouteOverridden.
+  ///
+  /// In en, this message translates to:
+  /// **'Another OpenCode configuration overrides this host\'s provider: {reasons}. Requests may go elsewhere.'**
+  String acpRouteOverridden(String reasons);
+
+  /// No description provided for @acpRouteUnverified.
+  ///
+  /// In en, this message translates to:
+  /// **'Whether OpenCode uses this host\'s provider cannot be checked: {reasons}.'**
+  String acpRouteUnverified(String reasons);
+
+  /// No description provided for @acpRouteReasonModel.
+  ///
+  /// In en, this message translates to:
+  /// **'it selects another model'**
+  String get acpRouteReasonModel;
+
+  /// No description provided for @acpRouteReasonEnabled.
+  ///
+  /// In en, this message translates to:
+  /// **'enabled_providers leaves it out'**
+  String get acpRouteReasonEnabled;
+
+  /// No description provided for @acpRouteReasonDisabled.
+  ///
+  /// In en, this message translates to:
+  /// **'disabled_providers names it'**
+  String get acpRouteReasonDisabled;
+
+  /// No description provided for @acpRouteReasonMissing.
+  ///
+  /// In en, this message translates to:
+  /// **'the provider is missing from the merged configuration'**
+  String get acpRouteReasonMissing;
+
+  /// No description provided for @acpRouteReasonSmallModel.
+  ///
+  /// In en, this message translates to:
+  /// **'small_model names another provider'**
+  String get acpRouteReasonSmallModel;
+
+  /// No description provided for @acpRouteReasonAgentModel.
+  ///
+  /// In en, this message translates to:
+  /// **'an agent or mode model names another provider'**
+  String get acpRouteReasonAgentModel;
+
+  /// No description provided for @acpRouteReasonProvider.
+  ///
+  /// In en, this message translates to:
+  /// **'another layer changed the provider\'s definition'**
+  String get acpRouteReasonProvider;
+
+  /// No description provided for @acpRouteEnforced.
+  ///
+  /// In en, this message translates to:
+  /// **'Other OpenCode configuration differed and was reset to this host\'s provider: {reasons}.'**
+  String acpRouteEnforced(String reasons);
+
+  /// No description provided for @acpRouteRefused.
+  ///
+  /// In en, this message translates to:
+  /// **'OpenCode was given no usable provider: this host\'s key is missing in the agent\'s environment, so no prompt can be sent. Save the key again and restart the host.'**
+  String get acpRouteRefused;
+
+  /// No description provided for @acpRouteReasonKey.
+  ///
+  /// In en, this message translates to:
+  /// **'the host\'s key is missing in the agent'**
+  String get acpRouteReasonKey;
+
+  /// No description provided for @acpRouteProjects.
+  ///
+  /// In en, this message translates to:
+  /// **'Projects checked, as the plugin input names them (not verified against OpenCode\'s source): {projects}'**
+  String acpRouteProjects(String projects);
+
+  /// No description provided for @acpRouteScope.
+  ///
+  /// In en, this message translates to:
+  /// **'This covers OpenCode\'s merged configuration, with this host\'s key pinned over a key saved for the same provider with `opencode auth login`. Another plugin\'s provider or auth loader for the same provider, or a later plugin\'s hook, is not covered.'**
+  String get acpRouteScope;
 
   /// No description provided for @acpCatalogUnavailable.
   ///
@@ -4476,6 +4842,378 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **', '**
   String get omittedSeparator;
+
+  /// No description provided for @hostEditorTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Host {name}'**
+  String hostEditorTitle(String name);
+
+  /// No description provided for @hostSectionAgent.
+  ///
+  /// In en, this message translates to:
+  /// **'Agent'**
+  String get hostSectionAgent;
+
+  /// No description provided for @hostSectionStatus.
+  ///
+  /// In en, this message translates to:
+  /// **'Status'**
+  String get hostSectionStatus;
+
+  /// No description provided for @hostSectionModel.
+  ///
+  /// In en, this message translates to:
+  /// **'Model service'**
+  String get hostSectionModel;
+
+  /// No description provided for @hostSectionModelHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Where this host\'s agent sends model requests. Saved per host on this device.'**
+  String get hostSectionModelHint;
+
+  /// No description provided for @hostSourceInherited.
+  ///
+  /// In en, this message translates to:
+  /// **'Existing configuration'**
+  String get hostSourceInherited;
+
+  /// No description provided for @hostSourceOfficial.
+  ///
+  /// In en, this message translates to:
+  /// **'Official account'**
+  String get hostSourceOfficial;
+
+  /// No description provided for @hostSourceCustom.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom provider'**
+  String get hostSourceCustom;
+
+  /// No description provided for @hostInheritedOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'This agent is launched with its own configuration. Pocket-Codex does not know a provider setting it supports.'**
+  String get hostInheritedOnly;
+
+  /// No description provided for @hostInheritedAcp.
+  ///
+  /// In en, this message translates to:
+  /// **'The agent uses its own configuration files and environment, unchanged.'**
+  String get hostInheritedAcp;
+
+  /// No description provided for @hostInheritedCodexCustom.
+  ///
+  /// In en, this message translates to:
+  /// **'Codex\'s config.toml already selects provider {provider}. Nothing more is needed.'**
+  String hostInheritedCodexCustom(String provider);
+
+  /// No description provided for @hostInheritedCodexAccount.
+  ///
+  /// In en, this message translates to:
+  /// **'Codex is already signed in. Nothing more is needed.'**
+  String get hostInheritedCodexAccount;
+
+  /// No description provided for @hostInheritedCodexInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'Codex\'s config.toml could not be read. Fix it, or choose an option below.'**
+  String get hostInheritedCodexInvalid;
+
+  /// No description provided for @hostInheritedCodexNone.
+  ///
+  /// In en, this message translates to:
+  /// **'Codex has no sign-in or provider yet. Sign in or add a custom provider.'**
+  String get hostInheritedCodexNone;
+
+  /// No description provided for @hostInheritedCodexHome.
+  ///
+  /// In en, this message translates to:
+  /// **'Configuration directory: {path}'**
+  String hostInheritedCodexHome(String path);
+
+  /// No description provided for @hostProtocolLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'API type'**
+  String get hostProtocolLabel;
+
+  /// No description provided for @hostProtocolResponses.
+  ///
+  /// In en, this message translates to:
+  /// **'OpenAI Responses'**
+  String get hostProtocolResponses;
+
+  /// No description provided for @hostProtocolAnthropic.
+  ///
+  /// In en, this message translates to:
+  /// **'Anthropic Messages'**
+  String get hostProtocolAnthropic;
+
+  /// No description provided for @hostProtocolChat.
+  ///
+  /// In en, this message translates to:
+  /// **'OpenAI Chat Completions'**
+  String get hostProtocolChat;
+
+  /// No description provided for @hostBaseUrl.
+  ///
+  /// In en, this message translates to:
+  /// **'Base URL'**
+  String get hostBaseUrl;
+
+  /// No description provided for @hostApiKey.
+  ///
+  /// In en, this message translates to:
+  /// **'API key'**
+  String get hostApiKey;
+
+  /// No description provided for @hostApiKeyStored.
+  ///
+  /// In en, this message translates to:
+  /// **'A key is stored. Leave empty to keep it.'**
+  String get hostApiKeyStored;
+
+  /// No description provided for @hostKeyEnvNote.
+  ///
+  /// In en, this message translates to:
+  /// **'Stored only on this device and handed to the agent when it starts, never on its command line.'**
+  String get hostKeyEnvNote;
+
+  /// No description provided for @hostApiKeyRemove.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove stored key'**
+  String get hostApiKeyRemove;
+
+  /// No description provided for @hostModelOptional.
+  ///
+  /// In en, this message translates to:
+  /// **'Model (optional)'**
+  String get hostModelOptional;
+
+  /// No description provided for @hostBaseUrlRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the provider\'s base URL.'**
+  String get hostBaseUrlRequired;
+
+  /// No description provided for @hostSaveConfig.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get hostSaveConfig;
+
+  /// No description provided for @hostConfigSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved. The running host keeps its current configuration until it restarts.'**
+  String get hostConfigSaved;
+
+  /// No description provided for @hostConfigPending.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved changes are not active yet. Restart the host to apply them.'**
+  String get hostConfigPending;
+
+  /// No description provided for @hostApplyRestart.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply and restart'**
+  String get hostApplyRestart;
+
+  /// No description provided for @hostSaveAndRestart.
+  ///
+  /// In en, this message translates to:
+  /// **'Save and restart'**
+  String get hostSaveAndRestart;
+
+  /// No description provided for @hostApplyNote.
+  ///
+  /// In en, this message translates to:
+  /// **'Restarting stops the agent briefly and disconnects open sessions. If the new configuration fails to start, the previous one is restored.'**
+  String get hostApplyNote;
+
+  /// No description provided for @hostApplied.
+  ///
+  /// In en, this message translates to:
+  /// **'Restarted with the new configuration.'**
+  String get hostApplied;
+
+  /// No description provided for @hostApplyRestored.
+  ///
+  /// In en, this message translates to:
+  /// **'The new configuration failed, so the previous one was restored: {error}'**
+  String hostApplyRestored(String error);
+
+  /// No description provided for @hostApplyFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Restart failed and the host is stopped: {error}'**
+  String hostApplyFailed(String error);
+
+  /// No description provided for @hostOfficialNote.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign-in runs on a private local Codex server, so no host needs to be running.'**
+  String get hostOfficialNote;
+
+  /// No description provided for @hostAgentEditNote.
+  ///
+  /// In en, this message translates to:
+  /// **'Changing the launch command takes effect on restart.'**
+  String get hostAgentEditNote;
+
+  /// No description provided for @hostCodexRuntimeFixed.
+  ///
+  /// In en, this message translates to:
+  /// **'What the host runs now. Edit the runtime below, save, then apply to restart with it.'**
+  String get hostCodexRuntimeFixed;
+
+  /// No description provided for @hostLoginRefreshFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not check the sign-in; retrying: {error}'**
+  String hostLoginRefreshFailed(String error);
+
+  /// No description provided for @hostLoginNotOfficial.
+  ///
+  /// In en, this message translates to:
+  /// **'Codex finished the login, but not with a ChatGPT account. Sign in again.'**
+  String get hostLoginNotOfficial;
+
+  /// No description provided for @hostLoginFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign-in failed: {error}'**
+  String hostLoginFailed(String error);
+
+  /// No description provided for @hostSourceUnsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'The saved model service cannot be used with this agent. Choose another one.'**
+  String get hostSourceUnsupported;
+
+  /// No description provided for @hostModelRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the default model this provider should use.'**
+  String get hostModelRequired;
+
+  /// No description provided for @hostKeyRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the provider\'s API key.'**
+  String get hostKeyRequired;
+
+  /// No description provided for @hostModelDefault.
+  ///
+  /// In en, this message translates to:
+  /// **'Default model'**
+  String get hostModelDefault;
+
+  /// No description provided for @hostModelDefaultNote.
+  ///
+  /// In en, this message translates to:
+  /// **'The provider\'s model for new sessions. A conversation\'s own model choice is made in the conversation and is not stored here.'**
+  String get hostModelDefaultNote;
+
+  /// No description provided for @hostLeaveTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Discard unsaved changes?'**
+  String get hostLeaveTitle;
+
+  /// No description provided for @hostLeaveBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Your changes to this host have not been saved.'**
+  String get hostLeaveBody;
+
+  /// No description provided for @hostLeaveStay.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep editing'**
+  String get hostLeaveStay;
+
+  /// No description provided for @hostLeaveDiscard.
+  ///
+  /// In en, this message translates to:
+  /// **'Discard'**
+  String get hostLeaveDiscard;
+
+  /// No description provided for @hostApplyConfirmTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Restart {name}?'**
+  String hostApplyConfirmTitle(String name);
+
+  /// No description provided for @hostApplyConfirmBody.
+  ///
+  /// In en, this message translates to:
+  /// **'The host stops and starts again with its saved configuration. A running turn is interrupted and open conversations reconnect. Drafts, attachments and queued messages on this device are kept. Other hosts are not affected.'**
+  String get hostApplyConfirmBody;
+
+  /// No description provided for @hostReplaced.
+  ///
+  /// In en, this message translates to:
+  /// **'This host was restarted elsewhere since this page read it. Reload before applying.'**
+  String get hostReplaced;
+
+  /// No description provided for @hostApplyStopped.
+  ///
+  /// In en, this message translates to:
+  /// **'The new configuration failed ({error}) and restoring the previous one failed too ({restoreError}). The host is stopped.'**
+  String hostApplyStopped(String error, String restoreError);
+
+  /// No description provided for @hostGone.
+  ///
+  /// In en, this message translates to:
+  /// **'This host is no longer running.'**
+  String get hostGone;
+
+  /// No description provided for @hostConfigReload.
+  ///
+  /// In en, this message translates to:
+  /// **'Reload'**
+  String get hostConfigReload;
+
+  /// No description provided for @hostConfigNewer.
+  ///
+  /// In en, this message translates to:
+  /// **'A newer saved configuration exists. Reload to see it (your edits are discarded).'**
+  String get hostConfigNewer;
+
+  /// No description provided for @hostConfigLoadFailedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Configuration unavailable'**
+  String get hostConfigLoadFailedTitle;
+
+  /// No description provided for @hostConfigLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not read this host\'s saved configuration: {error}'**
+  String hostConfigLoadFailed(String error);
+
+  /// No description provided for @hostRuntimeEditNote.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved changes take effect when you apply them; the name stays.'**
+  String get hostRuntimeEditNote;
+
+  /// No description provided for @hostAgentUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'This host does not report its agent, so it cannot be edited here.'**
+  String get hostAgentUnknown;
+
+  /// No description provided for @hostApiProxyNote.
+  ///
+  /// In en, this message translates to:
+  /// **'This host also publishes a separate Responses API service (api:<name>). It always uses this device\'s official Codex sign-in, not the provider chosen here.'**
+  String get hostApiProxyNote;
 }
 
 class _AppLocalizationsDelegate

@@ -39,26 +39,36 @@
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard},
     time::Duration,
 };
 
 use anyhow::{anyhow, bail, Context, Result};
 use once_cell::sync::OnceCell;
-use pocket_codex_core::service::{default_device_id, sanitize_component, ServiceId, ServiceKind};
+use pocket_codex_core::service::{default_device_id, ServiceId, ServiceKind};
 use pocket_codex_host_svc::{
-    acp::{self, process, spec, AgentHost, AgentSpec, HostOptions, SessionStore, SourceId},
+    acp::{self, claude, process, spec, AgentHost, AgentSpec, HostOptions, SessionStore, SourceId},
     file_links::SessionDirResolver,
 };
 use pocket_codex_pb::Published;
 use tokio::task::JoinHandle;
 
 use super::{
+    claude_setup,
+    host_lease::{self, Lease, Op},
+    host_names, host_profiles,
+    host_services::{self, bind_loopback},
     hosting, runtime,
-    serve::{self, ServeStatus},
+    serve::ServeStatus,
     transport,
 };
+
+#[path = "serve_acp_launch.rs"]
+mod launch;
+
+use self::launch::Captured;
+pub(super) use self::launch::{launch_prepared, prepare, Prepared};
 
 struct AcpServe {
     device: String,
@@ -79,6 +89,11 @@ struct AcpServe {
     /// The OpenCode model catalog attached to this agent's launch; its
     /// files are removed when this is dropped.
     catalog: Option<acp::catalog::Launch>,
+    /// The model-service configuration the agent was launched with, kept so
+    /// an apply that fails can restart it as it was.
+    config: Option<host_profiles::Resolved>,
+    /// Exactly how the agent was launched, for starting it again as it ran.
+    launch: Option<Captured>,
     /// This agent's entry in [`owners`]; released when this is dropped,
     /// which happens only after the agent was stopped.
     _owner: Owner,
@@ -253,8 +268,16 @@ pub fn hosting_supported() -> bool {
 }
 
 /// Resolve the executable a spec would launch: an explicit path as is, a
-/// bare name on the child `PATH`, then the preset's install locations.
+/// bare name on the child `PATH`, then the preset's install locations. The
+/// Claude preset's own program resolves to its ACP adapter (see
+/// [`super::claude_setup`]), never to the native `claude` CLI.
 pub fn locate(program: &str, profile_id: Option<&str>) -> Option<PathBuf> {
+    if profile_id == Some(claude::PROFILE_ID) && program.trim() == claude::ADAPTER_BIN {
+        return claude_setup::environment()
+            .ok()?
+            .adapter
+            .map(|adapter| adapter.bin);
+    }
     let search = pocket_codex_codex::external_tool_path();
     let home = std::env::var_os("HOME").map(PathBuf::from);
     let fallback = profile_id
@@ -277,199 +300,28 @@ fn report(host: &AcpServe, reused: bool) -> AcpServeReport {
     }
 }
 
-fn bind_loopback(label: &str) -> Result<(std::net::TcpListener, SocketAddr)> {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0")
-        .with_context(|| format!("binding the {label}"))?;
-    listener.set_nonblocking(true)?;
-    let addr = listener.local_addr()?;
-    Ok((listener, addr))
-}
-
 /// Host `spec` under `name` (default: the profile id). A running host with
 /// the same spec is reused; another agent under the same name is refused.
 pub fn start(name: Option<String>, spec: AgentSpec) -> Result<AcpServeReport> {
-    if !hosting_supported() {
-        bail!("hosting ACP agents is not supported on this platform yet");
-    }
-    spec.validate().map_err(|error| anyhow!("{error}"))?;
-    let name = sanitize_component(
-        name.as_deref()
-            .map(str::trim)
-            .filter(|n| !n.is_empty())
-            .unwrap_or(&spec.profile_id),
-    );
-    if let Some(found) = reuse(&name, &spec)? {
-        return Ok(found);
-    }
-    let reservation = hosting::reserve(&name)?;
-    let program = locate(&spec.program, Some(&spec.profile_id)).ok_or_else(|| {
-        anyhow!("the agent executable was not found; install it or choose its full path")
-    })?;
-    let state = pocket_codex_core::paths::state_dir().context("resolving the state directory")?;
-    // Session authority belongs to exactly this invocation (resolved
-    // executable and arguments), never to the name or profile label.
-    let acp_root = state.join("acp");
-    let source = SourceId::derive(&acp_root, &program, &spec.args)
-        .context("preparing the agent's session record")?;
-    let store = SessionStore::open(&acp_root, &name, source);
-    let uploads = state.join("acp-uploads");
-    let catalog = acp::catalog::launch(&spec, &state);
-    let rt = runtime::runtime();
-    let host = {
-        let _runtime = rt.enter();
-        AgentHost::create(HostOptions {
-            spec: spec.clone(),
-            program: program.clone(),
-            path: pocket_codex_codex::external_tool_path(),
-            env: catalog
-                .as_ref()
-                .map(acp::catalog::Launch::env)
-                .unwrap_or_default(),
-            store,
-        })
-    };
-    // Visible to a quit before the agent exists, so it can never escape it.
-    let Some(id) = owners().begin(host.clone()) else {
-        bail!("the app is quitting");
-    };
-    // Released only after the agent was stopped: an early return below
-    // stops it first, and a hosted agent's owner lives in its `AcpServe`.
-    let owner = Owner(id);
-    if let Err(error) = rt.block_on(host.launch()) {
-        rt.block_on(host.stop());
-        drop(owner);
-        return Err(anyhow!("{error}"));
-    }
-    let serving = match publish(&name, &host, &program, uploads, owner) {
-        Ok(mut serving) => {
-            serving.catalog = catalog;
-            serving
-        },
-        Err((error, owner)) => {
-            // Roll back: the agent stops and the reservation drops.
-            rt.block_on(host.stop());
-            drop(owner);
-            return Err(error);
-        },
-    };
-    let out = report(&serving, false);
-    let refused = {
-        let mut barrier = owners();
-        if barrier.commit(id) {
-            let replaced = hosts().insert(name, serving);
-            debug_assert!(replaced.is_none(), "the name reservation excludes a second host");
-            drop(barrier);
-            // Not expected (the reservation), but never dropped under a lock.
-            if let Some(replaced) = replaced {
-                stop_host(replaced);
-            }
-            None
-        } else {
-            Some(serving)
-        }
-    };
-    if let Some(serving) = refused {
-        // A quit began meanwhile; it stops this agent too.
-        stop_host(serving);
-        bail!("the app is quitting");
-    }
-    reservation.commit();
-    Ok(out)
+    let name = host_names::canonical(&host_names::requested(name.as_deref(), &spec.profile_id))?;
+    let lease = host_lease::acquire(&name, Op::Start)?;
+    start_locked(&lease, spec, None, &host_profiles::root()?)
 }
 
-/// Serve the gateway and meta service for a launched `host` and publish
-/// both. On error everything started here is stopped again and `owner` is
-/// handed back (the caller still has to stop the agent).
-fn publish(
-    name: &str,
-    host: &AgentHost,
-    program: &std::path::Path,
-    uploads: PathBuf,
-    owner: Owner,
-) -> Result<AcpServe, (anyhow::Error, Owner)> {
-    let prepared = (|| {
-        Ok::<_, anyhow::Error>((
-            serve::config_store()?,
-            serve::host_store()?,
-            bind_loopback("ACP gateway")?,
-            bind_loopback("meta service")?,
-        ))
-    })();
-    let (config_store, host_store, (gateway_std, gateway_local), (meta_std, meta_local)) =
-        match prepared {
-            Ok(prepared) => prepared,
-            Err(error) => return Err((error, owner)),
-        };
-    let rt = runtime::runtime();
-    let device = default_device_id();
-    let gateway_host = host.clone();
-    let gateway_task = rt.spawn(serve::supervise(
-        "the ACP gateway",
-        gateway_local,
-        gateway_std,
-        move |listener| {
-            let host = gateway_host.clone();
-            async move { acp::api::serve(listener, host).await }
-        },
-    ));
-    let meta_host = host.clone();
-    let meta_task =
-        rt.spawn(serve::supervise("the ACP meta service", meta_local, meta_std, move |listener| {
-            let (store, host_store, uploads) =
-                (config_store.clone(), host_store.clone(), uploads.clone());
-            let dirs: Arc<dyn SessionDirResolver> = Arc::new(meta_host.clone());
-            async move {
-                pocket_codex_host_svc::serve_generic(listener, store, host_store, uploads, dirs)
-                    .await
-            }
-        }));
-    let abort = || {
-        gateway_task.abort();
-        meta_task.abort();
-    };
-    let transport = match transport::resolve_blocking() {
-        Ok(transport) => transport,
-        Err(error) => {
-            abort();
-            return Err((error, owner));
-        },
-    };
-    let meta_register =
-        serve::register_service(&transport, &device, ServiceKind::Meta, name, meta_local)
-            .ok()
-            .flatten();
-    let register =
-        match serve::register_service(&transport, &device, ServiceKind::Acp, name, gateway_local) {
-            Ok(register) => register,
-            Err(error) => {
-                abort();
-                drop(meta_register);
-                return Err((error, owner));
-            },
-        };
-    Ok(AcpServe {
-        key: ServiceId::new(&device, ServiceKind::Acp, name).key(),
-        meta_key: ServiceId::new(&device, ServiceKind::Meta, name).key(),
-        device,
-        name: name.to_string(),
-        gateway_local,
-        meta_local,
-        gateway_task,
-        meta_task,
-        register: Slot {
-            published: register,
-            revision: 0,
-        },
-        meta_register: Slot {
-            published: meta_register,
-            revision: 0,
-        },
-        host: host.clone(),
-        program: program.display().to_string(),
-        context: transport::Context::of(&transport),
-        catalog: None,
-        _owner: owner,
-    })
+/// [`start`] under the held lease of its instance, with the model service
+/// named (`None`: the saved one in `profiles`); a rollback restarts with
+/// the one a host ran with.
+pub(super) fn start_locked(
+    lease: &Lease,
+    spec: AgentSpec,
+    provider: Option<host_profiles::Resolved>,
+    profiles: &Path,
+) -> Result<AcpServeReport> {
+    spec.validate().map_err(|error| anyhow!("{error}"))?;
+    if let Some(found) = reuse(lease.name(), &spec)? {
+        return Ok(found);
+    }
+    launch_prepared(prepare(lease.name(), spec, provider, profiles)?)
 }
 
 fn reuse(name: &str, spec: &AgentSpec) -> Result<Option<AcpServeReport>> {
@@ -491,13 +343,38 @@ fn reuse(name: &str, spec: &AgentSpec) -> Result<Option<AcpServeReport>> {
 
 /// Restart the agent of host `name` (a fresh process and generation).
 pub fn restart(name: &str) -> Result<()> {
+    let lease = host_lease::acquire(name, Op::Restart)?;
+    // The table is keyed canonically, like the lease.
     let host = hosts()
-        .get(name)
+        .get(lease.name())
         .map(|h| h.host.clone())
         .ok_or_else(|| anyhow!("`{name}` is not hosting an ACP agent"))?;
     runtime::runtime()
         .block_on(host.restart())
         .map_err(|error| anyhow!("{error}"))
+}
+
+/// How a running ACP host was launched, for restarting it in place.
+#[derive(Debug, Clone)]
+pub(super) struct AcpRelaunch {
+    /// Its spec.
+    pub(super) spec: AgentSpec,
+    /// Its model service.
+    pub(super) provider: host_profiles::Resolved,
+    /// Its agent host's identity.
+    pub(super) incarnation: String,
+}
+
+/// How the ACP host `name` was launched.
+pub(super) fn relaunch(name: &str) -> Option<AcpRelaunch> {
+    hosts().get(name).map(|host| AcpRelaunch {
+        spec: host.host.spec().clone(),
+        provider: host
+            .config
+            .clone()
+            .unwrap_or_else(host_profiles::Resolved::inherited),
+        incarnation: host.host.host_id().to_string(),
+    })
 }
 
 /// Status rows for every ACP host, in the shared [`ServeStatus`] shape.
@@ -517,13 +394,13 @@ pub(super) fn status() -> Vec<ServeStatus> {
                 alive: phase == "ready",
                 app_listen_addr: host.gateway_local.to_string(),
                 app_service_key: host.key.clone(),
-                app_registered: serve::is_published(&host.register.published),
+                app_registered: host_services::is_published(&host.register.published),
                 api_listen_addr: String::new(),
                 api_service_key: String::new(),
                 api_registered: false,
                 meta_listen_addr: host.meta_local.to_string(),
                 meta_service_key: host.meta_key.clone(),
-                meta_registered: serve::is_published(&host.meta_register.published),
+                meta_registered: host_services::is_published(&host.meta_register.published),
                 embedded: false,
                 codex_binary: Some(host.program.clone()),
                 proxy: None,
@@ -536,6 +413,10 @@ pub(super) fn status() -> Vec<ServeStatus> {
                 agent_error: info["phase"]["reason"].as_str().map(str::to_string),
                 auth_required: info["authRequired"] == true,
                 catalog: host.catalog.as_ref().map(acp::catalog::Launch::status),
+                config_source: host.config.as_ref().map(|c| c.source.as_str().to_string()),
+                config_revision: host.config.as_ref().map(|c| c.revision),
+                incarnation: Some(host.host.host_id().to_string()),
+                busy: host_lease::holder(&host.name).map(|op| op.label().to_string()),
             }
         })
         .collect()
@@ -614,7 +495,7 @@ pub(super) fn reregister(name: &str, kind: &str) -> Result<()> {
         kind,
         transport::resolve_owned_blocking,
         |owned, device, kind, name, local| {
-            serve::register_service(&owned.transport, device, kind, name, local)
+            host_services::register_service(&owned.transport, device, kind, name, local)
         },
     )
 }
@@ -645,7 +526,7 @@ fn reregister_with(
         let (device, incarnation, context) =
             (host.device.clone(), host.host.host_id().to_string(), host.context.clone());
         let slot = slot(host, kind)?;
-        serve::needs_publishing(&slot.published).then_some(Ticket {
+        host_services::needs_publishing(&slot.published).then_some(Ticket {
             device,
             local,
             incarnation,
@@ -692,6 +573,23 @@ pub(super) fn stop(name: &str) {
         pause_point("retire");
         stop_host(host);
     }
+}
+
+/// [`stop`], handing back the exact launch the host ran with (its catalog
+/// files kept alive by the move) so a failed apply can start it again as it
+/// was; `None` when it was not hosting or its launch was not kept.
+pub(super) fn retire(name: &str) -> Option<Prepared> {
+    let mut host = hosts().remove(name)?;
+    let previous = host.launch.take().map(|captured| {
+        let provider = host
+            .config
+            .clone()
+            .unwrap_or_else(host_profiles::Resolved::inherited);
+        Prepared::again(name, host.host.spec().clone(), captured, host.catalog.take(), provider)
+    });
+    pause_point("retire");
+    stop_host(host);
+    previous
 }
 
 /// Stop every ACP agent for good (app quit; see the module docs). Returns
@@ -756,273 +654,5 @@ fn stop_host(host: AcpServe) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn unknown_hosts_are_not_hosting() {
-        assert!(!is_hosting("no-such-acp-host"));
-        assert!(local_endpoints("pcx:dev:acp:no-such").is_none());
-        assert!(deregister("no-such-acp-host", "acp").is_err());
-        assert!(restart("no-such-acp-host").is_err());
-    }
-
-    /// A start paused just before entering the host table while the app
-    /// quits: the quit sees (and stops) its host, and the start may not
-    /// enter the table afterwards. Nothing starts once the barrier closed.
-    #[test]
-    fn a_quit_sees_every_start_in_flight_and_none_enters_afterwards() {
-        use std::sync::Barrier;
-
-        let barrier = Arc::new(Mutex::new(Owners::<&'static str>::default()));
-        let table = Arc::new(Mutex::new(Vec::<&'static str>::new()));
-        let paused = Arc::new(Barrier::new(2));
-        let resume = Arc::new(Barrier::new(2));
-        let starter = std::thread::spawn({
-            let (barrier, table) = (barrier.clone(), table.clone());
-            let (paused, resume) = (paused.clone(), resume.clone());
-            move || {
-                let id = barrier
-                    .lock()
-                    .expect("lock")
-                    .begin("agent-1")
-                    .expect("open");
-                // Launched and published; about to enter the table.
-                paused.wait();
-                resume.wait();
-                let mut barrier = barrier.lock().expect("lock");
-                if barrier.commit(id) {
-                    table.lock().expect("table").push("agent-1");
-                    true
-                } else {
-                    false
-                }
-            }
-        });
-        paused.wait();
-        let to_stop = barrier.lock().expect("lock").close();
-        assert_eq!(to_stop, vec!["agent-1"], "the quit stops the start in flight");
-        resume.wait();
-        assert!(!starter.join().expect("starter"), "the start is refused");
-        assert!(table.lock().expect("table").is_empty(), "nothing entered after the quit");
-        assert_eq!(barrier.lock().expect("lock").begin("agent-2"), None, "no new start");
-        // A refused start stays owned (a later quit still sees it) until it
-        // was cleaned up.
-        assert_eq!(barrier.lock().expect("lock").close(), vec!["agent-1"]);
-        barrier.lock().expect("lock").cleaned(1);
-        assert!(barrier.lock().expect("lock").close().is_empty());
-    }
-
-    // ---- The production table, with agents that never launch -----------
-
-    fn fixture_context(relay: &str) -> transport::Context {
-        transport::Context::of(&fixture_transport(relay))
-    }
-
-    fn fixture_transport(relay: &str) -> transport::Transport {
-        transport::Transport {
-            session: pocket_codex_pb::RelaySession::for_test(relay),
-            namespace: None,
-        }
-    }
-
-    /// A hosted entry whose agent was created (and is owned) but never
-    /// launched: stopping it touches no process.
-    fn fixture_host(name: &str, context: transport::Context) -> AcpServe {
-        let rt = runtime::runtime();
-        let _runtime = rt.enter();
-        let program = PathBuf::from("/nonexistent/fixture-agent");
-        let host = AgentHost::create(HostOptions {
-            spec: AgentSpec {
-                profile_id: "fixture".into(),
-                display_name: "Fixture".into(),
-                program: program.display().to_string(),
-                args: Vec::new(),
-            },
-            program: program.clone(),
-            path: None,
-            env: Vec::new(),
-            store: SessionStore::memory(SourceId::with_key("fixture", &program, &[])),
-        });
-        let id = owners().begin(host.clone()).expect("the barrier is open");
-        assert!(owners().commit(id));
-        AcpServe {
-            device: "dev".into(),
-            name: name.into(),
-            key: ServiceId::new("dev", ServiceKind::Acp, name).key(),
-            meta_key: ServiceId::new("dev", ServiceKind::Meta, name).key(),
-            gateway_local: "127.0.0.1:9".parse().expect("addr"),
-            meta_local: "127.0.0.1:9".parse().expect("addr"),
-            gateway_task: rt.spawn(std::future::pending::<()>()),
-            meta_task: rt.spawn(std::future::pending::<()>()),
-            register: Slot::default(),
-            meta_register: Slot::default(),
-            host,
-            program: program.display().to_string(),
-            context,
-            catalog: None,
-            _owner: Owner(id),
-        }
-    }
-
-    fn phase(host: &AgentHost) -> String {
-        host.info()["phase"]["state"]
-            .as_str()
-            .unwrap_or_default()
-            .to_string()
-    }
-
-    fn pause(at: &'static str) -> (Arc<std::sync::Barrier>, Arc<std::sync::Barrier>) {
-        let pair = (Arc::new(std::sync::Barrier::new(2)), Arc::new(std::sync::Barrier::new(2)));
-        test_pauses().insert(at, pair.clone());
-        pair
-    }
-
-    /// Tests of the quit barrier reopen it afterwards.
-    fn reopen() {
-        owners().closing = false;
-    }
-
-    /// An ordinary stop removed its host from the table and is paused
-    /// before it stops the agent, when the app quits: the quit must not
-    /// return before that agent is stopped.
-    #[test]
-    fn a_quit_waits_for_an_agent_still_being_retired() {
-        let _serial = transport::test_serial();
-        runtime::init(std::env::temp_dir()).expect("init");
-        let serving = fixture_host("retire-quit-test", fixture_context("relay.test:1"));
-        let agent = serving.host.clone();
-        hosts().insert("retire-quit-test".into(), serving);
-        let (reached, resume) = pause("retire");
-        let retiring = std::thread::spawn(|| stop("retire-quit-test"));
-        reached.wait();
-        assert!(!is_hosting("retire-quit-test"), "out of the table, not yet cleaned up");
-        assert_ne!(phase(&agent), "stopped");
-        stop_all();
-        assert_eq!(phase(&agent), "stopped", "the quit stopped the retiring agent");
-        resume.wait();
-        retiring.join().expect("retirement");
-        assert!(owners().agents.is_empty(), "every owner was released after cleanup");
-        reopen();
-    }
-
-    /// Two quits overlap: the second must not return before the agents the
-    /// first one drained are stopped.
-    #[test]
-    fn overlapping_quits_both_wait_for_every_agent() {
-        let _serial = transport::test_serial();
-        runtime::init(std::env::temp_dir()).expect("init");
-        let serving = fixture_host("double-quit-test", fixture_context("relay.test:1"));
-        let agent = serving.host.clone();
-        hosts().insert("double-quit-test".into(), serving);
-        let (reached, resume) = pause("quit");
-        let first = std::thread::spawn(stop_all);
-        reached.wait();
-        assert!(!is_hosting("double-quit-test"), "the first quit drained the table");
-        stop_all();
-        assert_eq!(phase(&agent), "stopped", "the second quit waited for it too");
-        resume.wait();
-        first.join().expect("first quit");
-        assert!(owners().agents.is_empty());
-        reopen();
-    }
-
-    /// Fixture resolution in `context`'s relay, current now.
-    fn resolved(relay: &str) -> Result<transport::Owned> {
-        Ok(transport::Owned {
-            transport: fixture_transport(relay),
-            epoch: transport::epoch(),
-        })
-    }
-
-    fn revision(name: &str) -> (u64, String) {
-        let hosts = hosts();
-        let host = hosts.get(name).expect("hosted");
-        (host.register.revision, host.host.host_id().to_string())
-    }
-
-    /// A publication of host A is still waiting for the relay when A is
-    /// stopped and B starts under the same name in another context; a
-    /// deregistration overlapping a publication is the same case. The late
-    /// result never touches the newer state.
-    #[test]
-    fn a_late_publication_never_replaces_a_newer_hosts_registration() {
-        let _serial = transport::test_serial();
-        runtime::init(std::env::temp_dir()).expect("init");
-        let name = "publish-race-test";
-        let a = fixture_host(name, fixture_context("relay-a.test:1"));
-        hosts().insert(name.into(), a);
-        let reached = Arc::new(std::sync::Barrier::new(2));
-        let resume = Arc::new(std::sync::Barrier::new(2));
-        let late = std::thread::spawn({
-            let (reached, resume) = (reached.clone(), resume.clone());
-            move || {
-                reregister_with(
-                    name,
-                    "acp",
-                    || resolved("relay-a.test:1"),
-                    |_, _, _, _, _| {
-                        reached.wait();
-                        resume.wait();
-                        Ok(None)
-                    },
-                )
-            }
-        });
-        reached.wait();
-        stop(name);
-        let b = fixture_host(name, fixture_context("relay-b.test:1"));
-        hosts().insert(name.into(), b);
-        let before = revision(name);
-        resume.wait();
-        late.join()
-            .expect("join")
-            .expect("a late result is dropped, not an error");
-        assert_eq!(revision(name), before, "B's registration is untouched");
-
-        // A publication of B itself is installed.
-        reregister_with(name, "acp", || resolved("relay-b.test:1"), |_, _, _, _, _| Ok(None))
-            .expect("publish");
-        let installed = revision(name);
-        assert_eq!(installed.0, before.0 + 1);
-        // B, resolved in another context, is refused before publishing.
-        assert!(reregister_with(
-            name,
-            "acp",
-            || resolved("relay-a.test:1"),
-            |_, _, _, _, _| { panic!("never published into another context") }
-        )
-        .is_err());
-
-        // A deregistration while a publication is in flight wins.
-        let late = std::thread::spawn({
-            let (reached, resume) = (reached.clone(), resume.clone());
-            move || {
-                reregister_with(
-                    name,
-                    "acp",
-                    || resolved("relay-b.test:1"),
-                    |_, _, _, _, _| {
-                        reached.wait();
-                        resume.wait();
-                        Ok(None)
-                    },
-                )
-            }
-        });
-        reached.wait();
-        deregister(name, "acp").expect("deregister");
-        let deregistered = revision(name);
-        resume.wait();
-        late.join().expect("join").expect("dropped");
-        assert_eq!(revision(name), deregistered, "the deregistration stands");
-        stop(name);
-        assert!(owners().agents.is_empty());
-    }
-
-    #[test]
-    fn presets_resolve_only_existing_programs() {
-        assert!(locate("/definitely/not/here/agent", Some("opencode")).is_none());
-        assert!(locate("definitely-not-an-installed-agent-xyz", None).is_none());
-    }
-}
+#[path = "serve_acp_tests.rs"]
+mod tests;

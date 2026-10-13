@@ -45,10 +45,10 @@ use std::{
 };
 
 use anyhow::Context as _;
-use pocket_codex_core::process::{pid_running, probe_host};
+use pocket_codex_core::process::{pid_running, probe_host, EndpointOwner};
 use serde_json::json;
 
-use crate::process::{spawn, ws_host_port, SpawnOptions, SpawnReport};
+use crate::process::{ws_host_port, ProcessIdentity, SecretEnv, SpawnOptions, SpawnReport};
 
 /// Default overall budget for [`verify_ready`]. [`crate::spawn`] has already
 /// waited for the listen port, so a healthy server answers `/readyz` almost
@@ -363,14 +363,92 @@ impl std::error::Error for SpawnReadyError {
 /// or publishes the endpoint). Prefer this over hand-pairing the two calls,
 /// which a new call site can silently forget.
 pub fn spawn_ready(opts: SpawnOptions, timeout: Duration) -> Result<SpawnReport, SpawnReadyError> {
-    let report = spawn(opts).map_err(SpawnReadyError::Spawn)?;
-    match verify_ready(&report, timeout) {
+    spawn_ready_with_env(opts, &[], timeout)
+}
+
+/// [`spawn_ready`] with child-only secret environment (see
+/// [`crate::spawn_with_env`]).
+pub fn spawn_ready_with_env(
+    opts: SpawnOptions,
+    secret_env: &SecretEnv,
+    timeout: Duration,
+) -> Result<SpawnReport, SpawnReadyError> {
+    spawn_ready_inner(opts, secret_env, None, timeout)
+}
+
+/// [`spawn_ready_with_env`] writing the fresh child's output through
+/// `redactor` (see [`crate::spawn_with_env_redacted`]).
+pub fn spawn_ready_redacted(
+    opts: SpawnOptions,
+    secret_env: &SecretEnv,
+    redactor: &pocket_codex_core::redact::Redactor,
+    timeout: Duration,
+) -> Result<SpawnReport, SpawnReadyError> {
+    spawn_ready_inner(opts, secret_env, Some(redactor), timeout)
+}
+
+fn spawn_ready_inner(
+    opts: SpawnOptions,
+    secret_env: &SecretEnv,
+    redactor: Option<&pocket_codex_core::redact::Redactor>,
+    timeout: Duration,
+) -> Result<SpawnReport, SpawnReadyError> {
+    let mut report = crate::spawn_with_env_redacted(opts, secret_env, redactor)
+        .map_err(SpawnReadyError::Spawn)?;
+    let ready = verify_ready(&report, timeout).and_then(|()| attribute(&mut report));
+    match ready {
         Ok(()) => Ok(report),
         Err(failure) => Err(SpawnReadyError::NotReady {
             report: Box::new(report),
             failure: Box::new(failure),
         }),
     }
+}
+
+/// After a fresh websocket spawn answered `/readyz`: make sure what
+/// answered is this spawn's own server — the processes holding the sockets
+/// its listen address reaches must be ones this spawn started
+/// ([`crate::process::owner`]),
+/// checked again now even when the port wait already attributed one (an
+/// endpoint can change hands in between). Anything else — a server someone
+/// else started, nothing listening, or an owner that cannot be told — fails
+/// the launch, and nothing is recorded as this spawn's.
+fn attribute(report: &mut SpawnReport) -> Result<(), StartupFailure> {
+    if report.reused {
+        return Ok(());
+    }
+    let Some((host, port)) = ws_host_port(&report.info.listen) else {
+        return Ok(());
+    };
+    let verdict = report.spawned.map_or(EndpointOwner::Unknown, |spawned| {
+        crate::process::owner(&report.info.listen, spawned)
+    });
+    let refusal = match verdict {
+        EndpointOwner::Owned {
+            pid,
+            started,
+        } => {
+            report.owned = Some(ProcessIdentity {
+                pid,
+                started,
+            });
+            report.info.pid = pid;
+            return Ok(());
+        },
+        EndpointOwner::Foreign => {
+            format!("{host}:{port} is served by a process this launch did not start")
+        },
+        EndpointOwner::Unbound => format!("nothing this launch started listens on {host}:{port}"),
+        EndpointOwner::Unknown => format!(
+            "which process serves {host}:{port} cannot be told (its launcher exited, its host is \
+             neither an IP address nor localhost, or the system's listener list could not be \
+             read), so it is not used"
+        ),
+    };
+    report.owned = None;
+    let mut failure = failure(report, false);
+    failure.rpc_error = Some(refusal);
+    Err(failure)
 }
 
 /// Unix-socket verification: there is no HTTP endpoint to probe, and the
@@ -518,20 +596,27 @@ fn read_log_tail(log_file: &Path, from_offset: u64) -> Vec<String> {
 /// the numeric text survives even on localized Windows), the errno name an
 /// npm/node shim prints, and the plain English phrasing.
 fn mentions_addr_in_use(lines: &[String]) -> bool {
-    lines.iter().any(|line| {
-        let lower = line.to_ascii_lowercase();
-        lower.contains("os error 10048")
-            || lower.contains("os error 98")
-            || lower.contains("os error 48")
-            || lower.contains("eaddrinuse")
-            || lower.contains("address already in use")
-            || lower.contains("address in use")
-    })
+    lines.iter().any(|line| line_mentions_addr_in_use(line))
+}
+
+/// [`mentions_addr_in_use`] for one line.
+pub(crate) fn line_mentions_addr_in_use(line: &str) -> bool {
+    let lower = line.to_ascii_lowercase();
+    lower.contains("os error 10048")
+        || lower.contains("os error 98")
+        || lower.contains("os error 48")
+        || lower.contains("eaddrinuse")
+        || lower.contains("address already in use")
+        || lower.contains("address in use")
 }
 
 #[cfg(test)]
 #[path = "readiness_rpc_tests.rs"]
 mod rpc_tests;
+
+#[cfg(test)]
+#[path = "readiness_owner_tests.rs"]
+mod owner_tests;
 
 #[cfg(test)]
 mod tests {
@@ -575,6 +660,8 @@ mod tests {
             reused,
             log_offset: 0,
             listener_confirmed: true,
+            spawned: None,
+            owned: None,
         }
     }
 

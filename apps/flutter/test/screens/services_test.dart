@@ -301,6 +301,50 @@ void main() {
     }
   });
 
+  testWidgets('a host whose codex did not exit stays listed and stoppable '
+      'until a stop succeeds', (t) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    try {
+      final api = accountFake()
+        ..serveStopFailures = 1
+        ..serveHosts.add(
+          const AppServeStatus(
+            name: 'stuck',
+            device: 'local',
+            provider: 'codex',
+            protocol: 'codex-app-server',
+            providerName: 'Codex',
+            agentError: 'its codex did not exit; stop the host again',
+          ),
+        );
+      await t.pumpWidget(host(const ServicesScreen(), api));
+      await t.pumpAndSettle();
+      await openDevice(t);
+      expect(find.byKey(const Key('local-host-stuck')), findsOneWidget);
+      expect(find.byKey(const Key('local-host-stop-failed')), findsOneWidget);
+
+      await t.tap(find.byKey(const Key('local-host-stuck')));
+      await t.pumpAndSettle();
+      final stop = find.byKey(const Key('stop-hosting-btn'));
+      await t.ensureVisible(stop);
+      await t.tap(stop);
+      await t.pumpAndSettle();
+      expect(api.serveHosts, hasLength(1), reason: 'the failed stop keeps it');
+      expect(find.textContaining('did not exit'), findsWidgets);
+      expect(
+        t.widget<ButtonStyleButton>(stop).onPressed,
+        isNotNull,
+        reason: 'the retry stays reachable',
+      );
+
+      await t.tap(stop);
+      await t.pumpAndSettle();
+      expect(api.serveHosts, isEmpty);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
   // The agent chooser sits above the Codex form, so its controls may start
   // below the dialog's fold: scroll them in and require a real hit first.
   Future<void> tapRevealed(WidgetTester t, Finder control) async {

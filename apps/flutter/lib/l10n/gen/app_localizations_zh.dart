@@ -1103,6 +1103,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get stopHosting => '停止托管';
 
   @override
+  String get localHostStopFailed => '未能停止：请再次停止';
+
+  @override
   String get localHostPort => '端口';
 
   @override
@@ -1599,14 +1602,14 @@ class AppLocalizationsZh extends AppLocalizations {
   String get codexSetup => '配置 Codex';
 
   @override
-  String get codexChatNeedsSetup => '模型访问尚未配置 —— 请先完成 Codex 认证再对话。';
+  String get codexChatNeedsSetup => '模型访问尚未配置 —— 请先设置此托管的模型服务再对话。';
 
   @override
   String get codexSetupStepTitle => '配置 Codex 模型访问';
 
   @override
   String get codexSetupStepDesc =>
-      '填写 provider(URL + API Key)或用 ChatGPT 官方登录,并可切换「非降智」system prompt。';
+      '用 ChatGPT 官方登录,或在托管时为它设置自己的供应商,并可切换「非降智」system prompt。';
 
   @override
   String get codexSetupProviderSection => '自定义 Provider';
@@ -1714,6 +1717,42 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get codexSetupCredentialExists => '凭证已存在';
+
+  @override
+  String get codexSetupProviderPerHost => '按托管分别设置:每个托管的模型服务都可以使用自定义供应商。';
+
+  @override
+  String get codexSetupProviderScope =>
+      '本页配置 Codex 本身(下方的配置目录):ChatGPT 登录和提示词选项。选择「现有配置」的托管会使用它;托管自己的自定义供应商或官方账号在该托管的编辑页中选择。';
+
+  @override
+  String get codexSetupGlobalProvider =>
+      'Codex 自身的配置已选用一个自定义供应商,选择「现有配置」的托管会继续使用它。';
+
+  @override
+  String get codexSetupConfigureHost => '配置托管';
+
+  @override
+  String get codexSetupHostingDesktopOnly => '托管只在桌面端运行,请在桌面端为托管设置供应商。';
+
+  @override
+  String get settingsHosting => '托管与模型服务';
+
+  @override
+  String get settingsHostingDesc => '托管的智能体、模型服务与登录';
+
+  @override
+  String get hostPickTitle => '配置哪个托管?';
+
+  @override
+  String get hostPickHint =>
+      '每个托管有各自的模型服务。选择后只会打开它的编辑页。保存不会改动正在运行的托管,保存的配置在「应用并重启」后才生效。';
+
+  @override
+  String get hostPickNew => '新建托管';
+
+  @override
+  String get hostPickLoadFailed => '无法读取正在运行的托管,仍可新建托管。';
 
   @override
   String get resizeComposer => '拖动调整输入框高度；双击恢复默认';
@@ -1843,6 +1882,34 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get steerTurnEnded => '当前轮次已变更或结束。草稿已保留，可作为新轮次发送。';
+
+  @override
+  String get steerUnavailableHint => '该代理不支持向进行中的轮次补充说明；现在发送的消息会排队到下个轮次。';
+
+  @override
+  String get steerQueuedAfterEnd => '轮次已结束，补充内容将作为下一轮发送。';
+
+  @override
+  String get retryUnverified => '无法确认主机是否已收到这条消息，因此没有重新发送。请在主机可连接后重试。';
+
+  @override
+  String get queuedUncertain => '可能已经发送。只有你点重试时才会再次发送。';
+
+  @override
+  String get queuedUncertainRetry =>
+      '这条消息可能已经到达主机，因此它留在队列中，不会自动发送。请先查看对话：点重试会再次发送，点它可以编辑。';
+
+  @override
+  String get steerAnswerStale => '回复到达时，此对话的主机或视图已经变化，因此你的草稿保持原样。再次发送前请先查看对话。';
+
+  @override
+  String get sendHostChanged => '发送前主机连接已变化，因此没有发送这条消息。';
+
+  @override
+  String get sendAnswerStale => '主机在连接变化后才回复，无法确定这条消息是否已到达。';
+
+  @override
+  String get sendReturnedToDraft => '消息已放回输入框；再次发送前请先查看对话。';
 
   @override
   String get advancedSettings => '高级设置';
@@ -2191,6 +2258,100 @@ class AppLocalizationsZh extends AppLocalizations {
   String get acpProgramNotFound => '本机未找到该程序。';
 
   @override
+  String get claudeEnvTitle => '本机的 Claude';
+
+  @override
+  String claudeAdapterInstalled(String path) {
+    return 'ACP 适配器：$path';
+  }
+
+  @override
+  String claudeAdapterPrepared(String path) {
+    return 'ACP 适配器（由本应用准备）：$path';
+  }
+
+  @override
+  String claudeAdapterWillPrepare(String package) {
+    return '尚未安装 ACP 适配器。点击开始会从 npm 下载 $package 到本应用缓存（不改动任何全局环境），然后启动 Claude。';
+  }
+
+  @override
+  String claudeAdapterMissing(String package) {
+    return '尚未安装 ACP 适配器（$package），且本机无法自动准备。';
+  }
+
+  @override
+  String claudeNodeFound(String version, String path) {
+    return 'Node.js $version：$path';
+  }
+
+  @override
+  String claudeNodeTooOld(String version) {
+    return 'Node.js $version 版本过低；适配器需要 Node.js 22 或更高版本。';
+  }
+
+  @override
+  String get claudeNodeMissing => '未找到 Node.js 22 或更高版本。';
+
+  @override
+  String claudeCliFound(String path) {
+    return 'Claude Code：$path';
+  }
+
+  @override
+  String get claudeCliInherited => 'Claude Code：使用 CLAUDE_CODE_EXECUTABLE 的设置';
+
+  @override
+  String get claudeCliBundled => '未找到 Claude Code；适配器将使用其自带版本。';
+
+  @override
+  String get claudeEnvRecheck => '重新检测';
+
+  @override
+  String claudePreparing(int seconds) {
+    return '正在准备 Claude ACP 适配器… $seconds 秒';
+  }
+
+  @override
+  String claudePrepareVerifying(int seconds) {
+    return '正在校验下载的适配器… $seconds 秒';
+  }
+
+  @override
+  String get claudePrepareCancel => '停止准备';
+
+  @override
+  String get claudePrepareStopWaiting => '停止等待';
+
+  @override
+  String get claudePrepareJoined => '这次准备由其他窗口启动；本页只跟随它的进度。';
+
+  @override
+  String get claudePrepareLeftRunning => '已停止等待。其他地方启动的准备仍在继续。';
+
+  @override
+  String get claudePrepareReplaced => '本页跟随的准备已被另一次准备取代，这里不显示它的结果。请重新开始以重试。';
+
+  @override
+  String get quitStopping => '正在停止托管的智能体，然后退出…';
+
+  @override
+  String quitBlocked(String error) {
+    return '无法安全停止托管，应用保持打开：$error';
+  }
+
+  @override
+  String get quitRetry => '再次退出';
+
+  @override
+  String claudePrepareFailed(String error) {
+    return '准备 Claude ACP 适配器失败：$error';
+  }
+
+  @override
+  String get claudePrepareCancelled => '已停止准备 Claude ACP 适配器。点击开始可重试。';
+
+  @override
   String acpProgramFound(String path) {
     return '已找到：$path';
   }
@@ -2233,6 +2394,64 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get acpCatalogWaiting => '智能体打开第一个会话时才会读取模型目录。';
+
+  @override
+  String get acpRouteWaiting => '智能体打开第一个会话时才会检查 OpenCode 是否使用此主机的提供方。';
+
+  @override
+  String get acpRouteSelected => 'OpenCode 使用此主机的提供方和模型。';
+
+  @override
+  String acpRouteOverridden(String reasons) {
+    return '其他 OpenCode 配置覆盖了此主机的提供方：$reasons。请求可能发往别处。';
+  }
+
+  @override
+  String acpRouteUnverified(String reasons) {
+    return '无法检查 OpenCode 是否使用此主机的提供方：$reasons。';
+  }
+
+  @override
+  String get acpRouteReasonModel => '它选择了另一个模型';
+
+  @override
+  String get acpRouteReasonEnabled => 'enabled_providers 未包含它';
+
+  @override
+  String get acpRouteReasonDisabled => 'disabled_providers 列出了它';
+
+  @override
+  String get acpRouteReasonMissing => '合并后的配置中没有该提供方';
+
+  @override
+  String get acpRouteReasonSmallModel => 'small_model 指向其他提供方';
+
+  @override
+  String get acpRouteReasonAgentModel => '某个智能体或模式的模型指向其他提供方';
+
+  @override
+  String get acpRouteReasonProvider => '其他配置层修改了该提供方的定义';
+
+  @override
+  String acpRouteEnforced(String reasons) {
+    return '其他 OpenCode 配置与此主机不同，已重置为此主机的提供方：$reasons。';
+  }
+
+  @override
+  String get acpRouteRefused =>
+      'OpenCode 没有可用的提供方：智能体环境中缺少此主机的密钥，因此无法发送任何提示。请重新保存密钥并重启主机。';
+
+  @override
+  String get acpRouteReasonKey => '智能体中缺少此主机的密钥';
+
+  @override
+  String acpRouteProjects(String projects) {
+    return '已检查的项目（按插件输入给出的名称，未对照 OpenCode 源码核实）：$projects';
+  }
+
+  @override
+  String get acpRouteScope =>
+      '这覆盖 OpenCode 合并后的配置，并用此主机的密钥覆盖用 `opencode auth login` 为同一提供方保存的密钥。其他插件为同一提供方提供的提供方或认证加载器，以及之后运行的插件钩子，不在此范围内。';
 
   @override
   String acpCatalogUnavailable(String reason) {
@@ -2386,4 +2605,213 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get omittedSeparator => '、';
+
+  @override
+  String hostEditorTitle(String name) {
+    return '主机 $name';
+  }
+
+  @override
+  String get hostSectionAgent => '智能体';
+
+  @override
+  String get hostSectionStatus => '状态';
+
+  @override
+  String get hostSectionModel => '模型服务';
+
+  @override
+  String get hostSectionModelHint => '此主机的智能体向何处发送模型请求。按主机保存在本设备上。';
+
+  @override
+  String get hostSourceInherited => '现有配置';
+
+  @override
+  String get hostSourceOfficial => '官方账号';
+
+  @override
+  String get hostSourceCustom => '自定义供应商';
+
+  @override
+  String get hostInheritedOnly => '此智能体使用它自己的配置启动。Pocket-Codex 不了解它支持的供应商设置。';
+
+  @override
+  String get hostInheritedAcp => '智能体沿用它自己的配置文件和环境变量,不做改动。';
+
+  @override
+  String hostInheritedCodexCustom(String provider) {
+    return 'Codex 的 config.toml 已选择供应商 $provider,无需其他设置。';
+  }
+
+  @override
+  String get hostInheritedCodexAccount => 'Codex 已登录,无需其他设置。';
+
+  @override
+  String get hostInheritedCodexInvalid =>
+      '无法读取 Codex 的 config.toml。请修复它,或在下方选择其他方式。';
+
+  @override
+  String get hostInheritedCodexNone => 'Codex 尚未登录,也没有配置供应商。请登录或添加自定义供应商。';
+
+  @override
+  String hostInheritedCodexHome(String path) {
+    return '配置目录:$path';
+  }
+
+  @override
+  String get hostProtocolLabel => 'API 类型';
+
+  @override
+  String get hostProtocolResponses => 'OpenAI Responses';
+
+  @override
+  String get hostProtocolAnthropic => 'Anthropic Messages';
+
+  @override
+  String get hostProtocolChat => 'OpenAI Chat Completions';
+
+  @override
+  String get hostBaseUrl => 'Base URL';
+
+  @override
+  String get hostApiKey => 'API Key';
+
+  @override
+  String get hostApiKeyStored => '已保存密钥。留空则保持不变。';
+
+  @override
+  String get hostKeyEnvNote => '仅保存在本设备,在智能体启动时交给它,不会出现在命令行中。';
+
+  @override
+  String get hostApiKeyRemove => '删除已保存的密钥';
+
+  @override
+  String get hostModelOptional => '模型(可选)';
+
+  @override
+  String get hostBaseUrlRequired => '请输入供应商的 Base URL。';
+
+  @override
+  String get hostSaveConfig => '保存';
+
+  @override
+  String get hostConfigSaved => '已保存。运行中的主机在重启前仍使用当前配置。';
+
+  @override
+  String get hostConfigPending => '已保存的更改尚未生效。重启主机以应用。';
+
+  @override
+  String get hostApplyRestart => '应用并重启';
+
+  @override
+  String get hostSaveAndRestart => '保存并重启';
+
+  @override
+  String get hostApplyNote => '重启会短暂停止智能体并断开已打开的会话。若新配置启动失败,将恢复之前的配置。';
+
+  @override
+  String get hostApplied => '已使用新配置重启。';
+
+  @override
+  String hostApplyRestored(String error) {
+    return '新配置启动失败,已恢复之前的配置:$error';
+  }
+
+  @override
+  String hostApplyFailed(String error) {
+    return '重启失败,主机已停止:$error';
+  }
+
+  @override
+  String get hostOfficialNote => '登录在本机私有的 Codex 服务上进行,无需先运行主机。';
+
+  @override
+  String get hostAgentEditNote => '修改启动命令将在重启后生效。';
+
+  @override
+  String get hostCodexRuntimeFixed => '主机当前的运行配置。在下方修改运行时并保存,然后应用以使用它重启。';
+
+  @override
+  String hostLoginRefreshFailed(String error) {
+    return '无法检查登录状态,正在重试:$error';
+  }
+
+  @override
+  String get hostLoginNotOfficial => 'Codex 已完成登录,但不是 ChatGPT 账户。请重新登录。';
+
+  @override
+  String hostLoginFailed(String error) {
+    return '登录失败:$error';
+  }
+
+  @override
+  String get hostSourceUnsupported => '已保存的模型服务不适用于此智能体,请另选一个。';
+
+  @override
+  String get hostModelRequired => '请输入此供应商使用的默认模型。';
+
+  @override
+  String get hostKeyRequired => '请输入供应商的 API 密钥。';
+
+  @override
+  String get hostModelDefault => '默认模型';
+
+  @override
+  String get hostModelDefaultNote => '供应商用于新会话的模型。对话自身的模型在对话中选择,不保存在这里。';
+
+  @override
+  String get hostLeaveTitle => '放弃未保存的更改?';
+
+  @override
+  String get hostLeaveBody => '对此主机的更改尚未保存。';
+
+  @override
+  String get hostLeaveStay => '继续编辑';
+
+  @override
+  String get hostLeaveDiscard => '放弃';
+
+  @override
+  String hostApplyConfirmTitle(String name) {
+    return '重启 $name?';
+  }
+
+  @override
+  String get hostApplyConfirmBody =>
+      '主机将停止并以已保存的配置重新启动。正在进行的回合会被中断,打开的对话会重新连接。本设备上的草稿、附件和排队消息会保留。其他主机不受影响。';
+
+  @override
+  String get hostReplaced => '此页面读取后,该主机已在别处重启。请先重新加载再应用。';
+
+  @override
+  String hostApplyStopped(String error, String restoreError) {
+    return '新配置启动失败($error),恢复之前的配置也失败了($restoreError)。主机已停止。';
+  }
+
+  @override
+  String get hostGone => '此主机已不再运行。';
+
+  @override
+  String get hostConfigReload => '重新加载';
+
+  @override
+  String get hostConfigNewer => '存在更新的已保存配置。重新加载以查看(将放弃你的编辑)。';
+
+  @override
+  String get hostConfigLoadFailedTitle => '配置不可用';
+
+  @override
+  String hostConfigLoadFailed(String error) {
+    return '无法读取此主机已保存的配置:$error';
+  }
+
+  @override
+  String get hostRuntimeEditNote => '保存的更改在应用后生效;名称保持不变。';
+
+  @override
+  String get hostAgentUnknown => '此主机未报告其智能体,无法在此编辑。';
+
+  @override
+  String get hostApiProxyNote =>
+      '此主机还会发布一个独立的 Responses API 服务(api:<name>)。它始终使用本设备的官方 Codex 登录,而不是这里选择的供应商。';
 }

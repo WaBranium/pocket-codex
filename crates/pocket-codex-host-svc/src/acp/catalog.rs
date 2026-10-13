@@ -21,10 +21,15 @@
 //! plugin file's URL, so it can be added to the user's own config instead.
 //! The arguments are passed on verbatim either way.
 //!
-//! The provider URL and key never pass through Pocket-Codex: the plugin runs
-//! inside OpenCode and reads the configuration OpenCode resolved. Its report
-//! holds only provider ids, counts and fixed reason codes, and is validated
-//! again here before it is shown.
+//! An instance's own provider (see `super::provider`) shares this layer but
+//! is stricter: it must be the inline, last-merged layer (a user
+//! `OPENCODE_CONFIG_CONTENT` refuses the launch), and its text may hold no
+//! `{env:` / `{file:` directive, which OpenCode would expand in the raw text.
+//!
+//! The catalog's provider URL and key never pass through Pocket-Codex: the
+//! plugin runs inside OpenCode and reads the configuration OpenCode resolved.
+//! Its report holds only provider ids, counts and fixed reason codes, and is
+//! validated again here before it is shown.
 
 use std::{
     ffi::{OsStr, OsString},
@@ -84,6 +89,9 @@ pub struct Launch {
     report: Option<PathBuf>,
     plugin: Option<String>,
     unavailable: Option<Unavailable>,
+    /// Whether the layer carries an instance's own provider, whose route the
+    /// plugin then enforces and reports.
+    route: bool,
 }
 
 impl Drop for Launch {
@@ -105,6 +113,35 @@ pub struct CatalogStatus {
     pub plugin: Option<String>,
     /// One entry per listed provider, by id.
     pub providers: Vec<ProviderListing>,
+    /// Whether OpenCode selected the instance's own provider; `None` without
+    /// one.
+    pub route: Option<RouteStatus>,
+}
+
+/// How the plugin's `config` hook left the instance's own provider in the
+/// merged configuration (every layer, managed ones included) of each project
+/// OpenCode loaded. The hook runs before OpenCode builds its providers from
+/// that configuration, puts the host's route back where another layer
+/// changed it and pins the supplied key in memory, ahead of a key stored for
+/// the same id; it covers only what that hook sees (a plugin whose hook runs
+/// later, or another plugin's provider loader, is outside it).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RouteStatus {
+    /// `waiting` (no project configuration loaded yet), `selected` (nothing
+    /// had to change), `enforced` (some setting was reset), `refused` (the
+    /// key was missing in the agent's process, so no provider was left
+    /// usable), `overridden` (an older plugin only reported it), or
+    /// `unverified` (the plugin cannot run).
+    pub state: &'static str,
+    /// For `enforced` / `overridden`: what was reset or found (`model`,
+    /// `small-model`, `agent-model`, `enabled-providers`,
+    /// `disabled-providers`, `provider`, `missing`); for `refused`, `key`;
+    /// for `unverified`, why ([`Unavailable::code`]).
+    pub reasons: Vec<String>,
+    /// The project directories this covers, as the plugin's input named
+    /// them (not verified against OpenCode's source; empty when the report
+    /// did not name them).
+    pub projects: Vec<String>,
 }
 
 /// One provider's listing outcome.
@@ -132,7 +169,62 @@ pub struct ProviderListing {
 /// Attach the catalog to a launch of `spec`, writing below `state_dir`.
 /// `None` for agents other than OpenCode.
 pub fn launch(spec: &AgentSpec, state_dir: &Path) -> Option<Launch> {
-    attach(spec, state_dir, |name| std::env::var_os(OsStr::new(name)))
+    // Without an extra layer `attach` never fails: every problem is an
+    // unavailable catalog.
+    attach(spec, state_dir, |name| std::env::var_os(OsStr::new(name)), None)
+        .ok()
+        .flatten()
+}
+
+/// Why an instance's own configuration layer could not be attached.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LayerError {
+    /// `OPENCODE_CONFIG` and `OPENCODE_CONFIG_CONTENT` are both the user's.
+    Taken,
+    /// The generated layer file could not be written.
+    Write,
+    /// `OPENCODE_CONFIG_CONTENT` is the user's: the provider layer would not
+    /// be the last one, so a project configuration could select another
+    /// model or provider.
+    ContentTaken,
+    /// The layer text holds a substitution directive OpenCode would expand
+    /// (`{env:`, `{file:`).
+    Unsafe,
+}
+
+impl std::fmt::Display for LayerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Taken => {
+                "this environment already sets both OPENCODE_CONFIG and OPENCODE_CONFIG_CONTENT, \
+                 so the provider cannot be added; use the existing configuration or unset one of \
+                 them"
+            },
+            Self::Write => "the provider configuration layer could not be written",
+            Self::ContentTaken => {
+                "this environment already sets OPENCODE_CONFIG_CONTENT, so the provider would not \
+                 be OpenCode's last configuration layer; use the existing configuration or unset it"
+            },
+            Self::Unsafe => {
+                "the provider configuration contains `{env:` or `{file:`, which OpenCode would \
+                 expand; remove it from the base URL or model"
+            },
+        })
+    }
+}
+
+impl std::error::Error for LayerError {}
+
+/// [`launch`] with `extra` — the instance's own provider configuration (see
+/// `super::provider`) — merged into the same layer. The provider layer goes
+/// in even when plugins are disabled; when it cannot be placed at all, the
+/// launch fails instead of starting without it.
+pub fn launch_with(
+    spec: &AgentSpec,
+    state_dir: &Path,
+    extra: serde_json::Map<String, serde_json::Value>,
+) -> Result<Option<Launch>, LayerError> {
+    attach(spec, state_dir, |name| std::env::var_os(OsStr::new(name)), Some(extra))
 }
 
 fn is_set(value: Option<OsString>) -> bool {
@@ -174,13 +266,17 @@ fn pure_flag(args: &[String]) -> bool {
     pure
 }
 
+/// The catalog (and `extra`, the instance's provider layer) for a launch of
+/// `spec`. With no `extra` this never fails; a provider layer that cannot
+/// be placed fails the launch.
 fn attach(
     spec: &AgentSpec,
     state_dir: &Path,
     env: impl Fn(&str) -> Option<OsString>,
-) -> Option<Launch> {
+    extra: Option<serde_json::Map<String, serde_json::Value>>,
+) -> Result<Option<Launch>, LayerError> {
     if spec.profile_id != PROFILE {
-        return None;
+        return Ok(None);
     }
     let mut launch = Launch {
         env: Vec::new(),
@@ -188,55 +284,103 @@ fn attach(
         report: None,
         plugin: None,
         unavailable: None,
+        route: false,
     };
+    let mut layer = extra.unwrap_or_default();
+    let provider = !layer.is_empty();
+    launch.route = provider;
+    // What the plugin puts back into OpenCode's merged configuration: the
+    // provider id, its default model and its exact definition (which holds
+    // no key: only the name of the child variable that carries it).
+    let route = provider.then(|| {
+        let own = layer
+            .get("provider")
+            .and_then(serde_json::Value::as_object)
+            .and_then(|p| p.iter().next());
+        serde_json::json!({
+            "provider": own.map(|(id, _)| id),
+            "model": layer.get("model"),
+            "definition": own.map(|(_, definition)| definition),
+        })
+    });
+    let content_free = !is_set(env(CONFIG_CONTENT_VAR));
+    let file_free = !is_set(env(CONFIG_FILE_VAR));
     let dir = state_dir.join("opencode");
+    let reports = dir.join("reports");
+    let id = uuid::Uuid::new_v4();
     let plugin = install(&dir)
         .ok()
         .and_then(|file| url::Url::from_file_path(file).ok());
-    let Some(plugin) = plugin else {
-        tracing::warn!("OpenCode model catalog plugin unavailable");
-        launch.unavailable = Some(Unavailable::Install);
-        return Some(launch);
-    };
-    launch.plugin = Some(plugin.to_string());
-    // `--no-pure` only leaves the variable alone; it never clears it.
-    if is_true(env(PURE_VAR)) || pure_flag(&spec.args) {
-        launch.unavailable = Some(Unavailable::PluginsDisabled);
-        return Some(launch);
+    match plugin {
+        None => {
+            tracing::warn!("OpenCode model catalog plugin unavailable");
+            launch.unavailable = Some(Unavailable::Install);
+        },
+        Some(plugin) => {
+            launch.plugin = Some(plugin.to_string());
+            // `--no-pure` only leaves the variable alone; it never clears it.
+            if is_true(env(PURE_VAR)) || pure_flag(&spec.args) {
+                launch.unavailable = Some(Unavailable::PluginsDisabled);
+            } else if !content_free && !file_free {
+                launch.unavailable = Some(Unavailable::ConfigTaken);
+            } else if std::fs::create_dir_all(&reports).is_err() {
+                launch.unavailable = Some(Unavailable::Install);
+            } else {
+                let report = reports.join(format!("{id}.json"));
+                let mut options = serde_json::json!({ "report": report.to_string_lossy() });
+                if let Some(route) = route {
+                    options["route"] = route;
+                }
+                layer.insert("plugin".into(), serde_json::json!([[plugin.as_str(), options]]));
+                launch.owned.push(report.clone());
+                launch.report = Some(report);
+            }
+        },
     }
-    let content_free = !is_set(env(CONFIG_CONTENT_VAR));
-    if !content_free && is_set(env(CONFIG_FILE_VAR)) {
-        launch.unavailable = Some(Unavailable::ConfigTaken);
-        return Some(launch);
+    if layer.is_empty() {
+        return Ok(Some(launch));
     }
-    let reports = dir.join("reports");
-    let id = uuid::Uuid::new_v4();
-    let report = reports.join(format!("{id}.json"));
-    let layer = serde_json::json!({
-        "plugin": [[plugin.as_str(), { "report": report.to_string_lossy() }]],
-    })
-    .to_string();
-    if std::fs::create_dir_all(&reports).is_err() {
-        launch.unavailable = Some(Unavailable::Install);
-        return Some(launch);
+    let text = serde_json::Value::Object(layer).to_string();
+    if provider {
+        // OpenCode substitutes these directives in the raw layer text
+        // before parsing it (`config/variable.ts`), so none may appear.
+        if has_directive(&text) {
+            return Err(LayerError::Unsafe);
+        }
+        // Only the inline layer is merged after project configurations.
+        if !content_free {
+            return Err(if file_free { LayerError::ContentTaken } else { LayerError::Taken });
+        }
     }
-    launch.owned.push(report.clone());
-    launch.report = Some(report);
     if content_free {
-        launch.env.push((CONFIG_CONTENT_VAR.into(), layer.into()));
-    } else {
+        launch.env.push((CONFIG_CONTENT_VAR.into(), text.into()));
+    } else if file_free {
         let file = reports.join(format!("{id}.config.json"));
-        if write_atomic(&file, layer.as_bytes()).is_err() {
+        let written =
+            std::fs::create_dir_all(&reports).and_then(|()| write_atomic(&file, text.as_bytes()));
+        if written.is_err() {
+            if provider {
+                return Err(LayerError::Write);
+            }
             launch.report = None;
             launch.unavailable = Some(Unavailable::Install);
-            return Some(launch);
+            return Ok(Some(launch));
         }
         launch.owned.push(file.clone());
         launch
             .env
             .push((CONFIG_FILE_VAR.into(), file.into_os_string()));
+    } else {
+        // Only a provider layer gets here (the catalog alone was reported
+        // `config-env-taken` above).
+        return Err(LayerError::Taken);
     }
-    Some(launch)
+    Ok(Some(launch))
+}
+
+/// Whether `text` holds an OpenCode substitution directive.
+fn has_directive(text: &str) -> bool {
+    text.contains("{env:") || text.contains("{file:")
 }
 
 impl Launch {
@@ -252,15 +396,27 @@ impl Launch {
             reason: None,
             plugin: self.plugin.clone(),
             providers: Vec::new(),
+            route: self.route.then(|| RouteStatus {
+                state: "waiting",
+                reasons: Vec::new(),
+                projects: Vec::new(),
+            }),
         };
         if let Some(unavailable) = self.unavailable {
             status.state = "unavailable";
             status.reason = Some(unavailable.code());
+            if let Some(route) = &mut status.route {
+                route.state = "unverified";
+                route.reasons = vec![unavailable.code().to_string()];
+            }
             return status;
         }
-        if let Some(providers) = self.report.as_deref().and_then(read_report) {
+        if let Some((providers, route)) = self.report.as_deref().and_then(read_report) {
             status.state = "reported";
             status.providers = providers;
+            if let (Some(shown), Some(reported)) = (&mut status.route, route) {
+                *shown = reported;
+            }
         }
         status
     }
@@ -270,6 +426,81 @@ impl Launch {
 struct RawReport {
     version: u32,
     providers: Vec<RawListing>,
+    /// An older plugin's one launch-wide verdict.
+    #[serde(default)]
+    route: Option<RawRoute>,
+    /// One verdict per project directory.
+    #[serde(default)]
+    routes: Vec<RawRoute>,
+}
+
+#[derive(Deserialize)]
+struct RawRoute {
+    state: String,
+    reasons: Vec<String>,
+    #[serde(default)]
+    directory: Option<String>,
+}
+
+/// Reasons a route verdict may give, in display order.
+const ROUTE_REASONS: [&str; 8] = [
+    "key",
+    "model",
+    "small-model",
+    "agent-model",
+    "enabled-providers",
+    "disabled-providers",
+    "provider",
+    "missing",
+];
+
+/// Most project directories one report names.
+const MAX_ROUTE_PROJECTS: usize = 32;
+
+/// A reported verdict, kept only when well formed.
+fn route_of(raw: &RawRoute) -> Option<&'static str> {
+    let state = match raw.state.as_str() {
+        "selected" if raw.reasons.is_empty() => "selected",
+        "enforced" if !raw.reasons.is_empty() => "enforced",
+        "overridden" if !raw.reasons.is_empty() => "overridden",
+        "refused" if raw.reasons == ["key"] => "refused",
+        _ => return None,
+    };
+    let known = raw.reasons.len() <= ROUTE_REASONS.len()
+        && raw
+            .reasons
+            .iter()
+            .all(|r| ROUTE_REASONS.contains(&r.as_str()));
+    let directory = raw
+        .directory
+        .as_deref()
+        .is_none_or(|d| d.chars().count() <= 4096 && !d.chars().any(char::is_control));
+    (known && directory).then_some(state)
+}
+
+/// The verdicts of every project in one: `refused` when any project was
+/// refused, else `enforced` when any setting was reset anywhere, the reasons
+/// of all of them. `None` when any is not well formed (nothing in such a
+/// report is trusted) or there is none.
+fn routes_of(raw: &[RawRoute]) -> Option<RouteStatus> {
+    if raw.is_empty() || raw.len() > MAX_ROUTE_PROJECTS {
+        return None;
+    }
+    let states = raw.iter().map(route_of).collect::<Option<Vec<_>>>()?;
+    let state = ["refused", "enforced", "overridden"]
+        .into_iter()
+        .find(|s| states.contains(s))
+        .unwrap_or("selected");
+    let reasons = ROUTE_REASONS
+        .iter()
+        .filter(|reason| raw.iter().any(|r| r.reasons.iter().any(|x| x == *reason)))
+        .map(|reason| reason.to_string())
+        .collect();
+    Some(RouteStatus {
+        state,
+        reasons,
+        projects: raw.iter().filter_map(|r| r.directory.clone()).collect(),
+    })
 }
 
 #[derive(Deserialize)]
@@ -295,7 +526,7 @@ fn code(text: &str) -> bool {
 }
 
 /// A report written by the plugin, keeping only well-formed entries.
-fn read_report(path: &Path) -> Option<Vec<ProviderListing>> {
+fn read_report(path: &Path) -> Option<(Vec<ProviderListing>, Option<RouteStatus>)> {
     let mut text = String::new();
     std::fs::File::open(path)
         .ok()?
@@ -309,6 +540,13 @@ fn read_report(path: &Path) -> Option<Vec<ProviderListing>> {
     if raw.version != 1 {
         return None;
     }
+    let route = match raw.routes.is_empty() {
+        true => raw
+            .route
+            .as_ref()
+            .and_then(|r| routes_of(std::slice::from_ref(r))),
+        false => routes_of(&raw.routes),
+    };
     let providers = raw
         .providers
         .into_iter()
@@ -332,7 +570,7 @@ fn read_report(path: &Path) -> Option<Vec<ProviderListing>> {
             key_source: p.key_source,
         })
         .collect();
-    Some(providers)
+    Some((providers, route))
 }
 
 /// Replace `file` with `bytes` atomically.
@@ -365,269 +603,7 @@ fn install(dir: &Path) -> std::io::Result<PathBuf> {
     write_atomic(&file, PLUGIN_SOURCE.as_bytes())?;
     Ok(file)
 }
+
 #[cfg(test)]
-mod tests {
-    use std::collections::HashMap;
-
-    use super::*;
-
-    fn spec(profile: &str) -> AgentSpec {
-        AgentSpec {
-            profile_id: profile.into(),
-            display_name: "Agent".into(),
-            program: "opencode".into(),
-            args: vec!["acp".into()],
-        }
-    }
-
-    fn attach_to(spec: &AgentSpec, dir: &Path, vars: &[(&str, &str)]) -> Option<Launch> {
-        let vars: HashMap<String, OsString> = vars
-            .iter()
-            .map(|(k, v)| (k.to_string(), OsString::from(v)))
-            .collect();
-        attach(spec, dir, |name| vars.get(name).cloned())
-    }
-
-    fn with_env(dir: &Path, profile: &str, vars: &[(&str, &str)]) -> Option<Launch> {
-        attach_to(&spec(profile), dir, vars)
-    }
-
-    /// An OpenCode launch with `args` after the program.
-    fn with_args(dir: &Path, args: &[&str], vars: &[(&str, &str)]) -> Launch {
-        let spec = AgentSpec {
-            args: args.iter().map(|a| a.to_string()).collect(),
-            ..spec("opencode")
-        };
-        attach_to(&spec, dir, vars).expect("opencode")
-    }
-
-    fn plugins_disabled(launch: &Launch) -> bool {
-        let status = launch.status();
-        let disabled = (status.state, status.reason) == ("unavailable", Some("plugins-disabled"));
-        if disabled {
-            assert!(launch.env.is_empty(), "nothing injected");
-            assert!(launch.report.is_none(), "no report awaited");
-            assert!(status.plugin.is_some_and(|url| url.starts_with("file://")));
-        } else {
-            assert_eq!(launch.env.len(), 1, "the layer is injected");
-            assert_eq!(status.state, "waiting");
-        }
-        disabled
-    }
-
-    fn var<'a>(launch: &'a Launch, name: &str) -> Option<&'a OsString> {
-        launch.env.iter().find(|(k, _)| k == name).map(|(_, v)| v)
-    }
-
-    /// The plugin spec of a layer: its file URL and report path.
-    fn plugin_of(layer: &str) -> (String, PathBuf) {
-        let layer: serde_json::Value = serde_json::from_str(layer).expect("json");
-        assert_eq!(layer.as_object().map(|o| o.len()), Some(1), "only the plugin");
-        let entry = &layer["plugin"][0];
-        let url = entry[0].as_str().expect("url").to_string();
-        let report = PathBuf::from(entry[1]["report"].as_str().expect("report"));
-        (url, report)
-    }
-
-    #[test]
-    fn a_free_environment_gets_an_inline_layer_naming_the_plugin() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let launch = with_env(dir.path(), "opencode", &[]).expect("opencode");
-        assert_eq!(launch.env.len(), 1);
-        let layer = var(&launch, CONFIG_CONTENT_VAR).expect("inline layer");
-        let (url, report) = plugin_of(layer.to_str().expect("utf8"));
-        let file = url::Url::parse(&url)
-            .expect("url")
-            .to_file_path()
-            .expect("path");
-        assert_eq!(std::fs::read_to_string(file).expect("plugin"), PLUGIN_SOURCE);
-        assert!(report.starts_with(dir.path().join("opencode/reports")));
-        let status = launch.status();
-        assert_eq!(status.state, "waiting");
-        assert_eq!(status.plugin.as_deref(), Some(url.as_str()));
-    }
-
-    #[test]
-    fn a_users_inline_layer_is_kept_and_the_plugin_goes_into_a_file_layer() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let mine = r#"{"provider":{"gw":{"options":{"baseURL":"{env:GW_URL}"}}}}"#;
-        let launch =
-            with_env(dir.path(), "opencode", &[(CONFIG_CONTENT_VAR, mine)]).expect("opencode");
-        assert!(var(&launch, CONFIG_CONTENT_VAR).is_none(), "passed on untouched");
-        let file = PathBuf::from(var(&launch, CONFIG_FILE_VAR).expect("file layer"));
-        let (_, report) = plugin_of(&std::fs::read_to_string(&file).expect("layer"));
-        assert!(report.starts_with(dir.path().join("opencode/reports")));
-        assert_eq!(launch.status().state, "waiting");
-        // Empty values count as unset, as OpenCode reads them.
-        let empty =
-            with_env(dir.path(), "opencode", &[(CONFIG_CONTENT_VAR, ""), (CONFIG_FILE_VAR, "")])
-                .expect("opencode");
-        assert!(var(&empty, CONFIG_CONTENT_VAR).is_some());
-    }
-
-    #[test]
-    fn both_layers_taken_or_plugins_disabled_is_reported_with_the_manual_path() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let taken = with_env(dir.path(), "opencode", &[
-            (CONFIG_CONTENT_VAR, "{}"),
-            (CONFIG_FILE_VAR, "/elsewhere/opencode.json"),
-        ])
-        .expect("opencode");
-        assert!(taken.env.is_empty());
-        let status = taken.status();
-        assert_eq!((status.state, status.reason), ("unavailable", Some("config-env-taken")));
-        assert!(status.plugin.is_some_and(|url| url.starts_with("file://")));
-        for value in ["1", "true", "YES", "on"] {
-            let pure = with_env(dir.path(), "opencode", &[(PURE_VAR, value)]).expect("opencode");
-            assert!(pure.env.is_empty());
-            assert_eq!(pure.status().reason, Some("plugins-disabled"));
-        }
-        let not_pure = with_env(dir.path(), "opencode", &[(PURE_VAR, "false")]).expect("opencode");
-        assert_eq!(not_pure.env.len(), 1);
-    }
-
-    #[test]
-    fn a_pure_argument_disables_the_catalog_as_opencode_parses_it() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let disabled: &[&[&str]] = &[
-            &["acp", "--pure"],
-            &["--pure", "acp"],
-            &["acp", "--pure", "--cwd", "/p"],
-            &["acp", "--cwd", "/p", "--pure"],
-            &["acp", "--pure", "true"],
-            &["acp", "--pure=true"],
-            &["acp", "--no-pure", "--pure"],
-            &["acp", "--pure=false", "--pure"],
-            // A dash-led token is never the previous option's value.
-            &["acp", "--cwd", "--pure"],
-            &["acp", "--cors", "a", "--pure"],
-        ];
-        for args in disabled {
-            assert!(plugins_disabled(&with_args(dir.path(), args, &[])), "{args:?}");
-        }
-        let attached: &[&[&str]] = &[
-            &["acp"],
-            &["acp", "--pure", "false"],
-            &["acp", "--pure=false"],
-            // yargs takes a boolean `=` value as true only when it is `true`.
-            &["acp", "--pure=1"],
-            &["acp", "--no-pure"],
-            &["acp", "--pure", "--no-pure"],
-            &["acp", "--pure", "false", "--cwd", "/p"],
-            // Operands after the terminator, and values that contain the text.
-            &["acp", "--", "--pure"],
-            &["acp", "--cwd=/x/--pure"],
-            &["acp", "--cwd", "/x/--pure"],
-        ];
-        for args in attached {
-            assert!(!plugins_disabled(&with_args(dir.path(), args, &[])), "{args:?}");
-        }
-    }
-
-    #[test]
-    fn the_pure_argument_and_variable_each_disable_the_catalog() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let on = [(PURE_VAR, "1")];
-        let off = [(PURE_VAR, "false")];
-        assert!(plugins_disabled(&with_args(dir.path(), &["acp", "--pure"], &off)));
-        // `--no-pure` does not clear an inherited `OPENCODE_PURE`.
-        assert!(plugins_disabled(&with_args(dir.path(), &["acp", "--no-pure"], &on)));
-        assert!(plugins_disabled(&with_args(dir.path(), &["acp", "--pure=false"], &on)));
-        // Disabled plugins are reported before a taken config layer.
-        let taken = [(CONFIG_CONTENT_VAR, "{}"), (CONFIG_FILE_VAR, "/elsewhere/opencode.json")];
-        assert!(plugins_disabled(&with_args(dir.path(), &["acp", "--pure"], &taken)));
-        // A user's inline layer still gets the file layer without `--pure`.
-        let mine = with_args(dir.path(), &["acp", "--no-pure"], &[(CONFIG_CONTENT_VAR, "{}")]);
-        assert!(var(&mine, CONFIG_FILE_VAR).is_some());
-    }
-
-    #[test]
-    fn other_agents_get_nothing() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        assert!(with_env(dir.path(), "claude", &[]).is_none());
-        assert!(with_env(dir.path(), "custom-1", &[]).is_none());
-        assert!(!dir.path().join("opencode").exists(), "nothing written");
-    }
-
-    #[test]
-    fn a_stale_plugin_is_replaced_and_an_unwritable_dir_is_reported() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let target = dir.path().join("opencode");
-        std::fs::create_dir_all(&target).expect("dir");
-        std::fs::write(target.join(PLUGIN_FILE), "old").expect("write");
-        assert_eq!(
-            with_env(dir.path(), "opencode", &[])
-                .expect("opencode")
-                .env
-                .len(),
-            1
-        );
-        assert_eq!(std::fs::read_to_string(target.join(PLUGIN_FILE)).expect("read"), PLUGIN_SOURCE);
-        let blocked = dir.path().join("blocked");
-        std::fs::write(&blocked, "").expect("write");
-        let launch = with_env(&blocked, "opencode", &[]).expect("opencode");
-        assert!(launch.env.is_empty());
-        assert_eq!(launch.status().reason, Some("install-failed"));
-    }
-
-    fn report_path(launch: &Launch) -> PathBuf {
-        launch.report.clone().expect("report path")
-    }
-
-    #[test]
-    fn reports_are_validated_before_they_are_shown() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let launch = with_env(dir.path(), "opencode", &[]).expect("opencode");
-        let entry = |id: &str, status: &str, reason: serde_json::Value, key: &str| {
-            serde_json::json!({
-                "id": id, "status": status, "reason": reason, "listed": 83,
-                "added": 81, "excluded": 1, "unsafe": 0, "keySource": key,
-            })
-        };
-        let report = serde_json::json!({
-            "version": 1,
-            "providers": [
-                entry("gw", "complete", serde_json::Value::Null, "config"),
-                entry("partial-gw", "partial", "model-limit".into(), "env"),
-                entry("header-gw", "failed", "http-401".into(), "headers"),
-                entry("bad-status", "great", serde_json::Value::Null, "config"),
-                entry("bad-reason", "failed", "https://gw.example/v1 401".into(), "none"),
-                entry("bad\nid", "failed", "timeout".into(), "none"),
-                entry("bad-key", "failed", "timeout".into(), "sk-secret"),
-            ],
-        });
-        std::fs::write(report_path(&launch), report.to_string()).expect("write");
-        let status = launch.status();
-        assert_eq!(status.state, "reported");
-        let ids: Vec<_> = status.providers.iter().map(|p| p.id.as_str()).collect();
-        assert_eq!(ids, ["gw", "partial-gw", "header-gw"]);
-        assert_eq!(status.providers[0].listed, 83);
-        assert_eq!(status.providers[0].added, 81);
-        assert_eq!(status.providers[1].reason.as_deref(), Some("model-limit"));
-
-        for bad in [
-            serde_json::json!({ "version": 2, "providers": [] }).to_string(),
-            "not json".to_string(),
-            " ".repeat(MAX_REPORT_BYTES as usize + 1),
-        ] {
-            std::fs::write(report_path(&launch), bad).expect("write");
-            assert_eq!(launch.status().state, "waiting");
-        }
-    }
-
-    #[test]
-    fn each_launch_has_its_own_report_and_cleans_up_after_itself() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let first =
-            with_env(dir.path(), "opencode", &[(CONFIG_CONTENT_VAR, "{}")]).expect("opencode");
-        let second = with_env(dir.path(), "opencode", &[]).expect("opencode");
-        std::fs::write(report_path(&first), r#"{"version":1,"providers":[]}"#).expect("write");
-        assert_ne!(report_path(&first), report_path(&second));
-        assert_eq!(second.status().state, "waiting", "no report carried over");
-        let layer = PathBuf::from(var(&first, CONFIG_FILE_VAR).expect("file layer"));
-        let report = report_path(&first);
-        drop(first);
-        assert!(!layer.exists() && !report.exists());
-        assert!(dir.path().join("opencode").join(PLUGIN_FILE).exists(), "shared plugin stays");
-    }
-}
+#[path = "catalog_tests.rs"]
+mod tests;

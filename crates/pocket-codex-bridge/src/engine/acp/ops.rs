@@ -7,14 +7,15 @@
 use anyhow::{anyhow, Result};
 use pocket_codex_host_svc::acp::{
     fold::{ItemKind, Turn},
-    Identity,
+    Identity, SteerOutcome,
 };
 use serde::Deserialize as _;
 use serde_json::Value;
 
 use super::{block, conn, lock, translate, Link, Shared};
-use crate::engine::app_session::{
-    OlderPage, ThreadHistory, ThreadItem, ThreadMeta, TurnItemsPage, TurnSummary,
+use crate::engine::{
+    app_session::{OlderPage, ThreadHistory, ThreadItem, ThreadMeta, TurnItemsPage, TurnSummary},
+    session_engine::Supplement,
 };
 
 /// Turns in the newest window and in each older page.
@@ -343,6 +344,71 @@ pub fn turn_start(service_key: &str, thread_id: &str, text: &str, images: &[Stri
     let link = conn(service_key)?;
     let identity = link.identity();
     block(link.client.prompt(thread_id, text, images, Some(&identity))).map(|_| ())
+}
+
+/// Add input to `turn_id` (the caller's turn; else the turn this controller
+/// sees running) through the agent's negotiated steering. Another turn is
+/// refused by the host; an idle session consumes nothing
+/// ([`Supplement::PromptRequired`]). An unrecognized or lost answer is an
+/// error and is never retried here.
+pub fn turn_supplement(
+    service_key: &str,
+    thread_id: &str,
+    turn_id: Option<&str>,
+    text: &str,
+    images: &[String],
+) -> Result<Supplement> {
+    supplement(&conn(service_key)?, thread_id, turn_id, text, images)
+}
+
+/// [`turn_supplement`] through `link`.
+pub(super) fn supplement(
+    link: &Link,
+    thread_id: &str,
+    turn_id: Option<&str>,
+    text: &str,
+    images: &[String],
+) -> Result<Supplement> {
+    let (turn, identity) = {
+        let view = lock(&link.shared);
+        let turn = turn_id
+            .filter(|turn| !turn.trim().is_empty())
+            .map(str::to_string)
+            .or_else(|| view.running.get(thread_id).cloned());
+        (turn, view.identity())
+    };
+    let (outcome, accepted) =
+        block(
+            link.client
+                .steer(thread_id, turn.as_deref(), text, images, Some(&identity)),
+        )?;
+    // The answer belongs to the connection and host that asked. A
+    // replacement may already show another session state, so an answer
+    // arriving after it is neither "added" nor "not consumed": the caller
+    // keeps its input and nothing is sent in its place.
+    if link.commit(&identity, |_| ()).is_none() {
+        return Err(uncertain(
+            "the agent host changed before it answered, so the message may or may not have been \
+             added",
+        ));
+    }
+    match (outcome, accepted) {
+        (SteerOutcome::Injected, Some(accepted))
+            if !accepted.trim().is_empty() && turn.as_deref().is_none_or(|t| t == accepted) =>
+        {
+            Ok(Supplement::Injected(accepted))
+        },
+        (SteerOutcome::Injected, _) => Err(uncertain(
+            "the agent host did not confirm which turn took the message, so it may or may not \
+             have been added",
+        )),
+        (SteerOutcome::PromptRequired, _) => Ok(Supplement::PromptRequired),
+    }
+}
+
+/// An answer that does not establish what happened to a supplement.
+fn uncertain(why: &str) -> anyhow::Error {
+    anyhow!("{why}; check the conversation before sending it again")
 }
 
 /// Cancel `turn_id` (the caller's turn; else the turn this controller sees

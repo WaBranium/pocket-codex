@@ -140,10 +140,7 @@ class _ServicesScreenState extends ConsumerState<ServicesScreen>
               key: const Key('host-this-device-btn'),
               icon: Icons.add,
               label: l10n.servicesHostThisDevice,
-              onPressed: () => showDialog<void>(
-                context: context,
-                builder: (_) => const LocalHostDialog(),
-              ),
+              onPressed: () => showHostingEditor(context),
             )
           : null,
       body: AnimatedSwitcher(
@@ -269,7 +266,8 @@ class _DeviceFirstServices extends ConsumerWidget {
     final offlineTunnels = <String>{};
     for (final host in localHosts) {
       void synthesize(String kind, String key, {required bool registered}) {
-        if (pending.contains(key)) return;
+        // A host listed only because its codex did not exit has no tunnels.
+        if (key.isEmpty || pending.contains(key)) return;
         if (!registered) offlineTunnels.add(key);
         if (visible.any((service) => service.key == key)) return;
         visible.add(
@@ -1705,7 +1703,16 @@ class _LocalHostCard extends ConsumerWidget {
     // (appReachableLocalProvider, no relay hop): answers → 托管中, listening but
     // silent → 无响应. Before the port is even open it is genuinely starting.
     final StatusChip codexChip;
-    if (!host.alive) {
+    if (host.isCodex && host.agentError != null) {
+      // A codex this host owned did not exit when it was stopped: say so,
+      // so the card (and its Stop) stays the way to try again.
+      codexChip = StatusChip(
+        key: const Key('local-host-stop-failed'),
+        color: scheme.error,
+        label: l10n.localHostStopFailed,
+        filled: true,
+      );
+    } else if (!host.alive) {
       codexChip = StatusChip(
         color: scheme.tertiary,
         label: l10n.localHostStarting,
@@ -1752,10 +1759,7 @@ class _LocalHostCard extends ConsumerWidget {
         child: InkWell(
           mouseCursor: clickable,
           borderRadius: BorderRadius.circular(12),
-          onTap: () => showDialog<void>(
-            context: context,
-            builder: (_) => LocalHostDialog(existing: host),
-          ),
+          onTap: () => showHostingEditor(context, existing: host),
           child: Container(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
@@ -1848,10 +1852,7 @@ class _AddLocalHostCard extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: OutlinedButton.icon(
         key: const Key('add-local-host-card'),
-        onPressed: () => showDialog<void>(
-          context: context,
-          builder: (_) => const LocalHostDialog(),
-        ),
+        onPressed: () => showHostingEditor(context),
         icon: const Icon(Icons.add),
         label: Text(l10n.addLocalHost),
         style: OutlinedButton.styleFrom(

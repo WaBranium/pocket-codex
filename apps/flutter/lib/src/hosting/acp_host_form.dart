@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:file_selector/file_selector.dart';
@@ -21,10 +22,16 @@ class AcpFormValue {
     required this.name,
     required this.spec,
     required this.save,
+    this.claudePrepareShown = false,
+    this.claudeShown,
+    this.nameEdited = false,
   });
 
   /// Instance name (defaults to the profile id when empty).
   final String name;
+
+  /// The user typed [name] (a suggested one follows the agent).
+  final bool nameEdited;
 
   /// The agent to host.
   final AcpAgentSpec spec;
@@ -32,10 +39,40 @@ class AcpFormValue {
   /// Whether to save a custom agent to "my agents".
   final bool save;
 
+  /// The form is showing that Start will prepare Claude's missing adapter
+  /// (so a download never starts unannounced).
+  final bool claudePrepareShown;
+
+  /// The environment that announcement described; Start prepares only while
+  /// it still finds the same one (see [claudeAnnouncementKey]).
+  final AcpClaudeStatus? claudeShown;
+
   /// Whether the value can be submitted.
   bool get valid =>
       spec.program.trim().isNotEmpty && spec.displayName.trim().isNotEmpty;
 }
+
+/// Whether [spec] is the Claude preset's own adapter program, whose launch
+/// the host discovers (adapter, Node.js and native CLI) instead of resolving
+/// the program alone.
+bool isClaudeAdapterSpec(AcpAgentSpec spec) =>
+    spec.profileId == 'claude' && spec.program.trim() == 'claude-agent-acp';
+
+/// What an announced adapter preparation is about: the agent's program and
+/// arguments and the environment found for it (adapter state, Node.js
+/// runtime, package). A preparation is announced for exactly one of these;
+/// a different agent or environment needs its own announcement.
+String claudeAnnouncementKey(AcpAgentSpec spec, AcpClaudeStatus status) =>
+    jsonEncode([
+      spec.program,
+      spec.args,
+      status.adapter,
+      status.runtime,
+      status.runtimePath,
+      status.runtimeVersion,
+      status.package,
+      status.canPrepare,
+    ]);
 
 /// The profile id of a new custom agent named [name]. The readable part is
 /// a lossy slug (names in other scripts all become `agent`), so [salt] —
@@ -73,10 +110,25 @@ class AcpHostForm extends ConsumerStatefulWidget {
     required this.onChanged,
     this.enabled = true,
     this.takenNames = const {},
+    this.initial,
+    this.fixedName,
+    this.restored,
   });
 
   /// The agent picked in the grid.
   final String choice;
+
+  /// The agent to edit (a running host's spec) instead of [choice]'s
+  /// defaults.
+  final AcpAgentSpec? initial;
+
+  /// The running host's instance name, shown and not editable.
+  final String? fixedName;
+
+  /// What this form showed for [choice] before another agent was picked:
+  /// restored instead of [choice]'s defaults, so switching back loses no
+  /// edit.
+  final AcpFormValue? restored;
 
   /// Called with the current value.
   final ValueChanged<AcpFormValue> onChanged;
@@ -94,8 +146,8 @@ class AcpHostForm extends ConsumerStatefulWidget {
 
 class _AcpHostFormState extends ConsumerState<AcpHostForm> {
   static const _custom = customAgentChoice;
-  // One per new custom agent this form describes.
-  final String _salt = newProfileSalt();
+  // One per new custom agent this form describes (kept by a restore).
+  String _salt = newProfileSalt();
   final _name = TextEditingController();
   final _displayName = TextEditingController();
   final _program = TextEditingController();
@@ -109,6 +161,8 @@ class _AcpHostFormState extends ConsumerState<AcpHostForm> {
   // agent choice, a typed one stays.
   bool _nameEdited = false;
   String? _located;
+  // The Claude preset's environment, when that is what the form describes.
+  AcpClaudeStatus? _claude;
   bool _locating = false;
   // The last lookup failed (shown with a retry), as opposed to not found.
   String? _locateError;
@@ -121,7 +175,19 @@ class _AcpHostFormState extends ConsumerState<AcpHostForm> {
   @override
   void initState() {
     super.initState();
-    _select(widget.choice, emit: false);
+    final initial = widget.initial;
+    final restored = widget.restored;
+    if (restored != null) {
+      _restore(restored);
+    } else if (initial == null) {
+      _select(widget.choice, emit: false);
+    } else {
+      _apply(widget.choice, initial, emit: false);
+    }
+    if (widget.fixedName case final name?) {
+      _name.text = name;
+      _nameEdited = true;
+    }
     Future.microtask(() {
       if (!mounted) return;
       _emit();
@@ -139,6 +205,21 @@ class _AcpHostFormState extends ConsumerState<AcpHostForm> {
       // off any name they now use; a typed name stays.
       _name.text = uniqueHostName(_nameBase, widget.takenNames);
       _emit();
+    }
+  }
+
+  /// Show [value] again for [AcpHostForm.choice] (see [AcpHostForm.restored]).
+  void _restore(AcpFormValue value) {
+    final custom = widget.choice == _custom;
+    final id = value.spec.profileId;
+    final salt = RegExp(r'-([0-9a-f]{8})$').firstMatch(id)?.group(1);
+    // The same custom agent keeps its id: its salt is kept.
+    if (custom && salt != null) _salt = salt;
+    _apply(widget.choice, value.spec, emit: false);
+    _save = value.save || !custom;
+    if (value.nameEdited) {
+      _name.text = value.name;
+      _nameEdited = true;
     }
   }
 
@@ -215,13 +296,23 @@ class _AcpHostFormState extends ConsumerState<AcpHostForm> {
     );
   }
 
-  void _emit() => widget.onChanged(
-    AcpFormValue(
-      name: _name.text.trim(),
-      spec: _spec,
-      save: _save && _isCustom,
-    ),
-  );
+  void _emit() {
+    final claude = _claude;
+    widget.onChanged(
+      AcpFormValue(
+        name: _name.text.trim(),
+        spec: _spec,
+        save: _save && _isCustom,
+        claudePrepareShown:
+            !_locating &&
+            claude != null &&
+            claude.adapter == 'missing' &&
+            claude.canPrepare,
+        claudeShown: _locating ? null : claude,
+        nameEdited: _nameEdited,
+      ),
+    );
+  }
 
   void _locate() {
     _locateDebounce?.cancel();
@@ -229,10 +320,12 @@ class _AcpHostFormState extends ConsumerState<AcpHostForm> {
     final seq = ++_locateSeq;
     final program = _program.text.trim();
     final profileId = _profileId;
+    final claude = isClaudeAdapterSpec(_spec);
     if (program.isEmpty) {
       if (mounted) {
         setState(() {
           _located = null;
+          _claude = null;
           _locating = false;
           _locateError = null;
         });
@@ -243,24 +336,34 @@ class _AcpHostFormState extends ConsumerState<AcpHostForm> {
       setState(() {
         _locating = true;
         _locateError = null;
+        // What was found for the previous program says nothing now.
+        _claude = null;
       });
+      _emit();
     }
     _locateDebounce = Timer(const Duration(milliseconds: 300), () async {
       String? found;
+      AcpClaudeStatus? environment;
       String? error;
       try {
-        found = await ref
-            .read(bridgeApiProvider)
-            .acpLocate(program, profileId: profileId);
+        final api = ref.read(bridgeApiProvider);
+        if (claude) {
+          environment = await api.acpClaudeStatus();
+          found = environment.adapterPath;
+        } else {
+          found = await api.acpLocate(program, profileId: profileId);
+        }
       } catch (e) {
         error = friendlyError(e);
       }
       if (!mounted || seq != _locateSeq) return;
       setState(() {
         _located = found;
+        _claude = environment;
         _locateError = error;
         _locating = false;
       });
+      _emit();
     });
   }
 
@@ -311,6 +414,11 @@ class _AcpHostFormState extends ConsumerState<AcpHostForm> {
                 child: Text(l10n.retry),
               ),
             ],
+          )
+        : _claude != null
+        ? ClaudeEnvironment(
+            status: _claude!,
+            onRecheck: enabled ? _locate : null,
           )
         : _located == null
         ? Text(
@@ -415,7 +523,7 @@ class _AcpHostFormState extends ConsumerState<AcpHostForm> {
         TextField(
           key: const Key('acp-instance-name-field'),
           controller: _name,
-          enabled: enabled,
+          enabled: enabled && widget.fixedName == null,
           decoration: InputDecoration(
             labelText: l10n.localHostName,
             helperText: l10n.hostNameHelper,
@@ -453,6 +561,108 @@ class _AcpHostFormState extends ConsumerState<AcpHostForm> {
           ),
           Text(l10n.acpSecretsNote, style: small),
         ],
+      ],
+    );
+  }
+}
+
+/// What the Claude preset will run on this computer: its ACP adapter (or
+/// that Start prepares it), the Node.js that runs it and the native CLI it
+/// drives. Shown before Start, so a download is never a surprise.
+class ClaudeEnvironment extends StatelessWidget {
+  /// Creates the panel for [status].
+  const ClaudeEnvironment({super.key, required this.status, this.onRecheck});
+
+  /// The detected environment.
+  final AcpClaudeStatus status;
+
+  /// Detect again (after installing something); `null` disables it.
+  final VoidCallback? onRecheck;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final small = Theme.of(context).textTheme.bodySmall;
+    final ok = small?.copyWith(color: successColor(scheme));
+    final caution = small?.copyWith(color: cautionColor(scheme));
+    final bad = small?.copyWith(color: scheme.error);
+    Widget line(String key, String text, TextStyle? style) => Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Text(text, key: Key(key), style: style),
+    );
+    final adapter = switch (status.adapter) {
+      'installed' => line(
+        'claude-adapter',
+        l10n.claudeAdapterInstalled(status.adapterPath ?? ''),
+        ok,
+      ),
+      'prepared' => line(
+        'claude-adapter',
+        l10n.claudeAdapterPrepared(status.adapterPath ?? ''),
+        ok,
+      ),
+      _ when status.canPrepare => line(
+        'claude-adapter-will-prepare',
+        l10n.claudeAdapterWillPrepare(status.package),
+        caution,
+      ),
+      _ => line(
+        'claude-adapter-missing',
+        l10n.claudeAdapterMissing(status.package),
+        bad,
+      ),
+    };
+    final version = status.runtimeVersion ?? '';
+    final runtime = switch (status.runtime) {
+      'found' => line(
+        'claude-node',
+        l10n.claudeNodeFound(version, status.runtimePath ?? ''),
+        ok,
+      ),
+      'tooOld' => line('claude-node-old', l10n.claudeNodeTooOld(version), bad),
+      'missing' => line('claude-node-missing', l10n.claudeNodeMissing, bad),
+      _ => null,
+    };
+    final cli = switch (status.cli) {
+      'found' => line(
+        'claude-cli',
+        l10n.claudeCliFound(status.cliPath ?? ''),
+        small,
+      ),
+      'inherited' => line(
+        'claude-cli-inherited',
+        l10n.claudeCliInherited,
+        small,
+      ),
+      _ => line('claude-cli-bundled', l10n.claudeCliBundled, small),
+    };
+    final problem = status.problem;
+    return Column(
+      key: const Key('claude-environment'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                l10n.claudeEnvTitle,
+                style: small?.copyWith(fontWeight: FontWeight.w600),
+              ),
+            ),
+            TextButton(
+              key: const Key('claude-recheck'),
+              onPressed: onRecheck,
+              child: Text(l10n.claudeEnvRecheck),
+            ),
+          ],
+        ),
+        adapter,
+        ?runtime,
+        cli,
+        if (!status.ready && !status.canPrepare && problem != null)
+          line('claude-problem', problem, bad),
       ],
     );
   }

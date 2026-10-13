@@ -76,6 +76,8 @@ async fn adopted_server(answer_list: bool, wildcard: bool) -> Result<(), Startup
         reused: true,
         log_offset: 0,
         listener_confirmed: true,
+        spawned: None,
+        owned: None,
     };
     let budget = if answer_list { Duration::from_secs(3) } else { Duration::from_millis(200) };
     let result = tokio::task::spawn_blocking(move || verify_ready(&report, budget))

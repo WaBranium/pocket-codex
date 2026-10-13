@@ -7,7 +7,16 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
 
-import plugin, { apply, candidates, discover, listUrl, merge, parsePage, readBounded } from "../src/acp/opencode_catalog.mjs"
+import plugin, {
+  apply,
+  candidates,
+  discover,
+  listUrl,
+  merge,
+  parsePage,
+  readBounded,
+  enforce,
+} from "../src/acp/opencode_catalog.mjs"
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status })
 
@@ -309,4 +318,246 @@ test("the plugin writes a sanitized report to the path in its options", async ()
   await hooks.config({ provider: { plain: {} } })
   assert.deepEqual(JSON.parse(await readFile(report, "utf8")), { version: 1, providers: [] })
   assert.deepEqual(await readdir(dir), ["report.json"], "no staging file left")
+})
+
+const ID = "pocket-codex-6f63-a1"
+const KEY_VAR = "PCX_KEY_6F63"
+// Dummy keys only.
+const SUPPLIED = "sk-dummy-supplied-0123"
+const STORED = "sk-dummy-stored-4567"
+const ENV = { [KEY_VAR]: SUPPLIED }
+const definition = () => ({
+  npm: "@ai-sdk/openai-compatible",
+  name: "Pocket-Codex provider",
+  env: [KEY_VAR],
+  options: { baseURL: "https://gw.example/v1" },
+  models: { m1: {} },
+})
+/** The definition as `enforce` installs it: the supplied key pinned. */
+const pinned = (key = SUPPLIED) => {
+  const d = definition()
+  d.options.apiKey = key
+  return d
+}
+const route = () => ({ provider: ID, model: `${ID}/m1`, definition: definition() })
+const merged = () => ({ model: `${ID}/m1`, provider: { [ID]: definition() } })
+
+test("a configuration already on the host's route is left as it is, its key pinned", () => {
+  const cfg = merged()
+  assert.deepEqual(enforce(cfg, route(), ENV), { state: "selected", reasons: [] })
+  assert.deepEqual(cfg.provider[ID], pinned())
+  assert.deepEqual(cfg.enabled_providers, [ID], "only the host's provider")
+  // Keys merged in another order are the same definition.
+  const reordered = merged()
+  reordered.provider[ID] = { models: { m1: {} }, options: { baseURL: "https://gw.example/v1" }, env: [KEY_VAR], name: "Pocket-Codex provider", npm: "@ai-sdk/openai-compatible" }
+  assert.equal(enforce(reordered, route(), ENV).state, "selected")
+})
+
+test("another layer redefining the same provider id is replaced by the host's definition", () => {
+  const cfg = merged()
+  // A project or managed layer merged into the same id: its own endpoint,
+  // key, headers and a per-model route.
+  Object.assign(cfg.provider[ID].options, { baseURL: "https://other.example/v1", apiKey: "sk-dummy-other", headers: { "x-route": "b" } })
+  cfg.provider[ID].models.m1 = { provider: { api: "https://elsewhere.example" }, headers: { a: "b" }, options: { x: 1 } }
+  cfg.provider[ID].env = ["OTHER_KEY"]
+  assert.deepEqual(enforce(cfg, route(), ENV), { state: "enforced", reasons: ["provider"] })
+  assert.deepEqual(cfg.provider[ID], pinned(), "exactly the host's definition")
+  // The definition is a copy: a later merge cannot change the route's own.
+  const r = route()
+  const again = merged()
+  enforce(again, r, ENV)
+  again.provider[ID].options.baseURL = "https://x.example"
+  assert.equal(r.definition.options.baseURL, "https://gw.example/v1")
+  assert.equal(r.definition.options.apiKey, undefined, "the route itself never holds the key")
+})
+
+test("provider lists, default, small and agent models are put back", () => {
+  const cfg = {
+    ...merged(),
+    model: "anthropic/claude",
+    small_model: "openai/gpt-nano",
+    enabled_providers: ["anthropic", ID],
+    disabled_providers: ["x", ID],
+    agent: { build: { model: "anthropic/claude" }, plan: { model: `${ID}/m1` }, review: {} },
+    mode: { fast: { model: "openai/gpt" } },
+  }
+  assert.deepEqual(enforce(cfg, route(), ENV), {
+    state: "enforced",
+    reasons: ["model", "small-model", "agent-model", "enabled-providers", "disabled-providers"],
+  })
+  assert.equal(cfg.model, `${ID}/m1`)
+  assert.equal(cfg.small_model, `${ID}/m1`)
+  assert.deepEqual([cfg.agent.build.model, cfg.agent.plan.model, cfg.mode.fast.model], [`${ID}/m1`, `${ID}/m1`, `${ID}/m1`])
+  assert.equal(cfg.agent.review.model, undefined, "an agent without a model keeps the default")
+  assert.deepEqual(cfg.enabled_providers, [ID])
+  assert.deepEqual(cfg.disabled_providers, ["x"])
+  // An own small model is kept.
+  const small = { ...merged(), small_model: `${ID}/m1` }
+  assert.equal(enforce(small, route(), ENV).state, "selected")
+})
+
+test("a missing provider entry is restored", () => {
+  const cfg = { model: `${ID}/m1` }
+  assert.deepEqual(enforce(cfg, route(), ENV), { state: "enforced", reasons: ["missing"] })
+  assert.deepEqual(cfg.provider[ID], pinned())
+  // An inherited name is not an entry.
+  const r = { provider: "toString", model: "toString/m", definition: {} }
+  assert.deepEqual(enforce({ model: "toString/m", provider: {} }, r).reasons, ["missing"])
+})
+
+test("a keyed route whose key is missing in the agent leaves no usable provider", () => {
+  for (const env of [{}, { [KEY_VAR]: "" }]) {
+    const cfg = { ...merged(), enabled_providers: ["anthropic"] }
+    assert.deepEqual(enforce(cfg, route(), env), { state: "refused", reasons: ["key"] })
+    assert.equal(Object.hasOwn(cfg.provider, ID), false, "the provider is removed")
+    assert.deepEqual(cfg.enabled_providers, [ID], "and nothing else is enabled")
+    assert.equal(cfg.model, `${ID}/m1`)
+  }
+})
+
+test("without a route nothing is changed (inherited configuration)", () => {
+  const cfg = { model: "anthropic/claude", provider: { anthropic: { options: { apiKey: "k" } } } }
+  const before = JSON.stringify(cfg)
+  assert.equal(enforce(cfg, undefined, ENV), undefined)
+  assert.equal(enforce(cfg, { provider: ID, model: "other/m1", definition: {} }, ENV), undefined, "model of another provider")
+  assert.equal(enforce(cfg, { provider: ID, model: `${ID}/m1` }, ENV), undefined, "no definition")
+  assert.equal(JSON.stringify(cfg), before)
+})
+
+// remeda `mergeDeep`, as OpenCode uses it: plain objects merge recursively,
+// the second argument wins, anything else is replaced.
+function mergeDeep(a, b) {
+  const out = { ...a }
+  for (const [k, v] of Object.entries(b)) {
+    const plain = (x) => x !== null && typeof x === "object" && !Array.isArray(x)
+    out[k] = plain(v) && plain(out[k]) ? mergeDeep(out[k], v) : v
+  }
+  return out
+}
+
+/**
+ * The SDK options OpenCode 1.18.35 builds for `providerID` from the merged
+ * configuration `cfg` (after every `config` hook), the process environment
+ * `envs` and stored logins `auths`, following the pinned
+ * packages/opencode/src/provider/provider.ts step by step: config providers
+ * into the database (1533-1543), "load env" (1634-1644), "load apikeys" —
+ * a stored `api` login merged by id AFTER the env key (1647-1657), "load
+ * config - re-apply" (1699-1706), the provider filter (1722-1727), and
+ * `resolveSDK` (1788 `{...provider.options}`, 1832 `apiKey` from
+ * `provider.key` only when undefined). models.dev entries, plugin auth
+ * loaders and custom loaders are left out: none exists for this random id.
+ */
+function sdkOptions(cfg, envs, auths, providerID) {
+  const database = {}
+  for (const [id, p] of Object.entries(cfg.provider ?? {})) {
+    database[id] = { id, env: p.env ?? [], options: mergeDeep({}, p.options ?? {}), source: "config", models: p.models ?? {} }
+  }
+  const disabled = new Set(cfg.disabled_providers ?? [])
+  const enabled = cfg.enabled_providers ? new Set(cfg.enabled_providers) : null
+  const providers = {}
+  const mergeProvider = (id, patch) => {
+    if (providers[id]) providers[id] = mergeDeep(providers[id], patch)
+    else if (database[id]) providers[id] = mergeDeep(database[id], patch)
+  }
+  for (const [id, p] of Object.entries(database)) {
+    if (disabled.has(id)) continue
+    const apiKey = p.env.map((item) => envs[item]).find(Boolean)
+    if (!apiKey) continue
+    mergeProvider(id, { source: "env", key: p.env.length === 1 ? apiKey : undefined })
+  }
+  for (const [id, stored] of Object.entries(auths)) {
+    if (disabled.has(id)) continue
+    if (stored.type === "api") mergeProvider(id, { source: "api", key: stored.key })
+  }
+  for (const [id, p] of Object.entries(cfg.provider ?? {})) {
+    const partial = { source: "config" }
+    if (p.env) partial.env = p.env
+    if (p.name) partial.name = p.name
+    if (p.options) partial.options = p.options
+    mergeProvider(id, partial)
+  }
+  for (const id of Object.keys(providers)) {
+    if ((enabled && !enabled.has(id)) || disabled.has(id)) delete providers[id]
+  }
+  const provider = providers[providerID]
+  if (!provider) return { providers: Object.keys(providers) }
+  const options = { ...provider.options }
+  if (options["apiKey"] === undefined && provider.key) options["apiKey"] = provider.key
+  return { providers: Object.keys(providers), options }
+}
+
+test("a key stored for the same id never reaches the SDK: the supplied key does", () => {
+  const auths = { [ID]: { type: "api", key: STORED }, anthropic: { type: "api", key: "sk-dummy-other" } }
+  // Without the pin (the hook's earlier behaviour), the stored login wins:
+  // this is what the fixture must be able to show.
+  const unpinned = merged()
+  const before = sdkOptions(unpinned, ENV, auths, ID)
+  assert.equal(before.options.apiKey, STORED, "the stored login overwrote the env key")
+
+  const cfg = { ...merged(), model: "anthropic/claude", provider: { ...merged().provider, anthropic: {} } }
+  cfg.provider[ID].options.headers = { authorization: "Bearer sk-dummy-other" }
+  assert.equal(enforce(cfg, route(), ENV).state, "enforced")
+  const after = sdkOptions(cfg, ENV, auths, ID)
+  assert.deepEqual(after.providers, [ID], "only the host's provider is usable")
+  assert.equal(after.options.apiKey, SUPPLIED, "the supplied key")
+  assert.equal(after.options.baseURL, "https://gw.example/v1", "the chosen endpoint")
+  assert.equal(after.options.headers, undefined, "no other layer's headers")
+  assert.equal(cfg.model, `${ID}/m1`, "the chosen model")
+
+  // A route without a key sends none: neither the stored login nor an
+  // SDK's own environment fallback (an empty key is defined).
+  const keyless = { provider: ID, model: `${ID}/m1`, definition: { ...definition(), env: [] } }
+  const open = merged()
+  enforce(open, keyless, {})
+  assert.equal(sdkOptions(open, {}, auths, ID).options.apiKey, "")
+
+  // A refused route leaves nothing to build an SDK for.
+  const refused = merged()
+  enforce(refused, route(), {})
+  assert.deepEqual(sdkOptions(refused, {}, auths, ID), { providers: [] })
+})
+
+test("the report never holds the supplied key", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "pcx-key-"))
+  const report = join(dir, "report.json")
+  const variable = "PCX_TEST_KEY_6F63"
+  process.env[variable] = SUPPLIED
+  try {
+    const keyed = { provider: ID, model: `${ID}/m1`, definition: { npm: "@ai-sdk/openai-compatible", env: [variable], options: {}, models: { m1: {} } } }
+    const hooks = await plugin.server({ directory: "/work/k" }, { report, route: keyed })
+    const cfg = { model: `${ID}/m1`, provider: {} }
+    await hooks.config(cfg)
+    assert.equal(cfg.provider[ID].options.apiKey, SUPPLIED, "pinned in memory")
+    const written = await readFile(report, "utf8")
+    assert.ok(!written.includes(SUPPLIED) && !written.includes("sk-dummy"), written)
+    assert.ok(!JSON.stringify(keyed).includes(SUPPLIED), "nor the route it was given")
+  } finally {
+    delete process.env[variable]
+  }
+})
+
+test("each project's verdict is reported by its directory, without configuration text", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "pcx-route-"))
+  const report = join(dir, "report.json")
+  // No base URL: the listing stays out of this test.
+  const local = { provider: ID, model: `${ID}/m1`, definition: { npm: "@ai-sdk/openai-compatible", options: {}, models: { m1: {} } } }
+  const a = await plugin.server({ directory: "/work/a" }, { report, route: local })
+  const b = await plugin.server({ directory: "/work/b" }, { report, route: local })
+  await a.config({ model: `${ID}/m1`, provider: { [ID]: structuredClone(local.definition) } })
+  await b.config({ model: "elsewhere/m", provider: { [ID]: { options: { baseURL: "https://elsewhere.example", apiKey: "sk-elsewhere" } } } })
+  const written = JSON.parse(await readFile(report, "utf8"))
+  const byDir = Object.fromEntries(written.routes.map((r) => [r.directory, r]))
+  assert.deepEqual(byDir["/work/a"], { directory: "/work/a", state: "selected", reasons: [] })
+  assert.deepEqual(byDir["/work/b"], { directory: "/work/b", state: "enforced", reasons: ["model", "provider"] })
+  assert.equal(written.route, undefined, "no launch-wide verdict")
+  assert.ok(!JSON.stringify(written).includes("elsewhere"), "no configuration text")
+  // Loading a project again replaces its verdict.
+  await b.config({ model: `${ID}/m1`, provider: { [ID]: structuredClone(local.definition) } })
+  const again = JSON.parse(await readFile(report, "utf8"))
+  assert.equal(again.routes.find((r) => r.directory === "/work/b").state, "selected")
+  // A directory the host would refuse is not named.
+  const odd = await plugin.server({ directory: "/a\nb" }, { report, route: local })
+  await odd.config({ model: `${ID}/m1`, provider: { [ID]: structuredClone(local.definition) } })
+  const named = JSON.parse(await readFile(report, "utf8")).routes
+  assert.ok(named.every((r) => r.directory === undefined || !r.directory.includes("\n")))
 })

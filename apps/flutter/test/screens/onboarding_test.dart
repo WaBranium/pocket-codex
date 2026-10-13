@@ -86,67 +86,92 @@ void main() {
       promptVariant: 'default',
     );
 
-    testWidgets('unconfigured leads with the provider form and says why', (
-      t,
-    ) async {
-      await pump(t, status: unconfigured);
+    testWidgets('unconfigured leads with where a provider is set and says '
+        'why', (t) async {
+      final api = await pump(t, status: unconfigured);
 
       // The state card answers "is this working" before any method is offered.
       expect(find.text('尚未配置'), findsOneWidget); // codexSetupStatusNeedSetup
-      // Provider is the open method — it is the one that needs no running host.
-      expect(find.byKey(const Key('codex-base-url')), findsOneWidget);
+      // The provider row leads, open: no global provider form any more, but
+      // where a provider is set (per host) and what this page sets up.
+      expect(find.byKey(const Key('codex-base-url')), findsNothing);
+      expect(find.byKey(const Key('codex-api-key')), findsNothing);
+      expect(find.byKey(const Key('codex-save-provider')), findsNothing);
+      expect(find.textContaining('本页配置 Codex 本身'), findsOneWidget);
+      // This harness is a phone (android): hosting is desktop-only, so the
+      // way to a host's editor is replaced by saying so.
+      expect(
+        find.byKey(const Key('codex-provider-desktop-only')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('codex-provider-hosts')), findsNothing);
       // ChatGPT is present but collapsed: its button is not on screen, only the
       // way to switch to it.
       expect(find.byKey(const Key('codex-login-chatgpt')), findsNothing);
       expect(find.text('改用此项'), findsOneWidget); // codexSetupSwitchTo
+      expect(api.lastProvider, isNull);
     });
 
-    testWidgets('signed in hides the provider fields it cannot use', (t) async {
+    testWidgets('signed in keeps the provider row closed', (t) async {
       await pump(t, status: signedIn);
 
       // The live method leads, marked as such...
       expect(find.text('使用中'), findsOneWidget); // codexSetupInUse
       expect(find.byKey(const Key('codex-login-done')), findsOneWidget);
       expect(find.byKey(const Key('codex-logout-btn')), findsOneWidget);
-      // ...and the three provider inputs — unusable while a credential is in
-      // force — are behind the collapsed row rather than in the user's face.
+      // ...and the provider row is only its title and the way to open it.
+      expect(
+        find.byKey(const Key('codex-provider-desktop-only')),
+        findsNothing,
+      );
       expect(find.byKey(const Key('codex-base-url')), findsNothing);
-      expect(find.byKey(const Key('codex-api-key')), findsNothing);
     });
 
     testWidgets('switching to the collapsed method opens its controls', (
       t,
     ) async {
       await pump(t, status: signedIn);
-      expect(find.byKey(const Key('codex-base-url')), findsNothing);
+      expect(
+        find.byKey(const Key('codex-provider-desktop-only')),
+        findsNothing,
+      );
 
       await t.tap(find.text('改用此项')); // codexSetupSwitchTo
       await t.pumpAndSettle();
 
-      // The provider form is now open; the ChatGPT row keeps its "in use" pill
+      // The provider row is now open; the ChatGPT row keeps its "in use" pill
       // (switching the disclosure must not pretend the live method changed).
-      expect(find.byKey(const Key('codex-base-url')), findsOneWidget);
+      expect(
+        find.byKey(const Key('codex-provider-desktop-only')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('codex-base-url')), findsNothing);
       expect(find.text('使用中'), findsOneWidget);
     });
 
-    testWidgets('saving a provider reports success and re-reads the status', (
+    testWidgets('a provider codex already selects is reported, not edited', (
       t,
     ) async {
-      final api = await pump(t, status: unconfigured);
-
-      await t.enterText(
-        find.byKey(const Key('codex-base-url')),
-        'https://example.com/v1',
+      final api = await pump(
+        t,
+        status: const CodexSetupStatus(
+          codexHome: r'C:\Users\test\.codex',
+          hasConfig: true,
+          hasAuth: false,
+          hasCustomProvider: true,
+          needsSetup: false,
+          promptVariant: 'default',
+          effectiveSource: 'custom',
+        ),
       );
-      await t.enterText(find.byKey(const Key('codex-api-key')), 'sk-test');
-      await t.tap(find.byKey(const Key('codex-save-provider')));
-      await t.pumpAndSettle();
 
-      expect(api.lastProvider?.baseUrl, 'https://example.com/v1');
-      expect(find.byKey(const Key('codex-setup-info')), findsOneWidget);
-      // The state card followed the write instead of still reading "not
-      // configured" under a success message.
-      expect(find.text('尚未配置'), findsNothing);
+      // codexSetupStatusProvider: the state card reads codex's own setup.
+      expect(find.text('已配置自定义 Provider'), findsOneWidget);
+      expect(find.text('使用中'), findsOneWidget);
+      expect(find.byKey(const Key('codex-global-provider')), findsOneWidget);
+      expect(find.byKey(const Key('codex-base-url')), findsNothing);
+      expect(find.byKey(const Key('codex-save-provider')), findsNothing);
+      expect(api.lastProvider, isNull, reason: 'nothing is written');
     });
 
     testWidgets('the prompt switch lives under Advanced and persists', (

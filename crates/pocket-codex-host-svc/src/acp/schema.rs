@@ -49,6 +49,57 @@ pub struct AgentCapabilities {
     pub audio: bool,
     /// Embedded resource prompt content — `promptCapabilities.embeddedContext`.
     pub embedded_context: bool,
+    /// The `_session/steering` extension (supplementing a running turn) —
+    /// the top-level `InitializeResponse._meta.steering.supported`, a
+    /// sibling of `agentCapabilities`.
+    #[serde(default)]
+    pub steering: bool,
+}
+
+/// The `_session/steering` extension request.
+pub const STEERING_METHOD: &str = "_session/steering";
+
+/// How an agent answered a `_session/steering` request sent with the
+/// `promptRequired` idle behaviour.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SteerOutcome {
+    /// Delivered into the running turn.
+    Injected,
+    /// No turn was running: the input was not consumed and has to be sent
+    /// as an ordinary prompt.
+    PromptRequired,
+}
+
+impl SteerOutcome {
+    /// The wire value of this outcome.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Injected => "injected",
+            Self::PromptRequired => "promptRequired",
+        }
+    }
+
+    /// Interpret a `_session/steering` result. `None` for any other answer
+    /// (including the `startedNewTurn` of agents that ignored the opt-in):
+    /// what happened to the input is then unknown.
+    pub fn from_result(result: &Value) -> Option<Self> {
+        match result["outcome"].as_str()? {
+            "injected" => Some(Self::Injected),
+            "promptRequired" if result["reason"] == "noRunningTurn" => Some(Self::PromptRequired),
+            _ => None,
+        }
+    }
+}
+
+/// The `_session/steering` params for `session` and its content `prompt`,
+/// opting into the `promptRequired` idle behaviour so that an idle agent
+/// never starts a turn on its own.
+pub fn steering_params(session: &str, prompt: Vec<Value>) -> Value {
+    json!({
+        "sessionId": session,
+        "prompt": prompt,
+        "_meta": {"steering": {"idleBehavior": "promptRequired"}},
+    })
 }
 
 /// Agent self-description from `agentInfo`, when supplied.
@@ -129,6 +180,7 @@ pub fn negotiate(result: &Value) -> Result<Negotiated, NegotiationError> {
         image: prompt["image"] == true,
         audio: prompt["audio"] == true,
         embedded_context: prompt["embeddedContext"] == true,
+        steering: result["_meta"]["steering"]["supported"] == true,
     };
     let info = &result["agentInfo"];
     let auth_methods = result["authMethods"]
@@ -348,6 +400,59 @@ mod tests {
         assert!(full.capabilities.image);
         assert_eq!(full.agent.version.as_deref(), Some("2.0"));
         assert_eq!(full.auth_methods.len(), 1);
+    }
+
+    #[test]
+    fn steering_is_read_from_the_top_level_meta_only() {
+        let supported = negotiate(&json!({
+            "protocolVersion": 1, "_meta": {"steering": {"supported": true}},
+        }))
+        .expect("supported");
+        assert!(supported.capabilities.steering);
+        for result in [
+            json!({"protocolVersion": 1}),
+            json!({"protocolVersion": 1, "_meta": {"steering": {"supported": "true"}}}),
+            json!({"protocolVersion": 1, "_meta": {"steering": true}}),
+            json!({"protocolVersion": 1, "_meta": null}),
+            // Inside `agentCapabilities` is not where the extension lives.
+            json!({"protocolVersion": 1,
+                "agentCapabilities": {"_meta": {"steering": {"supported": true}}}}),
+        ] {
+            assert!(!negotiate(&result).expect("valid").capabilities.steering, "{result}");
+        }
+        // A capability record written before the field existed reads as off.
+        let old: AgentCapabilities =
+            serde_json::from_value(json!({"loadSession": true, "listSessions": false,
+                "resumeSession": false, "closeSession": false, "image": false,
+                "audio": false, "embeddedContext": false}))
+            .expect("old record");
+        assert!(!old.steering);
+    }
+
+    #[test]
+    fn steering_outcomes_are_exact() {
+        assert_eq!(
+            SteerOutcome::from_result(&json!({"outcome": "injected"})),
+            Some(SteerOutcome::Injected)
+        );
+        assert_eq!(
+            SteerOutcome::from_result(
+                &json!({"outcome": "promptRequired", "reason": "noRunningTurn"})
+            ),
+            Some(SteerOutcome::PromptRequired)
+        );
+        for unknown in [
+            json!({"outcome": "startedNewTurn"}),
+            json!({"outcome": "promptRequired"}),
+            json!({"outcome": "Injected"}),
+            json!({}),
+            json!(null),
+        ] {
+            assert_eq!(SteerOutcome::from_result(&unknown), None, "{unknown}");
+        }
+        let params = steering_params("s", vec![json!({"type": "text", "text": "x"})]);
+        assert_eq!(params["_meta"]["steering"]["idleBehavior"], "promptRequired");
+        assert_eq!(params["prompt"][0]["text"], "x");
     }
 
     #[test]

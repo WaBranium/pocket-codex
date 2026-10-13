@@ -38,6 +38,23 @@ pub fn pid_running(pid: u32) -> bool {
     !matches!(process_status(pid), None | Some(ProcessStatus::Zombie | ProcessStatus::Dead))
 }
 
+/// The start time of `pid` while it runs (not a zombie), for telling a
+/// process apart from a later one that reuses its id; `None` when it does
+/// not run. Only suitable for equality.
+pub fn process_start_time(pid: u32) -> Option<u64> {
+    let mut sys = System::new();
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::Some(&[Pid::from_u32(pid)]),
+        true,
+        ProcessRefreshKind::new(),
+    );
+    let process = sys.process(Pid::from_u32(pid))?;
+    if matches!(process.status(), ProcessStatus::Zombie | ProcessStatus::Dead) {
+        return None;
+    }
+    Some(process.start_time())
+}
+
 /// Return the start time only if this PID is the exact standalone pb worker.
 /// Host supervisors and Codex processes never match, even if state is stale.
 pub fn pb_worker_start_time(session: &crate::state::PbSessionInfo) -> Option<u64> {
@@ -199,6 +216,15 @@ fn matches_codex_app_server(exe_name: &str, cmd: &[String], listen_url: &str) ->
 /// shim's PID (which exits), while the native binary several layers down keeps
 /// the listener. Linux worker threads and exited processes are excluded.
 pub fn find_codex_app_server(listen_url: &str) -> Option<u32> {
+    let sys = codex_snapshot();
+    sys.processes()
+        .values()
+        .find(|p| serves(p, listen_url))
+        .map(|p| p.pid().as_u32())
+}
+
+/// Every process with its command line and executable, for matching.
+fn codex_snapshot() -> System {
     let mut sys = System::new();
     sys.refresh_processes_specifics(
         ProcessesToUpdate::All,
@@ -207,26 +233,160 @@ pub fn find_codex_app_server(listen_url: &str) -> Option<u32> {
             .with_cmd(UpdateKind::Always)
             .with_exe(UpdateKind::Always),
     );
-    sys.processes().values().find_map(|p| {
-        if p.thread_kind().is_some()
-            || matches!(p.status(), ProcessStatus::Zombie | ProcessStatus::Dead)
-        {
-            return None;
+    sys
+}
+
+/// Whether `p` is a running native `codex app-server` for `listen_url`.
+fn serves(p: &sysinfo::Process, listen_url: &str) -> bool {
+    if p.thread_kind().is_some()
+        || matches!(p.status(), ProcessStatus::Zombie | ProcessStatus::Dead)
+    {
+        return false;
+    }
+    let exe = p.exe().map(std::path::Path::to_path_buf);
+    let name = exe
+        .as_deref()
+        .unwrap_or_else(|| std::path::Path::new(p.name()))
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or_default();
+    let cmd: Vec<String> = p
+        .cmd()
+        .iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
+    matches_codex_app_server(name, &cmd, listen_url)
+}
+
+/// Most parent links followed from a candidate towards its root.
+const MAX_ANCESTRY: usize = 32;
+
+/// The native `codex app-server` serving `listen_url` that is the process
+/// `root` (started at `root_started`, see [`process_start_time`]) or one of
+/// its descendants — an npm/node shim's native binary — with its start time.
+/// A server anyone else started on the same address never matches: from
+/// one process snapshot, the candidate's parent chain must reach `root`,
+/// still running with that start time, through processes started no
+/// earlier than it (a stale parent id reused by a later process does not
+/// count). `None` when no such server runs, e.g. once a shim that exited
+/// left its child to another parent.
+///
+/// This matches arguments and ancestry only: it does not show that the
+/// candidate holds the listening socket. [`endpoint_owner_under`] does.
+pub fn find_codex_app_server_under(
+    listen_url: &str,
+    root: u32,
+    root_started: u64,
+) -> Option<(u32, u64)> {
+    let sys = codex_snapshot();
+    let root_pid = Pid::from_u32(root);
+    if sys.process(root_pid)?.start_time() != root_started {
+        return None;
+    }
+    sys.processes()
+        .values()
+        .filter(|p| serves(p, listen_url))
+        .find(|p| descends(&sys, p, root_pid, root_started))
+        .map(|p| (p.pid().as_u32(), p.start_time()))
+}
+
+/// Whether `p` is `root` (started at `root_started`) or descends from it
+/// through processes started no earlier than it.
+fn descends(sys: &System, p: &sysinfo::Process, root: Pid, root_started: u64) -> bool {
+    let mut current = p;
+    for _ in 0..MAX_ANCESTRY {
+        if current.pid() == root {
+            return true;
         }
-        let exe = p.exe().map(std::path::Path::to_path_buf);
-        let name = exe
-            .as_deref()
-            .unwrap_or_else(|| std::path::Path::new(p.name()))
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or_default();
-        let cmd: Vec<String> = p
-            .cmd()
-            .iter()
-            .map(|a| a.to_string_lossy().into_owned())
-            .collect();
-        matches_codex_app_server(name, &cmd, listen_url).then(|| p.pid().as_u32())
-    })
+        if current.start_time() < root_started {
+            return false;
+        }
+        let Some(parent) = current.parent().and_then(|id| sys.process(id)) else {
+            return false;
+        };
+        current = parent;
+    }
+    false
+}
+
+/// Who holds the listening socket of a launch's port.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EndpointOwner {
+    /// Only processes the launch started hold it; this one serves (the
+    /// native codex when several of them hold it).
+    Owned {
+        /// Its process id.
+        pid: u32,
+        /// Its start time ([`process_start_time`]).
+        started: u64,
+    },
+    /// Another process holds it (or one this launch did not start).
+    Foreign,
+    /// Nothing listens there.
+    Unbound,
+    /// It cannot be told: the launch's root no longer runs as started (an
+    /// exited shim leaves its child to another parent), the listen host is
+    /// neither an IP address nor `localhost`, or the platform's listener
+    /// source could not be read completely ([`crate::listener`]).
+    Unknown,
+}
+
+/// Who holds the listening sockets on `port` that connections to the host of
+/// `listen_url` (`ws://<host>:<port>`) reach — that address, a wildcard that
+/// applies to it, never another address or family sharing the port number
+/// ([`crate::listener`]) — relative to the process `root` (started at
+/// `root_started`) that a launch spawned: [`EndpointOwner::Owned`] only when
+/// every such holder is `root` or one of its descendants (see
+/// [`find_codex_app_server_under`] for the ancestry rule), preferring the one
+/// matching `codex app-server --listen <listen_url>`. One snapshot is taken
+/// before the listing, so a process started in between counts as foreign.
+/// This is one point-in-time observation.
+pub fn endpoint_owner_under(
+    port: u16,
+    listen_url: &str,
+    root: u32,
+    root_started: u64,
+) -> EndpointOwner {
+    let Some(requested) = listen_host(listen_url).and_then(crate::listener::requested) else {
+        return EndpointOwner::Unknown;
+    };
+    let sys = codex_snapshot();
+    let root_pid = Pid::from_u32(root);
+    if sys.process(root_pid).map(sysinfo::Process::start_time) != Some(root_started) {
+        return EndpointOwner::Unknown;
+    }
+    let tree: Vec<&sysinfo::Process> = sys
+        .processes()
+        .values()
+        .filter(|p| p.thread_kind().is_none() && descends(&sys, p, root_pid, root_started))
+        .collect();
+    let pids: Vec<u32> = tree.iter().map(|p| p.pid().as_u32()).collect();
+    let Some(listening) = crate::listener::holders(&requested, port, &pids) else {
+        return EndpointOwner::Unknown;
+    };
+    if listening.is_empty() {
+        return EndpointOwner::Unbound;
+    }
+    if listening.unattributed || listening.pids.iter().any(|pid| !pids.contains(pid)) {
+        return EndpointOwner::Foreign;
+    }
+    let holders = || {
+        tree.iter()
+            .filter(|p| listening.pids.contains(&p.pid().as_u32()))
+    };
+    holders()
+        .find(|p| serves(p, listen_url))
+        .or_else(|| holders().next())
+        .map_or(EndpointOwner::Unknown, |p| EndpointOwner::Owned {
+            pid: p.pid().as_u32(),
+            started: p.start_time(),
+        })
+}
+
+/// The host of a `ws://<host>:<port>[/...]` listen URL.
+fn listen_host(listen_url: &str) -> Option<&str> {
+    let authority = listen_url.strip_prefix("ws://")?.split('/').next()?;
+    Some(authority.rsplit_once(':')?.0)
 }
 
 /// Send `SIGTERM` to a process id, logging but not surfacing errors.
@@ -442,6 +602,248 @@ mod tests {
         assert!(
             !matches_codex_app_server("codex", &cmd(&["codex", "exec", "--listen", url]), url,)
         );
+    }
+
+    /// A process named `codex` serving `url` (a copy of bash looping), as
+    /// the child of `/bin/sh` (a shim staying in front of it) or directly.
+    #[cfg(unix)]
+    fn fake_codex(codex: &std::path::Path, url: &str, shim: bool) -> std::process::Child {
+        let serve = format!(
+            "'{}' -c 'while :; do sleep 1; done' app-server --listen {url}",
+            codex.display()
+        );
+        let mut command = if shim {
+            let mut sh = std::process::Command::new("/bin/sh");
+            // The trailing `:` keeps the shell in front instead of exec'ing.
+            sh.args(["-c", &format!("{serve}; :")]);
+            sh
+        } else {
+            let mut direct = std::process::Command::new(codex);
+            direct.args(["-c", "while :; do sleep 1; done", "app-server", "--listen", url]);
+            direct
+        };
+        command.spawn().expect("spawn")
+    }
+
+    /// Only a server descending from the process a launch spawned is
+    /// attributed to it: the same URL served by a process someone else
+    /// started never is, nor is a root whose id now names another process.
+    #[cfg(unix)]
+    #[test]
+    fn only_a_descendant_of_the_spawned_process_is_attributed() {
+        let dir = std::env::temp_dir().join(format!("pcx-attribution-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let codex = dir.join("codex");
+        std::fs::copy("/bin/bash", &codex).expect("a process named codex");
+        let url = "ws://127.0.0.1:9";
+        let mut foreign = fake_codex(&codex, url, false);
+        let mut shim = fake_codex(&codex, url, true);
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let root_started = loop {
+            if let Some(started) = process_start_time(shim.id()) {
+                break started;
+            }
+            assert!(std::time::Instant::now() < deadline, "the shim started");
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        let ours = loop {
+            if let Some(found) = find_codex_app_server_under(url, shim.id(), root_started) {
+                break found;
+            }
+            assert!(std::time::Instant::now() < deadline, "the shim's server started");
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        assert_ne!(ours.0, foreign.id(), "the foreign server is never ours");
+        assert_ne!(ours.0, shim.id(), "the shim itself is not the server");
+        // The foreign server is its own root.
+        let foreign_started = process_start_time(foreign.id()).expect("foreign runs");
+        assert_eq!(
+            find_codex_app_server_under(url, foreign.id(), foreign_started).map(|f| f.0),
+            Some(foreign.id())
+        );
+        // Another start time is another process under the same id.
+        assert_eq!(find_codex_app_server_under(url, shim.id(), root_started + 1), None);
+        // A root that started nothing serving the URL is attributed nothing.
+        let me = std::process::id();
+        let mine = process_start_time(me).expect("this process runs");
+        assert_eq!(find_codex_app_server_under("ws://127.0.0.1:1", me, mine), None);
+        for child in [&mut foreign, &mut shim] {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        force_kill(ours.0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Started by [`listening_child`] only: listen on the port it names,
+    /// then wait to be stopped.
+    #[test]
+    #[ignore = "a fixture process the endpoint tests start"]
+    fn listen_fixture() {
+        let Some(port) = std::env::var("PCX_TEST_LISTEN")
+            .ok()
+            .and_then(|p| p.parse::<u16>().ok())
+        else {
+            return;
+        };
+        let _listener =
+            std::net::TcpListener::bind(("127.0.0.1", port)).expect("bind the fixture port");
+        std::thread::sleep(Duration::from_secs(60));
+    }
+
+    fn free_port() -> u16 {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        listener.local_addr().expect("addr").port()
+    }
+
+    /// This test binary listening on `port` (in [`listen_fixture`]), run
+    /// directly or behind `/bin/sh` that stays in front of it.
+    #[cfg(unix)]
+    fn listening_child(port: u16, shim: bool) -> std::process::Child {
+        let exe = std::env::current_exe().expect("the test binary");
+        let args = ["--exact", "process::tests::listen_fixture", "--ignored", "--test-threads=1"];
+        let mut command = if shim {
+            let mut sh = std::process::Command::new("/bin/sh");
+            // The trailing `:` keeps the shell in front instead of exec'ing.
+            sh.args(["-c", "\"$0\" \"$@\"; :"]).arg(&exe).args(args);
+            sh
+        } else {
+            let mut direct = std::process::Command::new(&exe);
+            direct.args(args);
+            direct
+        };
+        command
+            .env("PCX_TEST_LISTEN", port.to_string())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("spawn the fixture")
+    }
+
+    fn started(pid: u32) -> u64 {
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Some(started) = process_start_time(pid) {
+                return started;
+            }
+            assert!(std::time::Instant::now() < deadline, "{pid} started");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    fn until_listening(port: u16) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        while !tcp_port_open("127.0.0.1", port) {
+            assert!(std::time::Instant::now() < deadline, "the fixture listens on {port}");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
+    /// The gap ancestry alone leaves: a live, matching codex this launch
+    /// started that does not hold the socket, while someone else does. The
+    /// argument match attributes it; the endpoint check does not.
+    #[cfg(unix)]
+    #[test]
+    fn a_matching_child_that_does_not_hold_the_socket_does_not_own_the_endpoint() {
+        let dir = std::env::temp_dir().join(format!("pcx-endpoint-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let codex = dir.join("codex");
+        std::fs::copy("/bin/bash", &codex).expect("a process named codex");
+        let port = free_port();
+        let url = format!("ws://127.0.0.1:{port}");
+        // Someone else's server: this test process, not in the child's tree.
+        let foreign = std::net::TcpListener::bind(("127.0.0.1", port)).expect("bind");
+        let mut ours = fake_codex(&codex, &url, false);
+        let ours_started = started(ours.id());
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while find_codex_app_server_under(&url, ours.id(), ours_started).is_none() {
+            assert!(std::time::Instant::now() < deadline, "the matching child runs");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(
+            endpoint_owner_under(port, &url, ours.id(), ours_started),
+            EndpointOwner::Foreign
+        );
+        drop(foreign);
+        assert_eq!(
+            endpoint_owner_under(port, &url, ours.id(), ours_started),
+            EndpointOwner::Unbound
+        );
+        let _ = ours.kill();
+        let _ = ours.wait();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The spawned process holding the socket owns the endpoint, whatever
+    /// listens at another address or family on the same port; so does the
+    /// child of a shim that stays in front of it. Once that shim is gone,
+    /// nothing can be attributed any more.
+    #[cfg(unix)]
+    #[test]
+    fn the_process_a_launch_started_that_holds_the_socket_owns_the_endpoint() {
+        let port = free_port();
+        let url = format!("ws://127.0.0.1:{port}");
+        let mut direct = listening_child(port, false);
+        let direct_started = started(direct.id());
+        until_listening(port);
+        assert_eq!(
+            endpoint_owner_under(port, &url, direct.id(), direct_started),
+            EndpointOwner::Owned {
+                pid: direct.id(),
+                started: direct_started,
+            }
+        );
+        assert_eq!(
+            endpoint_owner_under(port, &url, direct.id(), direct_started + 1),
+            EndpointOwner::Unknown,
+            "another start time is another process"
+        );
+        // Someone else's listener on the same port number at another
+        // address and family leaves the endpoint ours; it is what a request
+        // for its own address finds, and `localhost` reaches both. The IPv4
+        // wildcard request does not reach a specific IPv6 listener.
+        let other = std::net::TcpListener::bind(("::1", port)).expect("the IPv6 loopback");
+        let owned = EndpointOwner::Owned {
+            pid: direct.id(),
+            started: direct_started,
+        };
+        let at = |url: &str| endpoint_owner_under(port, url, direct.id(), direct_started);
+        assert_eq!(at(&url), owned, "a listener elsewhere is not this endpoint's");
+        assert_eq!(at(&format!("ws://0.0.0.0:{port}")), owned);
+        for foreign in ["[::1]", "localhost", "[::]"] {
+            let foreign = format!("ws://{foreign}:{port}");
+            assert_eq!(at(&foreign), EndpointOwner::Foreign, "{foreign}");
+        }
+        drop(other);
+        assert_eq!(at(&format!("ws://[::1]:{port}")), EndpointOwner::Unbound);
+        assert_eq!(
+            at(&format!("ws://codex.example:{port}")),
+            EndpointOwner::Unknown,
+            "a name's address is not known"
+        );
+        let _ = direct.kill();
+        let _ = direct.wait();
+
+        let port = free_port();
+        let url = format!("ws://127.0.0.1:{port}");
+        let mut shim = listening_child(port, true);
+        let shim_started = started(shim.id());
+        until_listening(port);
+        let EndpointOwner::Owned {
+            pid: server, ..
+        } = endpoint_owner_under(port, &url, shim.id(), shim_started)
+        else {
+            panic!("the shim's child holds the socket");
+        };
+        assert_ne!(server, shim.id(), "the shim itself does not listen");
+        let _ = shim.kill();
+        let _ = shim.wait();
+        assert_eq!(
+            endpoint_owner_under(port, &url, shim.id(), shim_started),
+            EndpointOwner::Unknown,
+            "an exited shim's child is not attributed"
+        );
+        force_kill(server);
     }
 
     #[test]

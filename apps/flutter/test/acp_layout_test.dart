@@ -116,10 +116,7 @@ Future<void> _openDialog(
       Builder(
         builder: (context) => Scaffold(
           body: TextButton(
-            onPressed: () => showDialog<void>(
-              context: context,
-              builder: (_) => LocalHostDialog(existing: existing),
-            ),
+            onPressed: () => showHostingEditor(context, existing: existing),
             child: const Text('open'),
           ),
         ),

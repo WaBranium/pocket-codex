@@ -4,9 +4,10 @@ Pocket-Codex can host any agent that speaks the
 [Agent Client Protocol](https://agentclientprotocol.com) (ACP) v1 over stdio.
 An agent is configured as a program plus an argument list; it is never run
 through a shell. OpenCode (`opencode acp`) is the first preset; Claude is a
-second preset that runs the separately installed
+second preset that runs the
 [`@agentclientprotocol/claude-agent-acp`](https://www.npmjs.com/package/@agentclientprotocol/claude-agent-acp)
-adapter (`claude-agent-acp`, no arguments). Codex
+adapter (`claude-agent-acp`, no arguments), found on this computer or
+prepared on request (see [Claude](#claude)). Codex
 app-server stays the native, first-class engine. OpenCode uses the same ACP
 engine, host lifecycle and negotiated UI as other ACP agents.
 
@@ -168,6 +169,79 @@ it cannot leave a consumed request unresolved on a live generation.
 
 ### Turns and permissions
 
+- An agent that advertises top-level `_meta.steering.supported: true` in
+  its `initialize` answer (the Claude adapter 0.89.1 does) accepts
+  supplements: `POST /acp/v1/sessions/steer {sessionId, turnId?, text,
+  images}` sends `_session/steering {sessionId, prompt, _meta: {steering:
+  {idleBehavior: "promptRequired"}}}` for exactly the running turn (and
+  `turnId` only, when given). It runs in the dispatch lane under the control
+  budget, after the same size, image-capability and identity checks as a
+  prompt, and re-checks under the lane that the turn is still the one meant
+  and was dispatched (`409 turn_changed` otherwise; nothing was sent). The
+  answer is `{"outcome": "injected", "turnId": …}` (the host folds the input
+  into that turn as a user message, `<turn>:s<n>`, and streams a
+  `supplement` event so every controller folds the same item) or
+  `{"outcome": "promptRequired"}` (no turn ran; nothing was consumed). Any
+  other answer — an `injected` without the expected turn id, one arriving
+  after the bridge's connection or host view changed, a lost connection or
+  no answer in time — leaves the outcome unknown: it is reported and never
+  retried or turned into a prompt. The UI offers **Supplement** only for
+  such agents; for others it shows the option as unavailable and messages
+  queue for the next turn. Before changing anything the screen checks that
+  the answer still owns its input: the same service, host connection and
+  generation, conversation view, draft and request (leaving the
+  conversation drops the request, so returning to the same session does
+  not revive it). The host connection is the screen's link epoch, which
+  moves when the event stream closes or the host is lost, replaced or
+  reports a new generation — not when a reload re-reads the agent's
+  options. An answer that no longer owns its input leaves the draft, its
+  attachments, the queue and any newer request's state (mode, notice,
+  Retry, composer lock) untouched and sends nothing. Only when the same
+  conversation shows the same draft and nothing newer owns it does a
+  notice appear; after an `injected` one a display-only refresh shows what
+  arrived, keeping the notice, settling no admission and draining nothing.
+  An owned `injected` answer takes exactly the sent snapshot out
+  of the draft (edits and attachments added since stay); an owned
+  `promptRequired` answer turns the exactly unchanged input (same text,
+  same attachments) into the head of the queue, sent once that turn's end
+  is confirmed, while changed input stays in the composer. If the history
+  was reloaded since the request, the reloaded host history shows the input
+  rather than a local copy. Cancelling and re-prompting is not steering and
+  is never used for it.
+- The queue sends a message only once the host admits it: it stays first
+  in line, with its text and attachments, while it is being sent and after
+  any failure, and the queue pauses. Only a failure before `turn/start` was
+  sent or one of the host's own pre-admission refusals (not running, host
+  changed, unknown session, busy, loading, capacity, limit, invalid
+  request) is definite: Retry sends it again. Any other failure is
+  uncertain: the entry is marked and nothing resolves it by itself. The
+  prompt carries no request identity, and history is bounded and shared
+  with other writers, so neither a matching nor a missing history entry
+  proves what happened; it is sent again only by the user's explicit
+  Retry (after a notice that it may already have arrived), and it can be
+  edited or removed; a reload, reconnect or reopening that clears its
+  notice offers the Retry again. Delivery is therefore at most once
+  without user action, not exactly once. A send belongs to the service and
+  connection it began on through every step (model list, session start,
+  dispatch, answer): nothing is dispatched once the connection moved, and
+  an answer arriving after that adopts nothing — an ordinary message goes
+  back to its draft with the reason (not sent, or unknown whether it
+  arrived), a queued one stays queued as refused or uncertain. A session
+  started for a draft is still adopted by it after the user moved on.
+  After an admitted prompt the queue waits for its `turn_started`; if none
+  arrives within 20 s the conversation is reloaded, and only an
+  authoritative history — read after the admission, for the same
+  conversation, from the current connection, not overtaken by live turn
+  events — settles the admission (running: the turn is shown; idle: it
+  ended unseen and the queue continues). A failed, cached, display-only or
+  obsolete reload, or one answered after its connection was lost or
+  replaced, settles nothing; the reconciliation is retried and a
+  reconnect's own reload answers. An older turn's end arriving after a
+  newer start leaves the newer turn running.
+- When a turn ends the host re-announces the session state, and the bridge
+  also clears a cached `runningTurnId` that still names the ended turn, so
+  controls gated on a running turn (agent options, **Set up agent**) are
+  usable again in the same session.
 - `session/prompt` is acknowledged immediately with a host-assigned turn id;
   the agent's final response is awaited in the background and ends the turn
   exactly once. `end_turn` maps to *completed*, `cancelled` to
@@ -367,9 +441,79 @@ CC0-1.0; OpenCode from its v1.18.35 favicon, MIT — full notices in
 `apps/flutter/lib/src/widgets/agent_icon.NOTICE.txt`). They are chosen by the
 host's reported profile id (`opencode`, `claude`), never by the instance name
 the user typed. Any other agent shows a letter tile. A remote host's mark is
-known once connected (its profile is part of the host info). The Claude
-preset launches the separately installed `claude-agent-acp` adapter; it has
-not been run live with Pocket-Codex.
+known once connected (its profile is part of the host info).
+
+### Claude
+
+The Claude preset (`claude-agent-acp`, profile `claude`) runs the ACP
+adapter, which needs Node.js 22 or newer and drives the native `claude` CLI
+itself; the native CLI never speaks ACP on stdio and is never launched as
+the agent. For the preset's own bare program the host looks, first match
+wins, for:
+
+1. **The adapter**: the child `PATH`, `~/.npm-global/bin`, `~/.local/bin`,
+   `~/.bun/bin`, `~/.volta/bin`, pnpm and Yarn global directories,
+   `/opt/homebrew/bin`, `/usr/local/bin`, Node.js version managers (nvm, fnm,
+   asdf, mise, Volta; newest version first), then this app's prepared copy,
+   used only with its current completion marker and a consistent
+   installation (the same check a preparation passes).
+2. **Node.js >= 22**: the one beside the adapter, the child `PATH`,
+   Homebrew and `/usr/local` (including `node@22`), then version managers
+   newest first, each confirmed with `node --version` (directories named for
+   an older version are not run). The probe runs in its own process group
+   with a bound on its whole lifetime and on its output; a silent leader or
+   a descendant holding the output is killed with the group, and malformed
+   or oversized output is not a version. A preparation needs npm beside a
+   compatible Node.js; when the first compatible one has none, a later one
+   with npm runs it. An adapter installed as the
+   package's script runs as `node <script> <argv…>`, so the user's default
+   Node.js is not changed; a wrapper or shim runs as found.
+3. **The native CLI**: an inherited `CLAUDE_CODE_EXECUTABLE` is kept;
+   otherwise `claude` on the child `PATH`, in `~/.local/bin`,
+   `~/.claude/local`, `/opt/homebrew/bin` or `/usr/local/bin` is passed in
+   the child's `CLAUDE_CODE_EXECUTABLE` only. Without one the adapter uses
+   the CLI bundled with its SDK.
+
+An explicit program path, changed arguments under another profile, or any
+other program is launched exactly as configured. The session record stays
+keyed by the adapter executable and the spec's arguments. Authentication
+stays Claude's own (its login or environment, inherited by the child); the
+hosting dialog shows only paths and versions.
+
+When the adapter is missing and a Node.js 22+ with its npm was found, the
+dialog says that **Start** will prepare `@agentclientprotocol/claude-agent-acp@0.89.1`;
+picking the preset or restoring a host never downloads anything. Start then
+runs that Node.js's npm (`install --prefix <stage> --ignore-scripts`, npm's
+own cache under the same directory, the Node.js directory first on the
+child's `PATH` only) into a new staging directory under
+`<state>/acp-runtime/claude-agent-acp`, shows its progress, and can be
+cancelled (which stops only that npm process group and removes the stage).
+The result is accepted only when the lockfile records the package at the
+pinned version with the expected registry integrity, the installed manifest
+agrees and the script exists (a consistency check of what npm recorded, not
+a re-hash of the files); it is then marked and renamed into place in one
+step. The same check guards reuse of a prepared copy. Cancellation is
+honoured before npm starts and again before publishing; a cancel after the
+rename is too late and the copy stays prepared. Detection and preparation
+run off the setup state's lock, so reading the state or cancelling never
+waits for a probe. Start prepares only from an open dialog, and only after
+it announced the download for the same agent and the environment found
+now; a changed environment is announced again first.
+Overlapping Starts join one preparation; an incomplete directory in the way
+is moved aside, not deleted. A failure is shown with the next Start as the
+retry. Nothing global, no npm or shell configuration and no default Node.js
+is changed. Install scripts are skipped; the adapter's published package is
+assumed not to need them.
+
+On one Mac the Claude preset was run live with Pocket-Codex: with no
+adapter present, its first Start prepared exactly
+`@agentclientprotocol/claude-agent-acp@0.89.1` into a confined app cache
+beside a detected Node.js 22.11.0 and the native CLI, with no global
+install. The real adapter answered prompts, negotiated steering, took a
+supplement as `injected` into the running turn, and, when idle, answered
+`promptRequired` with exactly one queued user turn. The full Rust and Flutter
+suites, including the tests for the 2026-10-12 corrections, pass. Other
+platforms and an interactive OAuth sign-in were not exercised.
 
 The argv is stored in plain text in the App's preferences and is visible in
 the dialog (the host's session store keeps only the keyed digest). **Do not
@@ -513,6 +657,39 @@ them after the config hook, so a listing that needs one fails with `http-401`
 and says no key was found in the config or environment), and gateways that do
 not serve a `/models` listing. Other ACP agents get no catalog.
 
+### Per-host model service
+
+A host may save a custom provider for the OpenCode preset (Responses,
+Anthropic Messages or Chat Completions, as a per-instance provider in the
+config layer whose `env` names the child-only `POCKET_CODEX_PROVIDER_KEY`,
+with a required default model) or the Claude preset (Anthropic Messages, with
+a required key, as `ANTHROPIC_*` environment and session settings). With the
+OpenCode catalog plugin the provider layer is merged into the same
+configuration. Other ACP agents launch with their own configuration only. The
+record's authority generation (never the key) joins the session source key,
+so a changed provider inherits no session history. A running agent's program
+and arguments, including a generic agent without a preset, can be saved from
+what it runs; they and the provider take effect only on an explicit,
+confirmed restart, whose rollback relaunches the exact launch the agent ran.
+The OpenCode provider id includes the random authority generation, which
+makes an accidental match unlikely but does not stop another layer or a
+stored login from naming it. The catalog plugin's `config` hook, which
+OpenCode runs before it builds providers, puts the route back per project
+(default, small and agent models, `enabled_providers` set to exactly that
+provider, `disabled_providers`, and the provider's exact definition), pins
+the supplied key in memory as `options.apiKey` — OpenCode's SDK options take
+it before the `provider.key` a login stored for the same id with `opencode
+auth login` sets (pinned `provider.ts`, "load apikeys" and `resolveSDK`) —
+and reports what it reset. A route whose key is missing in the agent is
+reported `refused` and leaves no usable provider. The key is never written
+into the layer, the report or the arguments. Another plugin's own provider
+or auth loader for the same id, and a later plugin's `config` hook, stay
+outside it; the project directory the report names is the plugin input's
+`directory`, which the pinned public source (no plugin loader) does not
+verify. See
+[hosting configuration](hosting-configuration.md), including its evidence
+gaps.
+
 ## Accounts and older backends
 
 ACP hosting works in self-host mode with a relay key and in hosted-account
@@ -569,17 +746,21 @@ only show that the protocol layer is not tied to one agent; they are not
 real agents. It is a Cargo example: `cargo test` (and
 `cargo test --workspace`) builds it next to the test binaries, and it is
 never installed or shipped. The integration tests in
-`crates/pocket-codex-host-svc/tests/acp_host.rs` run it as a real
+`crates/pocket-codex-host-svc/tests/acp_host/` run it as a real
 subprocess and fail with an explicit message, rather than skipping, when it
 was not built (for example `cargo test --test acp_host` alone; add
 `--examples`); so do the host unit tests that need it (the cancel/turn race
 and the delivery budgets against an agent that stops reading, in
-`src/acp/host.rs`). Bridge recovery, refused-stream health and replacement
+`src/acp/host/tests.rs`). Bridge recovery, refused-stream health and replacement
 history are tested with a scripted gateway over real loopback HTTP; the
 resolution race with a real resolver against fixture configurations; tunnel
 ownership with real loopback listeners; quit and publication ownership with
 the production tables and agents that are never launched. Flutter tests are
-in `apps/flutter/test/acp_*_test.dart` and `attachment_gate_test.dart`.
+in `apps/flutter/test/acp_*_test.dart`, `composer_recovery_test.dart` and
+`attachment_gate_test.dart`. The mock agent's `--steering MODE` flag
+advertises steering (`on`) or answers it wrongly (`odd`) or never
+(`silent`); the Claude adapter's detection and preparation are tested
+against fixture directories and a stand-in `node`/npm script.
 
 The automated tests of owned hosting and its process handling (process
 groups, `waitid` exit detection) have been run on macOS; other Unix desktops

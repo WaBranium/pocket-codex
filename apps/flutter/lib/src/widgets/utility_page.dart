@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -500,100 +501,107 @@ class UtilityPageTitleBar extends ConsumerWidget
     final scheme = Theme.of(context).colorScheme;
     final compact = MediaQuery.sizeOf(context).width < 620;
     final primary = primaryAction;
+    Widget compactTitle() => Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          key: const Key('utility-chat-origin'),
+          tooltip: l10n.utilityChat,
+          onPressed: () => _openUtilityRoute(context, route, '/'),
+          icon: const Icon(Icons.chevron_left_rounded, size: 20),
+          constraints: const BoxConstraints.tightFor(width: 30, height: 30),
+          padding: EdgeInsets.zero,
+          style: IconButton.styleFrom(
+            foregroundColor: scheme.onSurfaceVariant,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(kControlRadius),
+            ),
+          ),
+        ),
+        const SizedBox(width: 7),
+        // Compact drops the parent's label but keeps its tap target, so
+        // a detail page still has a way up when the bar can't spell the
+        // chain out.
+        if (parent != null) ...[
+          _BreadcrumbLink(
+            label: parent!.title,
+            onTap: () => _openParent(context, parent!),
+            compact: true,
+          ),
+          _breadcrumbSeparator(scheme),
+        ],
+        Flexible(
+          child: Text(
+            title,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
+    );
+    Widget fullTitle() => Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // The way back to the conversation: a quiet back-chevron text
+        // button, the same weight as the breadcrumb it heads.
+        TextButton.icon(
+          key: const Key('utility-chat-origin'),
+          onPressed: () => _openUtilityRoute(context, route, '/'),
+          icon: const Icon(Icons.chevron_left_rounded, size: 20),
+          label: Text(l10n.utilityChat),
+          style: TextButton.styleFrom(
+            foregroundColor: scheme.onSurfaceVariant,
+            // From the theme, so the CJK fallback chain comes along.
+            textStyle: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w400),
+            padding: const EdgeInsets.fromLTRB(4, 6, 10, 6),
+            minimumSize: const Size(0, 30),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(kControlRadius),
+            ),
+          ),
+        ),
+        _breadcrumbSeparator(scheme),
+        if (parent != null) ...[
+          _BreadcrumbLink(
+            label: parent!.title,
+            onTap: () => _openParent(context, parent!),
+          ),
+          _breadcrumbSeparator(scheme),
+        ],
+        Flexible(
+          child: Text(
+            title,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
+    );
     return WindowTitleBar(
       automaticallyImplyLeading: false,
       // A breadcrumb reads from the leading edge, so it is not centred even on
       // macOS; it starts clear of the traffic lights instead.
       centerTitle: false,
       backgroundColor: surfaceBackground(scheme),
+      // The full breadcrumb only where the title slot itself holds it at its
+      // narrowest: the slot is what the bar leaves after its actions, which
+      // the window width alone does not tell (large text, many actions).
       title: compact
-          ? Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  key: const Key('utility-chat-origin'),
-                  tooltip: l10n.utilityChat,
-                  onPressed: () => _openUtilityRoute(context, route, '/'),
-                  icon: const Icon(Icons.chevron_left_rounded, size: 20),
-                  constraints: const BoxConstraints.tightFor(
-                    width: 30,
-                    height: 30,
-                  ),
-                  padding: EdgeInsets.zero,
-                  style: IconButton.styleFrom(
-                    foregroundColor: scheme.onSurfaceVariant,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(kControlRadius),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 7),
-                // Compact drops the parent's label but keeps its tap target, so
-                // a detail page still has a way up when the bar can't spell the
-                // chain out.
-                if (parent != null) ...[
-                  _BreadcrumbLink(
-                    label: parent!.title,
-                    onTap: () => _openParent(context, parent!),
-                    compact: true,
-                  ),
-                  _breadcrumbSeparator(scheme),
-                ],
-                Flexible(
-                  child: Text(
-                    title,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            )
-          : Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // The way back to the conversation: a quiet back-chevron text
-                // button, the same weight as the breadcrumb it heads.
-                TextButton.icon(
-                  key: const Key('utility-chat-origin'),
-                  onPressed: () => _openUtilityRoute(context, route, '/'),
-                  icon: const Icon(Icons.chevron_left_rounded, size: 20),
-                  label: Text(l10n.utilityChat),
-                  style: TextButton.styleFrom(
-                    foregroundColor: scheme.onSurfaceVariant,
-                    // From the theme, so the CJK fallback chain comes along.
-                    textStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w400,
-                    ),
-                    padding: const EdgeInsets.fromLTRB(4, 6, 10, 6),
-                    minimumSize: const Size(0, 30),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(kControlRadius),
-                    ),
-                  ),
-                ),
-                _breadcrumbSeparator(scheme),
-                if (parent != null) ...[
-                  _BreadcrumbLink(
-                    label: parent!.title,
-                    onTap: () => _openParent(context, parent!),
-                  ),
-                  _breadcrumbSeparator(scheme),
-                ],
-                Flexible(
-                  child: Text(
-                    title,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
+          ? compactTitle()
+          : LayoutBuilder(
+              builder: (context, slot) =>
+                  slot.maxWidth >= _titleRowMinimum(context, false)
+                  ? fullTitle()
+                  : compactTitle(),
             ),
       actions: [
         ...actions,
@@ -641,14 +649,15 @@ const _themeValue = '__theme__';
 /// can't go through `_openUtilityRoute`: a detail page reports its parent's
 /// section as its own `route` so the page menu highlights correctly, so that
 /// helper would see target == current and do nothing.
-void _openParent(BuildContext context, UtilityParent parent) {
-  final router = GoRouter.of(context);
-  if (router.canPop()) {
-    router.pop();
-    return;
-  }
-  context.go(parent.route);
-}
+void _openParent(BuildContext context, UtilityParent parent) =>
+    UtilityLeaveGuard.leave(context, () {
+      final router = GoRouter.of(context);
+      if (router.canPop()) {
+        router.pop();
+        return;
+      }
+      context.go(parent.route);
+    });
 
 /// The `/` between breadcrumb segments — ink at 28%, well under the labels it
 /// divides so the chain reads as one line rather than three words.
@@ -820,12 +829,58 @@ class _PageMenuRow extends StatelessWidget {
   }
 }
 
+/// Lets a page with unsaved edits decide before the shared navigation (page
+/// menu, breadcrumbs, origin button and page shortcuts) leaves it. Those go
+/// through the router (`go`, `pushReplacement`), which a `PopScope` does not
+/// see; the page's own back gesture stays with its `PopScope`.
+class UtilityLeaveGuard extends InheritedWidget {
+  /// Creates a guard; [confirm] answers whether leaving may proceed.
+  const UtilityLeaveGuard({
+    super.key,
+    required this.confirm,
+    required super.child,
+  });
+
+  /// Asked before navigating away; `true` lets the navigation proceed.
+  final Future<bool> Function() confirm;
+
+  /// Run [navigate] once the page around [context] may be left: at once
+  /// without a guard, else after its [confirm] agreed while still mounted.
+  static void leave(BuildContext context, VoidCallback navigate) {
+    final guard = context.getInheritedWidgetOfExactType<UtilityLeaveGuard>();
+    if (guard == null) {
+      navigate();
+      return;
+    }
+    unawaited(
+      guard.confirm().then((ok) {
+        if (ok && context.mounted) navigate();
+      }),
+    );
+  }
+
+  @override
+  bool updateShouldNotify(UtilityLeaveGuard oldWidget) =>
+      confirm != oldWidget.confirm;
+}
+
 void _openUtilityRoute(
   BuildContext context,
   String currentRoute,
   String targetRoute,
 ) {
   if (targetRoute == currentRoute) return;
+  UtilityLeaveGuard.leave(
+    context,
+    () => _navigateUtility(context, currentRoute, targetRoute),
+  );
+}
+
+void _navigateUtility(
+  BuildContext context,
+  String currentRoute,
+  String targetRoute,
+) {
   if (targetRoute == '/') {
     // The root route keeps a stable page key when it already sits below this
     // page, so `go` removes every utility/detail route above it without

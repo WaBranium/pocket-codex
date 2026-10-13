@@ -15,7 +15,11 @@
 //! - `--init-delay-ms N` delays the `initialize` answer;
 //! - `--pid-file PATH` writes the agent's process id to `PATH` at start;
 //! - `--clear-title` makes `session/load` clear the title (`title: null`)
-//!   instead of naming the session.
+//!   instead of naming the session;
+//! - `--steering MODE` advertises the `_session/steering` extension in the
+//!   top-level `_meta`: `ok` injects into a running prompt (and streams
+//!   `steered:<text>`) or answers `promptRequired` when none runs, `odd`
+//!   answers `startedNewTurn`, `silent` never answers.
 //!
 //! The agent title echoes the raw argument vector so tests can verify it
 //! arrived verbatim.
@@ -27,13 +31,14 @@
 //! `count` reports how many prompts reached the agent; `fs` asks the client
 //! to read a file and reports the error code it got; `crash` exits
 //! immediately; `orphan` leaves a child holding the output open and exits;
-//! `linger` ends by itself after 400 ms whatever happens; `probe` waits
+//! `linger` ends by itself after 400 ms whatever happens; `settle` stops
+//! accepting steering at once but answers only after 400 ms; `probe` waits
 //! 300 ms and reports whether a cancel reached it (`probe:cancelled` /
 //! `probe:clean`); `deaf` asks for a permission and then never reads its
 //! input again (the process stays alive), so the client's writes stall.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     io::Write,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -60,6 +65,9 @@ struct Agent {
     fail_open: bool,
     init_delay: Duration,
     clear_title: bool,
+    steering: Option<String>,
+    /// Sessions whose prompt is still unanswered.
+    running: Arc<Mutex<HashSet<String>>>,
     next_id: Arc<Mutex<i64>>,
     waiting: Arc<Mutex<HashMap<i64, oneshot::Sender<Value>>>>,
     cancels: Arc<Mutex<HashMap<String, Arc<Notify>>>>,
@@ -171,7 +179,11 @@ impl Agent {
                             "version": "0.0.1",
                         },
                         "authMethods": [{"id": "agent-login", "name": "Agent login"}],
-                        "_meta": {"ignored": true},
+                        "_meta": if self.steering.is_some() {
+                            json!({"ignored": true, "steering": {"supported": true}})
+                        } else {
+                            json!({"ignored": true})
+                        },
                     }),
                 );
             },
@@ -233,9 +245,31 @@ impl Agent {
             },
             "session/prompt" => {
                 let cancelled = cancelled.unwrap_or_else(|| Arc::new(Notify::new()));
+                let session = params["sessionId"].as_str().unwrap_or("").to_string();
+                let running = self.running.clone();
                 self.prompt(id, params, cancelled).await;
+                running.lock().expect("lock").remove(&session);
             },
+            "_session/steering" if self.steering.is_some() => self.steer(&id, &params),
             _ => fail(&id, -32601, "unknown method"),
+        }
+    }
+
+    fn steer(&self, id: &Value, params: &Value) {
+        let session = params["sessionId"].as_str().unwrap_or("");
+        if params["_meta"]["steering"]["idleBehavior"] != "promptRequired" {
+            fail(id, -32602, "unsupported steering idleBehavior");
+            return;
+        }
+        match self.steering.as_deref() {
+            Some("silent") => {},
+            Some("odd") => respond(id, json!({"outcome": "startedNewTurn"})),
+            _ if self.running.lock().expect("lock").contains(session) => {
+                let added = params["prompt"][0]["text"].as_str().unwrap_or("");
+                update(session, text("agent_message_chunk", &format!("steered:{added}")));
+                respond(id, json!({"outcome": "injected"}));
+            },
+            _ => respond(id, json!({"outcome": "promptRequired", "reason": "noRunningTurn"})),
         }
     }
 
@@ -346,6 +380,13 @@ impl Agent {
                 update(&session, text("agent_message_chunk", "tail"));
                 respond(&id, json!({"stopReason": "cancelled"}));
             },
+            "settle" => {
+                // The agent considers the turn over (a steer now finds none)
+                // before the host has its answer.
+                self.running.lock().expect("lock").remove(&session);
+                tokio::time::sleep(Duration::from_millis(400)).await;
+                respond(&id, json!({"stopReason": "end_turn"}));
+            },
             "linger" => {
                 tokio::time::sleep(Duration::from_millis(400)).await;
                 update(&session, text("agent_message_chunk", "lingered"));
@@ -412,6 +453,8 @@ async fn main() {
                 .unwrap_or(0),
         ),
         clear_title: has("--clear-title"),
+        steering: flag("--steering"),
+        running: Arc::new(Mutex::new(HashSet::new())),
         args: args.clone(),
         next_id: Arc::new(Mutex::new(0)),
         waiting: Arc::new(Mutex::new(HashMap::new())),
@@ -433,6 +476,11 @@ async fn main() {
                 let cancelled = (method == "session/prompt").then(|| {
                     agent.prompts.fetch_add(1, Ordering::SeqCst);
                     let session = frame["params"]["sessionId"].as_str().unwrap_or("");
+                    agent
+                        .running
+                        .lock()
+                        .expect("lock")
+                        .insert(session.to_string());
                     let signal = Arc::new(Notify::new());
                     agent
                         .cancels

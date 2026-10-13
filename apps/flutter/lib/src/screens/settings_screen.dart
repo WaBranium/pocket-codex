@@ -7,6 +7,7 @@ import 'package:pocket_codex/src/bridge_api.dart';
 import 'package:pocket_codex/src/desktop_theme.dart';
 import 'package:pocket_codex/src/error_format.dart';
 import 'package:pocket_codex/src/fonts.dart';
+import 'package:pocket_codex/src/hosting/host_picker.dart';
 import 'package:pocket_codex/src/providers.dart';
 import 'package:pocket_codex/src/motion.dart';
 import 'package:pocket_codex/src/theme.dart';
@@ -157,6 +158,16 @@ class _SettingsState extends ConsumerState<SettingsScreen> {
               trailing: const Icon(Icons.brightness_6_outlined),
               onTap: _pickAppearance,
             ),
+            // Hosting runs on desktop only, as on the manage page.
+            if (isDesktop)
+              ListTile(
+                key: const Key('settings-hosting-btn'),
+                leading: const Icon(Icons.dns_outlined),
+                title: Text(l10n.settingsHosting),
+                subtitle: Text(l10n.settingsHostingDesc),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => configureHosting(context, ref),
+              ),
             ListTile(
               key: const Key('codex-setup-btn'),
               leading: const Icon(Icons.tune),
@@ -357,6 +368,18 @@ class _SettingsState extends ConsumerState<SettingsScreen> {
                         title: l10n.language,
                         value: _languageLabel(l10n, locale),
                         onTap: () => _pickLanguage(api),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  GroupCard(
+                    title: l10n.settingsHosting,
+                    children: [
+                      _SettingsRow(
+                        key: const Key('settings-hosting-btn'),
+                        icon: Icons.dns_outlined,
+                        title: l10n.codexSetupConfigureHost,
+                        onTap: () => configureHosting(context, ref),
                       ),
                     ],
                   ),

@@ -98,7 +98,8 @@ impl Replica {
         true
     }
 
-    /// Fold one gateway event body (`turn_started` / `update`); other kinds
+    /// Fold one gateway event body (`turn_started` / `update` /
+    /// `supplement`); other kinds
     /// change nothing. Events the installed fold already reflects return no
     /// changes.
     ///
@@ -142,6 +143,19 @@ impl Replica {
                     Some(fold) => fold.transcript.apply(turn, &body["update"]),
                     None => Vec::new(),
                 }
+            },
+            // The host folded the same text and image count (see
+            // `Transcript::supplement`), so both keep the same item.
+            Some("supplement") => match (turn, self.sessions.get_mut(session)) {
+                (Some(turn), Some(fold)) if fold.transcript.turn(turn).is_some() => {
+                    fold.transcript.supplement(
+                        turn,
+                        body["text"].as_str().unwrap_or(""),
+                        usize::try_from(body["imageCount"].as_u64().unwrap_or(0))
+                            .unwrap_or(usize::MAX),
+                    )
+                },
+                _ => Vec::new(),
             },
             _ => Vec::new(),
         }
@@ -259,6 +273,27 @@ mod tests {
         assert_eq!(replica.turn("s", "t"), Some(authoritative), "same items, ids and omissions");
         let ids = |turn: &Turn| turn.items.iter().map(|i| i.id.clone()).collect::<Vec<_>>();
         assert_eq!(ids(replica.turn("s", "t").expect("turn")), ids(authoritative));
+    }
+
+    #[test]
+    fn a_supplement_folds_the_same_item_on_both_sides() {
+        let (mut host, mut events) = host_turn(&["a"]);
+        host.supplement("t", "and more", 1);
+        events.push(json!({"type": "supplement", "sessionId": "s", "turnId": "t",
+            "text": "and more", "imageCount": 1, "seq": 3}));
+        let after = chunk("b");
+        host.apply(Some("t"), &after);
+        events.push(json!({"type": "update", "sessionId": "s", "turnId": "t",
+            "update": after, "seq": 4}));
+        let mut replica = Replica::default();
+        for event in &events {
+            replica.apply(event);
+        }
+        assert_eq!(replica.turn("s", "t"), host.turns.front());
+        // A supplement of a turn this replica never saw begin adds nothing.
+        let mut late = Replica::default();
+        assert!(late.apply(&events[2]).is_empty());
+        assert!(late.turn("s", "t").is_none());
     }
 
     #[test]

@@ -12,19 +12,25 @@
 //!
 //! Optional features are used only when the agent advertises them:
 //! `session/load` (replay), `session/resume` (no replay), `session/list`,
-//! `session/close`, image prompts, select configuration options and legacy
-//! modes. The client advertises no file system, terminal, elicitation,
-//! boolean-option or other extension capability, and answers such requests
-//! with "method not found" without touching any file.
+//! `session/close`, image prompts, select configuration options, legacy
+//! modes and the `_session/steering` extension (supplementing a running
+//! turn). The Claude preset's launch is resolved by [`claude`] (adapter,
+//! Node.js runtime and native CLI) and its adapter can be prepared into an
+//! app-owned cache by [`claude_setup`]. The client advertises no file system,
+//! terminal, elicitation, boolean-option or other extension capability, and
+//! answers such requests with "method not found" without touching any file.
 
 pub mod api;
 pub mod catalog;
+pub mod claude;
+pub mod claude_setup;
 pub mod client;
 pub mod fold;
 pub mod host;
 pub mod jsonrpc;
 pub mod peer;
 pub mod process;
+pub mod provider;
 pub mod replica;
 pub mod schema;
 pub mod spec;
@@ -34,5 +40,6 @@ pub mod store;
 pub use client::{ClientError, GatewayClient};
 pub use host::{AgentHost, HostError, HostOptions, Identity};
 pub use replica::Replica;
+pub use schema::SteerOutcome;
 pub use spec::{AgentSpec, Preset, SpecError, PRESETS};
 pub use store::{SessionStore, SourceId};

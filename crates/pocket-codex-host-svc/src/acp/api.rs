@@ -9,9 +9,9 @@
 //! and its sequence number, `GET events?generation=G&after=S` continues
 //! strictly after it, and a `reset` event means "read a new snapshot".
 //!
-//! Every mutation (`sessions/new`, `open`, `prompt`, `cancel`, `config`,
-//! `mode`) may carry the `hostId` and `generation` its caller acted on; a
-//! request for another host incarnation or generation is refused (`409
+//! Every mutation (`sessions/new`, `open`, `prompt`, `steer`, `cancel`,
+//! `config`, `mode`) may carry the `hostId` and `generation` its caller acted
+//! on; a request for another host incarnation or generation is refused (`409
 //! stale_host`, or `{"cancelled": false}` for a cancel) before anything
 //! reaches the agent.
 
@@ -61,6 +61,7 @@ impl IntoResponse for ApiError {
             HostError::NotReady | HostError::Start(_) => StatusCode::SERVICE_UNAVAILABLE,
             HostError::UnknownSession | HostError::UnknownPermission => StatusCode::NOT_FOUND,
             HostError::Busy
+            | HostError::TurnChanged
             | HostError::Loading
             | HostError::AlreadyResolved
             | HostError::NotReopenable
@@ -99,6 +100,10 @@ pub fn router(host: AgentHost) -> Router {
         .route(
             "/acp/v1/sessions/prompt",
             post(prompt).layer(DefaultBodyLimit::max(PROMPT_BODY_LIMIT)),
+        )
+        .route(
+            "/acp/v1/sessions/steer",
+            post(steer).layer(DefaultBodyLimit::max(PROMPT_BODY_LIMIT)),
         )
         .route("/acp/v1/sessions/cancel", post(cancel))
         .route("/acp/v1/sessions/config", post(set_config))
@@ -290,6 +295,38 @@ async fn prompt(State(state): State<ApiState>, Json(body): Json<PromptBody>) -> 
         .prompt(&body.session_id, &body.text, &body.images, expected(&body.identity))
         .await
         .map(|turn| Json(json!({"turnId": turn})))
+        .map_err(ApiError)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SteerBody {
+    session_id: String,
+    /// Add only to this turn; another (newer) turn is refused.
+    #[serde(default)]
+    turn_id: Option<String>,
+    #[serde(default)]
+    text: String,
+    #[serde(default)]
+    images: Vec<String>,
+    #[serde(flatten)]
+    identity: Identity,
+}
+
+/// `{"outcome": "injected", "turnId": …}`, or `{"outcome": "promptRequired",
+/// "turnId": null}` when no turn ran and nothing was consumed.
+async fn steer(State(state): State<ApiState>, Json(body): Json<SteerBody>) -> ApiResult {
+    state
+        .host
+        .steer(
+            &body.session_id,
+            body.turn_id.as_deref(),
+            &body.text,
+            &body.images,
+            expected(&body.identity),
+        )
+        .await
+        .map(|(outcome, turn)| Json(json!({"outcome": outcome.as_str(), "turnId": turn})))
         .map_err(ApiError)
 }
 

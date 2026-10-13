@@ -1129,6 +1129,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get stopHosting => 'Stop hosting';
 
   @override
+  String get localHostStopFailed => 'Did not stop: stop again';
+
+  @override
   String get localHostPort => 'Port';
 
   @override
@@ -1645,14 +1648,14 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get codexChatNeedsSetup =>
-      'Model access isn\'t set up yet — configure Codex before chatting.';
+      'Model access isn\'t set up yet — set this host\'s model service before chatting.';
 
   @override
   String get codexSetupStepTitle => 'Configure Codex model access';
 
   @override
   String get codexSetupStepDesc =>
-      'Fill in a provider (URL + API Key) or sign in with ChatGPT, and optionally switch on the non-degraded system prompt.';
+      'Sign in with ChatGPT, or give a host its own provider when you host it, and optionally switch on the non-degraded system prompt.';
 
   @override
   String get codexSetupProviderSection => 'Custom provider';
@@ -1770,6 +1773,46 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get codexSetupCredentialExists => 'credential present';
+
+  @override
+  String get codexSetupProviderPerHost =>
+      'Set per host: each host\'s own model service can use a custom provider.';
+
+  @override
+  String get codexSetupProviderScope =>
+      'This page sets up Codex itself (its config directory below): the ChatGPT sign-in and the prompt option. Hosts set to \"Existing configuration\" use it. A host\'s own custom provider or official account is chosen in that host\'s editor.';
+
+  @override
+  String get codexSetupGlobalProvider =>
+      'Codex\'s own configuration already selects a custom provider. Hosts set to \"Existing configuration\" keep using it.';
+
+  @override
+  String get codexSetupConfigureHost => 'Configure a host';
+
+  @override
+  String get codexSetupHostingDesktopOnly =>
+      'Hosting runs on a desktop; set a host\'s provider there.';
+
+  @override
+  String get settingsHosting => 'Hosting and model service';
+
+  @override
+  String get settingsHostingDesc =>
+      'A host\'s agent, model service and sign-in';
+
+  @override
+  String get hostPickTitle => 'Configure which host?';
+
+  @override
+  String get hostPickHint =>
+      'Each host keeps its own model service. Choosing one only opens its editor. Save keeps a running host as it is; its saved configuration takes effect only after Apply and restart.';
+
+  @override
+  String get hostPickNew => 'New host';
+
+  @override
+  String get hostPickLoadFailed =>
+      'The running hosts could not be read. You can still set up a new host.';
 
   @override
   String get resizeComposer => 'Drag to resize; double-click to reset';
@@ -1904,6 +1947,42 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get steerTurnEnded =>
       'The turn changed or ended. Your draft is kept; send it as a new turn.';
+
+  @override
+  String get steerUnavailableHint =>
+      'This agent cannot add to a running turn. Messages you send now are queued for the next turn.';
+
+  @override
+  String get steerQueuedAfterEnd =>
+      'The turn had already ended, so your supplement will be sent as the next turn.';
+
+  @override
+  String get retryUnverified =>
+      'Could not check whether the host received this message, so it was not sent again. Retry when the host is reachable.';
+
+  @override
+  String get queuedUncertain =>
+      'May already have been sent. It is sent again only if you retry it.';
+
+  @override
+  String get queuedUncertainRetry =>
+      'It may already have reached the host, so it stays queued and is not sent by itself. Check the conversation: Retry sends it again, tapping it lets you edit it.';
+
+  @override
+  String get steerAnswerStale =>
+      'The answer arrived after this conversation\'s host or view changed, so your draft is kept as it was. Check the conversation before sending it again.';
+
+  @override
+  String get sendHostChanged =>
+      'The host connection changed before this message was sent, so nothing was sent.';
+
+  @override
+  String get sendAnswerStale =>
+      'The host answered after its connection changed, so it is unknown whether this message arrived.';
+
+  @override
+  String get sendReturnedToDraft =>
+      'It is back in the composer; check the conversation before sending it again.';
 
   @override
   String get advancedSettings => 'Advanced settings';
@@ -2268,6 +2347,106 @@ class AppLocalizationsEn extends AppLocalizations {
   String get acpProgramNotFound => 'This program was not found on this device.';
 
   @override
+  String get claudeEnvTitle => 'Claude on this computer';
+
+  @override
+  String claudeAdapterInstalled(String path) {
+    return 'ACP adapter: $path';
+  }
+
+  @override
+  String claudeAdapterPrepared(String path) {
+    return 'ACP adapter (prepared by this app): $path';
+  }
+
+  @override
+  String claudeAdapterWillPrepare(String package) {
+    return 'The ACP adapter is not installed. Start downloads $package from npm into this app\'s cache (nothing global changes), then starts Claude.';
+  }
+
+  @override
+  String claudeAdapterMissing(String package) {
+    return 'The ACP adapter ($package) is not installed, and it cannot be prepared here.';
+  }
+
+  @override
+  String claudeNodeFound(String version, String path) {
+    return 'Node.js $version: $path';
+  }
+
+  @override
+  String claudeNodeTooOld(String version) {
+    return 'Node.js $version is too old; the adapter needs Node.js 22 or newer.';
+  }
+
+  @override
+  String get claudeNodeMissing => 'Node.js 22 or newer was not found.';
+
+  @override
+  String claudeCliFound(String path) {
+    return 'Claude Code: $path';
+  }
+
+  @override
+  String get claudeCliInherited =>
+      'Claude Code: as set in CLAUDE_CODE_EXECUTABLE';
+
+  @override
+  String get claudeCliBundled =>
+      'Claude Code was not found; the adapter uses its bundled copy.';
+
+  @override
+  String get claudeEnvRecheck => 'Check again';
+
+  @override
+  String claudePreparing(int seconds) {
+    return 'Preparing the Claude ACP adapter… $seconds s';
+  }
+
+  @override
+  String claudePrepareVerifying(int seconds) {
+    return 'Checking the downloaded adapter… $seconds s';
+  }
+
+  @override
+  String get claudePrepareCancel => 'Stop preparing';
+
+  @override
+  String get claudePrepareStopWaiting => 'Stop waiting';
+
+  @override
+  String get claudePrepareJoined =>
+      'Another window started this preparation; this page only follows it.';
+
+  @override
+  String get claudePrepareLeftRunning =>
+      'Stopped waiting. The preparation started elsewhere keeps running.';
+
+  @override
+  String get claudePrepareReplaced =>
+      'Another preparation replaced the one this page followed, so its result is not shown here. Start again to retry.';
+
+  @override
+  String get quitStopping => 'Stopping hosted agents before quitting…';
+
+  @override
+  String quitBlocked(String error) {
+    return 'The app stays open because hosting could not be stopped safely: $error';
+  }
+
+  @override
+  String get quitRetry => 'Quit again';
+
+  @override
+  String claudePrepareFailed(String error) {
+    return 'Preparing the Claude ACP adapter failed: $error';
+  }
+
+  @override
+  String get claudePrepareCancelled =>
+      'Preparing the Claude ACP adapter was stopped. Start tries again.';
+
+  @override
   String acpProgramFound(String path) {
     return 'Found: $path';
   }
@@ -2314,6 +2493,69 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get acpCatalogWaiting =>
       'The agent\'s model catalog is listed when its first session opens.';
+
+  @override
+  String get acpRouteWaiting =>
+      'Whether OpenCode uses this host\'s provider is checked when its first session opens.';
+
+  @override
+  String get acpRouteSelected =>
+      'OpenCode uses this host\'s provider and model.';
+
+  @override
+  String acpRouteOverridden(String reasons) {
+    return 'Another OpenCode configuration overrides this host\'s provider: $reasons. Requests may go elsewhere.';
+  }
+
+  @override
+  String acpRouteUnverified(String reasons) {
+    return 'Whether OpenCode uses this host\'s provider cannot be checked: $reasons.';
+  }
+
+  @override
+  String get acpRouteReasonModel => 'it selects another model';
+
+  @override
+  String get acpRouteReasonEnabled => 'enabled_providers leaves it out';
+
+  @override
+  String get acpRouteReasonDisabled => 'disabled_providers names it';
+
+  @override
+  String get acpRouteReasonMissing =>
+      'the provider is missing from the merged configuration';
+
+  @override
+  String get acpRouteReasonSmallModel => 'small_model names another provider';
+
+  @override
+  String get acpRouteReasonAgentModel =>
+      'an agent or mode model names another provider';
+
+  @override
+  String get acpRouteReasonProvider =>
+      'another layer changed the provider\'s definition';
+
+  @override
+  String acpRouteEnforced(String reasons) {
+    return 'Other OpenCode configuration differed and was reset to this host\'s provider: $reasons.';
+  }
+
+  @override
+  String get acpRouteRefused =>
+      'OpenCode was given no usable provider: this host\'s key is missing in the agent\'s environment, so no prompt can be sent. Save the key again and restart the host.';
+
+  @override
+  String get acpRouteReasonKey => 'the host\'s key is missing in the agent';
+
+  @override
+  String acpRouteProjects(String projects) {
+    return 'Projects checked, as the plugin input names them (not verified against OpenCode\'s source): $projects';
+  }
+
+  @override
+  String get acpRouteScope =>
+      'This covers OpenCode\'s merged configuration, with this host\'s key pinned over a key saved for the same provider with `opencode auth login`. Another plugin\'s provider or auth loader for the same provider, or a later plugin\'s hook, is not covered.';
 
   @override
   String acpCatalogUnavailable(String reason) {
@@ -2472,4 +2714,233 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get omittedSeparator => ', ';
+
+  @override
+  String hostEditorTitle(String name) {
+    return 'Host $name';
+  }
+
+  @override
+  String get hostSectionAgent => 'Agent';
+
+  @override
+  String get hostSectionStatus => 'Status';
+
+  @override
+  String get hostSectionModel => 'Model service';
+
+  @override
+  String get hostSectionModelHint =>
+      'Where this host\'s agent sends model requests. Saved per host on this device.';
+
+  @override
+  String get hostSourceInherited => 'Existing configuration';
+
+  @override
+  String get hostSourceOfficial => 'Official account';
+
+  @override
+  String get hostSourceCustom => 'Custom provider';
+
+  @override
+  String get hostInheritedOnly =>
+      'This agent is launched with its own configuration. Pocket-Codex does not know a provider setting it supports.';
+
+  @override
+  String get hostInheritedAcp =>
+      'The agent uses its own configuration files and environment, unchanged.';
+
+  @override
+  String hostInheritedCodexCustom(String provider) {
+    return 'Codex\'s config.toml already selects provider $provider. Nothing more is needed.';
+  }
+
+  @override
+  String get hostInheritedCodexAccount =>
+      'Codex is already signed in. Nothing more is needed.';
+
+  @override
+  String get hostInheritedCodexInvalid =>
+      'Codex\'s config.toml could not be read. Fix it, or choose an option below.';
+
+  @override
+  String get hostInheritedCodexNone =>
+      'Codex has no sign-in or provider yet. Sign in or add a custom provider.';
+
+  @override
+  String hostInheritedCodexHome(String path) {
+    return 'Configuration directory: $path';
+  }
+
+  @override
+  String get hostProtocolLabel => 'API type';
+
+  @override
+  String get hostProtocolResponses => 'OpenAI Responses';
+
+  @override
+  String get hostProtocolAnthropic => 'Anthropic Messages';
+
+  @override
+  String get hostProtocolChat => 'OpenAI Chat Completions';
+
+  @override
+  String get hostBaseUrl => 'Base URL';
+
+  @override
+  String get hostApiKey => 'API key';
+
+  @override
+  String get hostApiKeyStored => 'A key is stored. Leave empty to keep it.';
+
+  @override
+  String get hostKeyEnvNote =>
+      'Stored only on this device and handed to the agent when it starts, never on its command line.';
+
+  @override
+  String get hostApiKeyRemove => 'Remove stored key';
+
+  @override
+  String get hostModelOptional => 'Model (optional)';
+
+  @override
+  String get hostBaseUrlRequired => 'Enter the provider\'s base URL.';
+
+  @override
+  String get hostSaveConfig => 'Save';
+
+  @override
+  String get hostConfigSaved =>
+      'Saved. The running host keeps its current configuration until it restarts.';
+
+  @override
+  String get hostConfigPending =>
+      'Saved changes are not active yet. Restart the host to apply them.';
+
+  @override
+  String get hostApplyRestart => 'Apply and restart';
+
+  @override
+  String get hostSaveAndRestart => 'Save and restart';
+
+  @override
+  String get hostApplyNote =>
+      'Restarting stops the agent briefly and disconnects open sessions. If the new configuration fails to start, the previous one is restored.';
+
+  @override
+  String get hostApplied => 'Restarted with the new configuration.';
+
+  @override
+  String hostApplyRestored(String error) {
+    return 'The new configuration failed, so the previous one was restored: $error';
+  }
+
+  @override
+  String hostApplyFailed(String error) {
+    return 'Restart failed and the host is stopped: $error';
+  }
+
+  @override
+  String get hostOfficialNote =>
+      'Sign-in runs on a private local Codex server, so no host needs to be running.';
+
+  @override
+  String get hostAgentEditNote =>
+      'Changing the launch command takes effect on restart.';
+
+  @override
+  String get hostCodexRuntimeFixed =>
+      'What the host runs now. Edit the runtime below, save, then apply to restart with it.';
+
+  @override
+  String hostLoginRefreshFailed(String error) {
+    return 'Could not check the sign-in; retrying: $error';
+  }
+
+  @override
+  String get hostLoginNotOfficial =>
+      'Codex finished the login, but not with a ChatGPT account. Sign in again.';
+
+  @override
+  String hostLoginFailed(String error) {
+    return 'Sign-in failed: $error';
+  }
+
+  @override
+  String get hostSourceUnsupported =>
+      'The saved model service cannot be used with this agent. Choose another one.';
+
+  @override
+  String get hostModelRequired =>
+      'Enter the default model this provider should use.';
+
+  @override
+  String get hostKeyRequired => 'Enter the provider\'s API key.';
+
+  @override
+  String get hostModelDefault => 'Default model';
+
+  @override
+  String get hostModelDefaultNote =>
+      'The provider\'s model for new sessions. A conversation\'s own model choice is made in the conversation and is not stored here.';
+
+  @override
+  String get hostLeaveTitle => 'Discard unsaved changes?';
+
+  @override
+  String get hostLeaveBody => 'Your changes to this host have not been saved.';
+
+  @override
+  String get hostLeaveStay => 'Keep editing';
+
+  @override
+  String get hostLeaveDiscard => 'Discard';
+
+  @override
+  String hostApplyConfirmTitle(String name) {
+    return 'Restart $name?';
+  }
+
+  @override
+  String get hostApplyConfirmBody =>
+      'The host stops and starts again with its saved configuration. A running turn is interrupted and open conversations reconnect. Drafts, attachments and queued messages on this device are kept. Other hosts are not affected.';
+
+  @override
+  String get hostReplaced =>
+      'This host was restarted elsewhere since this page read it. Reload before applying.';
+
+  @override
+  String hostApplyStopped(String error, String restoreError) {
+    return 'The new configuration failed ($error) and restoring the previous one failed too ($restoreError). The host is stopped.';
+  }
+
+  @override
+  String get hostGone => 'This host is no longer running.';
+
+  @override
+  String get hostConfigReload => 'Reload';
+
+  @override
+  String get hostConfigNewer =>
+      'A newer saved configuration exists. Reload to see it (your edits are discarded).';
+
+  @override
+  String get hostConfigLoadFailedTitle => 'Configuration unavailable';
+
+  @override
+  String hostConfigLoadFailed(String error) {
+    return 'Could not read this host\'s saved configuration: $error';
+  }
+
+  @override
+  String get hostRuntimeEditNote =>
+      'Saved changes take effect when you apply them; the name stays.';
+
+  @override
+  String get hostAgentUnknown =>
+      'This host does not report its agent, so it cannot be edited here.';
+
+  @override
+  String get hostApiProxyNote =>
+      'This host also publishes a separate Responses API service (api:<name>). It always uses this device\'s official Codex sign-in, not the provider chosen here.';
 }

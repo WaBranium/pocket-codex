@@ -1,27 +1,20 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:pocket_codex/l10n/gen/app_localizations.dart';
 import 'package:pocket_codex/src/bridge_api.dart';
 import 'package:pocket_codex/src/desktop_theme.dart';
 import 'package:pocket_codex/src/error_format.dart';
+import 'package:pocket_codex/src/fonts.dart';
+import 'package:pocket_codex/src/hosting/host_picker.dart';
+import 'package:pocket_codex/src/hosting/official_login_panel.dart';
 import 'package:pocket_codex/src/providers.dart';
 import 'package:pocket_codex/src/theme.dart';
-import 'package:pocket_codex/src/widgets/app_toast.dart';
 import 'package:pocket_codex/src/widgets/code_row.dart';
 import 'package:pocket_codex/src/widgets/group_card.dart';
 import 'package:pocket_codex/src/widgets/icon_badge.dart';
 import 'package:pocket_codex/src/widgets/links.dart';
 import 'package:pocket_codex/src/widgets/status_dots.dart';
 import 'package:pocket_codex/src/widgets/utility_page.dart';
-
-/// Form fields on this page stand alone on the sheet rather than inside a
-/// bordered toolbar, so they keep an outline — see `SearchField` for the filled,
-/// borderless counterpart used in filters.
-final _fieldBorder = OutlineInputBorder(
-  borderRadius: BorderRadius.circular(kControlRadius),
-);
 
 /// Which access method a row represents. Both write to the same `CODEX_HOME`,
 /// and codex honours whichever was configured last — so exactly one is ever
@@ -31,28 +24,30 @@ enum _Method {
   /// ChatGPT OAuth, driven on the local app-server; codex writes `auth.json`.
   chatgpt,
 
-  /// A Base URL + API key written into codex's `config.toml`.
+  /// A custom provider. Set per host in the hosting editor; this page only
+  /// reports one that codex's own `config.toml` already selects.
   provider,
 }
 
 /// First-run configuration for external Codex.
 ///
-/// 当本机 `CODEX_HOME` 既没有凭证(`auth.json`)也没有自定义 provider 时,codex
-/// 无法发起任何模型调用。这个页面用两种方式引导用户配好:
+/// Scope: this page sets up Codex itself (its `CODEX_HOME`), which hosts on
+/// "Existing configuration" use. A host's own custom provider or official
+/// account is chosen in the hosting editor ([configureHosting]); this page
+/// writes no provider.
 ///
-/// 1. 自定义 provider(最小可用):填 Base URL + API Key,写入 codex 的
-///    `config.toml`,无需 `codex login`。
-/// 2. codex 官方 ChatGPT 登录:在本机运行中的 app-server 上驱动
-///    `account/login/start`,浏览器完成 OAuth,codex 自己写 `auth.json`。
+/// With neither a credential (`auth.json`) nor a selected custom provider,
+/// codex cannot call a model. The page shows two rows in one card:
 ///
-/// The two used to sit as equal, both-expanded "Option 1 / Option 2" sections,
-/// which said nothing about which one codex is actually using and left three
-/// unusable text fields in front of an already-signed-in user. They are now one
-/// card of two rows: whichever is live sorts first and carries an "in use" pill;
-/// the other collapses to a title and a way to switch.
+/// 1. ChatGPT sign-in, driven by `account/login/start` on a local app-server;
+///    codex writes `auth.json` itself.
+/// 2. A custom provider: reported when codex's own `config.toml` selects one,
+///    otherwise a pointer to the hosting editor.
 ///
-/// 另外提供「非降智 system prompt」开关(见 openai/codex#30364),as its own
-/// Advanced card — it is about how codex prompts the model, not about access.
+/// Whichever is live sorts first and carries an "in use" pill; the other
+/// collapses to a title and a way to switch. The Advanced card holds the
+/// system prompt switch (openai/codex#30364): how codex prompts the model,
+/// not how it gets access.
 class CodexSetupScreen extends ConsumerStatefulWidget {
   /// Default constructor.
   const CodexSetupScreen({super.key});
@@ -62,19 +57,10 @@ class CodexSetupScreen extends ConsumerStatefulWidget {
 }
 
 class _CodexSetupScreenState extends ConsumerState<CodexSetupScreen> {
-  final _baseUrl = TextEditingController();
-  final _apiKey = TextEditingController();
-  final _model = TextEditingController();
-
   CodexSetupStatus? _status;
   bool _busy = false;
-  bool _loginPolling = false;
   String? _error;
   String? _info;
-  // Device-code login: the one-time code the user enters on the opened page,
-  // and that page's URL (so they can reopen it). Null for the browser flow.
-  String? _deviceCode;
-  String? _deviceUrl;
 
   /// The method the user opened for editing, or null for "just show me where I
   /// stand". The live one is expanded on arrival so its state and controls are
@@ -93,24 +79,31 @@ class _CodexSetupScreenState extends ConsumerState<CodexSetupScreen> {
   }
 
   /// The method codex is actually set up with, or null when neither is.
-  ///
-  /// A credential wins over a custom provider when both exist: `hasAuth` means
-  /// codex can authenticate on its own, and that is the path it takes.
   _Method? get _liveMethod {
     final status = _status;
     if (status == null) return null;
+    // The bridge reports what codex will actually use: a selected custom
+    // provider wins over a stored credential. An older bridge leaves it
+    // empty, and the credential is taken first as before.
+    switch (status.effectiveSource) {
+      case 'custom':
+        return _Method.provider;
+      case 'account':
+        return _Method.chatgpt;
+      case 'none' || 'invalid':
+        return null;
+    }
     if (status.hasAuth) return _Method.chatgpt;
     if (status.hasCustomProvider) return _Method.provider;
     return null;
   }
 
   /// Which method's panel is open. Defaults to the live one; with neither
-  /// configured, the provider form leads, since it is the one that works without
-  /// a running host.
+  /// configured, the provider row leads, pointing to the hosting editor.
   _Method get _openMethod => _expanded ?? _liveMethod ?? _Method.provider;
 
-  /// The rows, live-first. With neither configured the provider comes first for
-  /// the same reason it is the default expansion.
+  /// The rows, live-first. With neither configured the provider row comes first,
+  /// as it is the default expansion.
   List<_Method> get _orderedMethods {
     final live = _liveMethod;
     return switch (live) {
@@ -118,14 +111,6 @@ class _CodexSetupScreenState extends ConsumerState<CodexSetupScreen> {
       _Method.provider => const [_Method.provider, _Method.chatgpt],
       null => const [_Method.provider, _Method.chatgpt],
     };
-  }
-
-  @override
-  void dispose() {
-    _baseUrl.dispose();
-    _apiKey.dispose();
-    _model.dispose();
-    super.dispose();
   }
 
   BridgeApi get _api => ref.read(bridgeApiProvider);
@@ -138,60 +123,15 @@ class _CodexSetupScreenState extends ConsumerState<CodexSetupScreen> {
           _status = s;
           // Follow the live method until the user takes over the disclosure, so
           // a login that completes while this page is open moves the open panel
-          // with it rather than leaving the old form expanded.
+          // with it rather than leaving the old panel expanded.
           if (!_expandedByUser) _expanded = null;
         });
         // Keep the chat's "codex needs setup" banner/send-guard in sync with
-        // what the wizard just changed (configured a provider, logged in, …).
+        // what changed here or in the hosting editor (signed in, …).
         ref.invalidate(codexSetupStatusProvider);
       }
     } catch (e) {
       if (mounted) setState(() => _error = friendlyError(e));
-    }
-  }
-
-  /// A live JSON-RPC session to a locally-hosted app-server, which is what both
-  /// codex-account operations run on. Null (with [_error] set) when nothing is
-  /// hosted — codex's own login and logout live in the codex process, so there
-  /// has to be one running to drive them.
-  Future<String?> _connectedLocalHost(AppLocalizations l10n) async {
-    final host = (await _api.appServeStatus())
-        .where((h) => h.appServiceKey.isNotEmpty && h.isCodex)
-        .firstOrNull;
-    if (host == null) {
-      if (mounted) {
-        setState(() {
-          _busy = false;
-          _error = l10n.codexSetupNeedHost;
-        });
-      }
-      return null;
-    }
-    final key = host.appServiceKey;
-    if (!_api.appIsConnected(key)) await _api.appConnect(key, 0);
-    return key;
-  }
-
-  /// Sign the local codex out on the running host, then refresh.
-  Future<void> _logout(AppLocalizations l10n) async {
-    setState(() {
-      _busy = true;
-      _error = null;
-      _info = null;
-    });
-    try {
-      final key = await _connectedLocalHost(l10n);
-      if (key == null) return;
-      await _api.codexLogout(key);
-      await _loadStatus();
-      if (mounted) setState(() => _busy = false);
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _busy = false;
-          _error = friendlyError(e);
-        });
-      }
     }
   }
 
@@ -212,111 +152,11 @@ class _CodexSetupScreenState extends ConsumerState<CodexSetupScreen> {
     }
   }
 
-  void _saveProvider(AppLocalizations l10n) {
-    final base = _baseUrl.text.trim();
-    final key = _apiKey.text.trim();
-    if (base.isEmpty || key.isEmpty) {
-      setState(() => _error = l10n.codexSetupNeedFields);
-      return;
-    }
-    _run(
-      () => _api.codexSetupProvider(
-        baseUrl: base,
-        apiKey: key,
-        model: _model.text.trim().isEmpty ? null : _model.text.trim(),
-      ),
-      okMessage: l10n.codexSetupProviderSaved,
-    );
-  }
-
-  /// codex 官方登录:在本机运行中的 app-server 上驱动 ChatGPT OAuth。需要先启动
-  /// 本机托管(有一个运行中的 host),否则提示用户先托管。
-  Future<void> _startChatgptLogin(AppLocalizations l10n) async {
-    setState(() {
-      _busy = true;
-      _error = null;
-      _info = null;
-      _deviceCode = null;
-      _deviceUrl = null;
-    });
-    try {
-      final key = await _connectedLocalHost(l10n);
-      if (key == null) return;
-      final start = await _api.codexLoginChatgptStart(key);
-      final isDevice = start.mode == 'device';
-      // Browser flow opens authUrl; device flow (codex couldn't bind its local
-      // callback port) opens the verification page and shows a code to enter.
-      final url = isDevice ? start.verificationUrl : start.authUrl;
-      if (url != null && url.isNotEmpty) {
-        await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-      }
-      if (!mounted) return;
-      setState(() {
-        _busy = false;
-        _loginPolling = true;
-        _deviceCode = isDevice ? start.userCode : null;
-        _deviceUrl = isDevice ? start.verificationUrl : null;
-        _info = isDevice
-            ? l10n.codexSetupDeviceOpened
-            : l10n.codexSetupLoginOpened;
-      });
-      await _pollUntilAuthenticated(l10n, key, start.loginId);
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _busy = false;
-          _loginPolling = false;
-          _error = friendlyError(e);
-        });
-      }
-    }
-  }
-
-  /// Poll auth status until the browser login completes (bounded), then refresh.
-  Future<void> _pollUntilAuthenticated(
-    AppLocalizations l10n,
-    String serviceKey,
-    String loginId,
-  ) async {
-    // ~5 minutes at 2s cadence, matching codex's login window.
-    for (var i = 0; i < 150; i++) {
-      await Future<void>.delayed(const Duration(seconds: 2));
-      if (!mounted || !_loginPolling) return;
-      try {
-        // Detect completion two ways, because the app-server's getAuthStatus RPC
-        // caches and can lag behind the auth.json codex just wrote (esp. the
-        // device-code flow): the RPC (authoritative for a REMOTE host) OR the
-        // local auth.json on disk via codexSetupStatus (flips first for a LOCAL
-        // host — this is what "re-enter the screen" was picking up).
-        final rpc = await _api.codexAuthStatus(serviceKey);
-        final disk = await _api.codexSetupStatus();
-        if (rpc.authenticated || disk.hasAuth) {
-          if (mounted) {
-            setState(() {
-              _loginPolling = false;
-              _deviceCode = null;
-              _deviceUrl = null;
-              _info = l10n.codexSetupLoginSuccess(
-                rpc.method ?? disk.authMode ?? 'chatgpt',
-              );
-            });
-          }
-          await _loadStatus();
-          return;
-        }
-      } catch (_) {
-        // Transient (host reconnecting); keep polling.
-      }
-    }
-    if (mounted) {
-      setState(() {
-        _loginPolling = false;
-        _error = l10n.codexSetupLoginTimeout;
-      });
-      try {
-        await _api.codexLoginCancel(serviceKey, loginId);
-      } catch (_) {}
-    }
+  /// Open the hosting editor for a host the user picks, then re-read what
+  /// codex's own setup says (the editor may have signed it in).
+  Future<void> _configureHost() async {
+    await configureHosting(context, ref);
+    if (mounted) await _loadStatus();
   }
 
   @override
@@ -398,7 +238,7 @@ class _CodexSetupScreenState extends ConsumerState<CodexSetupScreen> {
           : l10n.codexSetupProviderSection,
       subtitle: chatgpt
           ? l10n.codexSetupLoginDesc
-          : l10n.codexSetupProviderDesc,
+          : l10n.codexSetupProviderPerHost,
       status: live
           ? StatusChip(
               color: successColor(scheme),
@@ -423,172 +263,51 @@ class _CodexSetupScreenState extends ConsumerState<CodexSetupScreen> {
     );
   }
 
-  /// The custom-provider form: where codex should send requests, and with what.
+  /// Where a custom provider is set now: per host, in the hosting editor.
+  /// A provider codex's own configuration already selects is reported, not
+  /// edited here; hosts on "Existing configuration" keep using it.
   Widget _providerDetail(AppLocalizations l10n) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      TextField(
-        key: const Key('codex-base-url'),
-        controller: _baseUrl,
-        keyboardType: TextInputType.url,
-        decoration: InputDecoration(
-          labelText: 'Base URL',
-          hintText: 'https://example.com/v1',
-          border: _fieldBorder,
+      if (_status?.hasCustomProvider ?? false) ...[
+        _InlineHint(
+          key: const Key('codex-global-provider'),
+          text: l10n.codexSetupGlobalProvider,
         ),
-      ),
-      const SizedBox(height: 10),
-      TextField(
-        key: const Key('codex-api-key'),
-        controller: _apiKey,
-        obscureText: true,
-        decoration: InputDecoration(labelText: 'API Key', border: _fieldBorder),
-      ),
-      const SizedBox(height: 10),
-      TextField(
-        controller: _model,
-        decoration: InputDecoration(
-          labelText: l10n.codexSetupModelLabel,
-          hintText: 'gpt-5.5',
-          border: _fieldBorder,
-        ),
-      ),
+        const SizedBox(height: 8),
+      ],
+      _InlineHint(text: l10n.codexSetupProviderScope),
       const SizedBox(height: 12),
-      Align(
-        alignment: Alignment.centerLeft,
-        child: FilledButton(
-          key: const Key('codex-save-provider'),
-          onPressed: _busy ? null : () => _saveProvider(l10n),
-          child: Text(l10n.codexSetupSaveProvider),
+      if (isDesktop)
+        Align(
+          alignment: Alignment.centerLeft,
+          child: FilledButton(
+            key: const Key('codex-provider-hosts'),
+            onPressed: _busy ? null : _configureHost,
+            child: Text(l10n.codexSetupConfigureHost),
+          ),
+        )
+      else
+        _InlineHint(
+          key: const Key('codex-provider-desktop-only'),
+          text: l10n.codexSetupHostingDesktopOnly,
         ),
-      ),
     ],
   );
 
-  /// The ChatGPT login body: sign in, or (once signed in) what we are signed in
-  /// as and how to sign out. The device-code panel appears here when codex could
-  /// not bind its local callback port.
+  /// The ChatGPT login body. Sign-in runs on a private local app-server, so it
+  /// no longer needs a hosted instance to be running first.
   Widget _chatgptDetail(AppLocalizations l10n, ThemeData theme) {
-    final scheme = theme.colorScheme;
-    final status = _status;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (status?.hasAuth == true)
-          // Signed in → what we are signed in as, and the way out. No login
-          // button: pressing it would restart an OAuth flow for an account
-          // already in place.
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  l10n.codexSetupStatusAuth(
-                    status!.authMode ?? l10n.codexSetupCredentialExists,
-                  ),
-                  key: const Key('codex-login-done'),
-                  style: TextStyle(color: scheme.onSurfaceVariant),
-                ),
-              ),
-              OutlinedButton(
-                key: const Key('codex-logout-btn'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: scheme.error,
-                  side: BorderSide(color: scheme.error),
-                ),
-                onPressed: _busy ? null : () => _logout(l10n),
-                child: Text(l10n.accountSignOut),
-              ),
-            ],
-          )
-        else ...[
-          Align(
-            alignment: Alignment.centerLeft,
-            child: FilledButton.icon(
-              key: const Key('codex-login-chatgpt'),
-              onPressed: (_busy || _loginPolling)
-                  ? null
-                  : () => _startChatgptLogin(l10n),
-              icon: _loginPolling
-                  ? const SizedBox(
-                      width: 15,
-                      height: 15,
-                      child: CircularProgressIndicator(strokeWidth: 1.8),
-                    )
-                  : const Icon(Icons.open_in_new, size: 18),
-              label: Text(
-                _loginPolling
-                    ? l10n.codexSetupLoginWaiting
-                    : l10n.codexSetupLoginButton,
-              ),
-            ),
-          ),
-          const SizedBox(height: 10),
-          // The proxy caveat used to trail the section description, where it
-          // read as part of what this method IS. It is a precondition, so it
-          // sits with the control it constrains.
-          _InlineHint(text: l10n.codexSetupProxyNote),
-        ],
-        // Device-code flow: show the one-time code to enter on the opened
-        // verification page (browser callback port unavailable).
-        if (_deviceCode != null && _deviceCode!.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: scheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(kPanelRadius),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  l10n.codexSetupDeviceCodeLabel,
-                  style: theme.textTheme.labelMedium,
-                ),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    Expanded(
-                      child: SelectableText(
-                        _deviceCode!,
-                        key: const Key('codex-device-code'),
-                        style: theme.textTheme.headlineSmall?.copyWith(
-                          letterSpacing: 3,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      key: const Key('codex-device-code-copy'),
-                      tooltip: l10n.accountCopyCode,
-                      icon: const Icon(Icons.copy, size: 20),
-                      onPressed: () async {
-                        final messenger = ToastMessenger.of(context);
-                        await Clipboard.setData(
-                          ClipboardData(text: _deviceCode!),
-                        );
-                        messenger.ok(l10n.copied);
-                      },
-                    ),
-                  ],
-                ),
-                if (_deviceUrl != null && _deviceUrl!.isNotEmpty)
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: TextButton.icon(
-                      onPressed: () => launchUrl(
-                        Uri.parse(_deviceUrl!),
-                        mode: LaunchMode.externalApplication,
-                      ),
-                      icon: const Icon(Icons.open_in_new, size: 16),
-                      label: Text(l10n.codexSetupDeviceReopen),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ],
+        OfficialLoginPanel(
+          status: _status,
+          enabled: !_busy,
+          onChanged: _loadStatus,
+        ),
+        const SizedBox(height: 10),
+        _InlineHint(text: l10n.codexSetupProxyNote),
       ],
     );
   }
@@ -766,9 +485,8 @@ class _CodexSetupScreenState extends ConsumerState<CodexSetupScreen> {
 
 /// One access-method row: identity and status always, controls when [open].
 ///
-/// The closed form is deliberately a header only. Two methods both showing their
-/// full controls is what made the old page unreadable — three text fields in
-/// front of a signed-in user, with nothing saying which half codex obeys.
+/// The closed form is deliberately a header only, so the open row is the one
+/// whose controls are shown.
 class _MethodRow extends StatelessWidget {
   const _MethodRow({
     required this.rowKey,
@@ -858,7 +576,7 @@ class _MethodRow extends StatelessWidget {
 
 /// A quiet caveat under the control it constrains.
 class _InlineHint extends StatelessWidget {
-  const _InlineHint({required this.text});
+  const _InlineHint({super.key, required this.text});
 
   final String text;
 

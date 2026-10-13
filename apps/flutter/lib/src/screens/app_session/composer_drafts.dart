@@ -14,6 +14,10 @@ class _ComposerDraft {
   String? project;
   bool sendPending = false;
 
+  /// The head of [queue] was refused; the queue sends nothing more until the
+  /// user retries or sends another message.
+  bool queuePaused = false;
+
   /// Revision of what may still enter this draft asynchronously (see
   /// [AttachmentTicket]): it moves when the draft's view stops being an
   /// editable view of the same host — it turned read-only, its host

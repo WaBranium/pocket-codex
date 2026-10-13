@@ -2,6 +2,16 @@ import 'dart:typed_data';
 
 import 'package:pocket_codex/src/bridge_api.dart';
 import 'package:pocket_codex/src/rust/api/bridge.dart' as frb;
+import 'package:pocket_codex/src/rust/api/bridge/codex_setup.dart' as frb;
+import 'package:pocket_codex/src/rust/api/bridge/connection.dart' as frb;
+import 'package:pocket_codex/src/rust/api/bridge/events.dart' as frb;
+import 'package:pocket_codex/src/rust/api/bridge/host_config.dart' as frb;
+import 'package:pocket_codex/src/rust/api/bridge/host_sessions.dart' as frb;
+import 'package:pocket_codex/src/rust/api/bridge/hosted_account.dart' as frb;
+import 'package:pocket_codex/src/rust/api/bridge/hosting.dart' as frb;
+import 'package:pocket_codex/src/rust/api/bridge/services.dart' as frb;
+import 'package:pocket_codex/src/rust/api/bridge/session_config.dart' as frb;
+import 'package:pocket_codex/src/rust/api/bridge/threads.dart' as frb;
 
 /// Real [BridgeApi] backed by the flutter_rust_bridge bindings.
 class RustBridgeApi implements BridgeApi {
@@ -212,6 +222,9 @@ class RustBridgeApi implements BridgeApi {
                     state: s.catalog!.state,
                     reason: s.catalog!.reason,
                     plugin: s.catalog!.plugin,
+                    routeState: s.catalog!.routeState,
+                    routeReasons: s.catalog!.routeReasons,
+                    routeProjects: s.catalog!.routeProjects,
                     providers: [
                       for (final p in s.catalog!.providers)
                         AcpCatalogProvider(
@@ -226,6 +239,10 @@ class RustBridgeApi implements BridgeApi {
                         ),
                     ],
                   ),
+            configSource: s.configSource,
+            configRevision: s.configRevision?.toInt(),
+            incarnation: s.incarnation,
+            busy: s.busy,
           ),
         )
         .toList();
@@ -315,6 +332,49 @@ class RustBridgeApi implements BridgeApi {
       frb.acpLocate(program: program, profileId: profileId);
 
   @override
+  Future<AcpClaudeStatus> acpClaudeStatus() async {
+    final s = await frb.acpClaudeStatus();
+    return AcpClaudeStatus(
+      ready: s.ready,
+      adapter: s.adapter,
+      adapterPath: s.adapterPath,
+      runtime: s.runtime,
+      runtimeVersion: s.runtimeVersion,
+      runtimePath: s.runtimePath,
+      cli: s.cli,
+      cliPath: s.cliPath,
+      canPrepare: s.canPrepare,
+      package: s.package,
+      problem: s.problem,
+    );
+  }
+
+  static AcpClaudeSetup _claudeSetup(frb.AcpClaudeSetupDto s) => AcpClaudeSetup(
+    state: s.state,
+    stage: s.stage,
+    elapsedMs: s.elapsedMs.toInt(),
+    error: s.error,
+    run: s.run.toInt(),
+    started: s.started,
+  );
+
+  @override
+  Future<AcpClaudeSetup> acpClaudePrepareStart() async =>
+      _claudeSetup(await frb.acpClaudePrepareStart());
+
+  @override
+  AcpClaudeSetup acpClaudePrepareState() =>
+      _claudeSetup(frb.acpClaudePrepareState());
+
+  @override
+  AcpClaudeSetup acpClaudePrepareCancel() =>
+      _claudeSetup(frb.acpClaudePrepareCancel());
+
+  @override
+  AcpClaudeSetup acpClaudePrepareCancelRun(int run) =>
+      _claudeSetup(frb.acpClaudePrepareCancelRun(run: BigInt.from(run)));
+
+  @override
   Future<AcpServeResult> appServeStartAcp({
     String? name,
     required AcpAgentSpec spec,
@@ -343,6 +403,190 @@ class RustBridgeApi implements BridgeApi {
   @override
   Future<void> appServeRestartAcp(String name) =>
       frb.appServeRestartAcp(name: name);
+
+  static frb.AcpAgentSpecDto? _specDto(AcpAgentSpec? spec) => spec == null
+      ? null
+      : frb.AcpAgentSpecDto(
+          profileId: spec.profileId,
+          displayName: spec.displayName,
+          program: spec.program,
+          args: spec.args,
+        );
+
+  static AcpAgentSpec _spec(frb.AcpAgentSpecDto s) => AcpAgentSpec(
+    profileId: s.profileId,
+    displayName: s.displayName,
+    program: s.program,
+    args: s.args,
+  );
+
+  static HostRuntime _runtime(frb.HostRuntimeDto r) => r.agent != null
+      ? HostRuntime.acp(_spec(r.agent!))
+      : HostRuntime.codex(binary: r.binary, port: r.port, proxy: r.proxy);
+
+  static frb.HostRuntimeDto _runtimeDto(HostRuntime r) => frb.HostRuntimeDto(
+    kind: r.kind,
+    binary: r.binary,
+    port: r.port,
+    proxy: r.proxy,
+    agent: _specDto(r.agent),
+  );
+
+  static frb.HostConfigInputDto _inputDto(HostConfigInput input) =>
+      frb.HostConfigInputDto(
+        source: input.source,
+        protocol: input.protocol,
+        baseUrl: input.baseUrl,
+        model: input.model,
+      );
+
+  static HostConfig _hostConfig(frb.HostConfigDto c) => HostConfig(
+    source: c.source,
+    protocol: c.protocol,
+    baseUrl: c.baseUrl,
+    model: c.model,
+    keySet: c.keySet,
+    revision: c.revision.toInt(),
+    runtime: c.runtime == null ? null : _runtime(c.runtime!),
+    problem: c.problem,
+    active: c.active == null
+        ? null
+        : HostActive(
+            incarnation: c.active!.incarnation,
+            runtime: _runtime(c.active!.runtime),
+            source: c.active!.source,
+            revision: c.active!.revision.toInt(),
+          ),
+  );
+
+  @override
+  Future<HostConfig> hostConfigGet(String name) async =>
+      _hostConfig(await frb.hostConfigGet(name: name));
+
+  @override
+  HostConfigSupport hostConfigSupported({AcpAgentSpec? spec}) {
+    final s = frb.hostConfigSupported(spec: _specDto(spec));
+    return HostConfigSupport(
+      sources: s.sources,
+      protocols: s.protocols,
+      modelRequired: s.modelRequired,
+      keyRequired: s.keyRequired,
+    );
+  }
+
+  @override
+  Future<HostConfig> hostConfigSave({
+    required String name,
+    required HostConfigInput input,
+    required HostKeyAction keyAction,
+    String? key,
+    int? expectedRevision,
+    AcpAgentSpec? spec,
+    HostRuntime? runtime,
+  }) async => _hostConfig(
+    await frb.hostConfigSave(
+      name: name,
+      input: _inputDto(input),
+      keyAction: keyAction.name,
+      key: key,
+      expectedRevision: expectedRevision == null
+          ? null
+          : BigInt.from(expectedRevision),
+      spec: _specDto(spec),
+      runtime: runtime == null ? null : _runtimeDto(runtime),
+    ),
+  );
+
+  @override
+  Future<HostApplyResult> appServeApply(
+    String name, {
+    String? expectedIncarnation,
+    int? expectedRevision,
+  }) async {
+    final r = await frb.appServeApply(
+      name: name,
+      expectedIncarnation: expectedIncarnation,
+      expectedRevision: expectedRevision == null
+          ? null
+          : BigInt.from(expectedRevision),
+    );
+    return HostApplyResult(
+      name: r.name,
+      applied: r.applied,
+      restoredPrevious: r.restoredPrevious,
+      error: r.error,
+      restoreError: r.restoreError,
+      revision: r.revision?.toInt(),
+    );
+  }
+
+  @override
+  Future<HostStartResult> appServeStartConfigured({
+    String? name,
+    required HostRuntime runtime,
+    required HostConfigInput input,
+    required HostKeyAction keyAction,
+    String? key,
+  }) async {
+    final r = await frb.appServeStartConfigured(
+      name: name,
+      runtime: _runtimeDto(runtime),
+      input: _inputDto(input),
+      keyAction: keyAction.name,
+      key: key,
+    );
+    return HostStartResult(
+      name: r.name,
+      provider: r.provider,
+      serviceKey: r.serviceKey,
+      reused: r.reused,
+    );
+  }
+
+  @override
+  Future<String> codexLocalSessionOpen({String? binary, String? proxy}) =>
+      frb.codexLocalSessionOpen(binary: binary, proxy: proxy);
+
+  @override
+  Future<void> codexLocalSessionClose(String sessionId) =>
+      frb.codexLocalSessionClose(sessionId: sessionId);
+
+  @override
+  Future<CodexLoginStart> codexLocalLoginStart(String sessionId) async {
+    final s = await frb.codexLocalLoginStart(sessionId: sessionId);
+    return CodexLoginStart(
+      mode: s.mode,
+      loginId: s.loginId,
+      authUrl: s.authUrl,
+      verificationUrl: s.verificationUrl,
+      userCode: s.userCode,
+    );
+  }
+
+  @override
+  Future<CodexAuthStatus> codexLocalAuthStatus(
+    String sessionId, {
+    String? loginId,
+  }) async {
+    final s = await frb.codexLocalAuthStatus(
+      sessionId: sessionId,
+      loginId: loginId,
+    );
+    return CodexAuthStatus(
+      authenticated: s.authenticated,
+      method: s.method,
+      completed: s.completed,
+      error: s.error,
+    );
+  }
+
+  @override
+  Future<void> codexLocalLoginCancel(String sessionId, String loginId) =>
+      frb.codexLocalLoginCancel(sessionId: sessionId, loginId: loginId);
+
+  @override
+  Future<void> codexLocalLogout(String sessionId) =>
+      frb.codexLocalLogout(sessionId: sessionId);
 
   @override
   SessionSettings? appSessionSettings(String serviceKey, String threadId) {
@@ -471,6 +715,9 @@ class RustBridgeApi implements BridgeApi {
       authMode: s.authMode,
       needsSetup: s.needsSetup,
       promptVariant: s.promptVariant,
+      selectedProvider: s.selectedProvider,
+      configError: s.configError,
+      effectiveSource: s.effectiveSource,
     );
   }
 
@@ -880,6 +1127,30 @@ class RustBridgeApi implements BridgeApi {
     text: text,
     images: images,
   );
+
+  @override
+  Future<TurnSupplement> appTurnSupplement(
+    String serviceKey,
+    String threadId,
+    String? turnId,
+    String text, {
+    List<String> images = const [],
+  }) async {
+    final outcome = await frb.appTurnSupplement(
+      serviceKey: serviceKey,
+      threadId: threadId,
+      turnId: turnId,
+      text: text,
+      images: images,
+    );
+    // Only the two known outcomes mean anything; another is an unknown
+    // fate, never "nothing was consumed".
+    return switch (outcome.outcome) {
+      'injected' => TurnSupplement(injected: true, turnId: outcome.turnId),
+      'promptRequired' => const TurnSupplement(injected: false),
+      final other => throw StateError('unexpected supplement outcome: $other'),
+    };
+  }
 
   @override
   Future<void> appTurnInterrupt(

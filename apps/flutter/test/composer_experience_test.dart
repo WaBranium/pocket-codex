@@ -592,46 +592,107 @@ void main() {
     },
   );
 
+  // The native supplement fixture: a running conversation "a" (with "b"
+  // beside it) whose supplement answer is held, and a file to attach.
+  // The staged file's composer tile (the first attachment of the screen).
+  final sentTile = find.byKey(const Key('attachment-0'));
+
+  Future<(FakeBridgeApi, FakeFileSelector)> supplementFixture(
+    WidgetTester t,
+  ) async {
+    t.view.devicePixelRatio = 1;
+    t.view.physicalSize = const Size(1280, 900);
+    addTearDown(t.view.reset);
+    final api = FakeBridgeApi()
+      ..steerGate = Completer<void>()
+      ..readResult = const ThreadHistory(items: [], running: true)
+      ..appThreads.addAll([
+        const ThreadMeta(
+          id: 'a',
+          preview: 'Alpha',
+          cwd: '/project',
+          updatedAt: 0,
+        ),
+        const ThreadMeta(
+          id: 'b',
+          preview: 'Beta',
+          cwd: '/project',
+          updatedAt: 0,
+        ),
+      ]);
+    final previous = fsel.FileSelectorPlatform.instance;
+    final selector = FakeFileSelector()
+      ..files = [
+        MemXFile(Uint8List.fromList([1, 2]), 'sent.txt'),
+      ];
+    fsel.FileSelectorPlatform.instance = selector;
+    addTearDown(() => fsel.FileSelectorPlatform.instance = previous);
+    await _mount(t, api, settle: false);
+    await t.tap(find.byKey(const Key('attach-menu-btn')));
+    await _frames(t);
+    await t.tap(find.byKey(const Key('attach-file-btn')));
+    await _frames(t);
+    // The composer's own tile for the staged file.
+    expect(
+      find.descendant(of: sentTile, matching: find.text('sent.txt')),
+      findsOneWidget,
+    );
+    await t.tap(find.byKey(const Key('supplement-toggle')));
+    await t.enterText(_input, 'Accepted supplement');
+    await t.tap(find.byKey(const Key('send-btn')));
+    await t.pump();
+    return (api, selector);
+  }
+
+  // Exactly one supplement left, carrying the accepted text and file.
+  // The literal is the file-reference format (attachment_refs.dart), spelled
+  // out rather than rebuilt with the production helper.
+  void expectOneSupplement(FakeBridgeApi api) {
+    expect(api.supplementCalls, hasLength(1));
+    final (thread, _, text, images) = api.supplementCalls.single;
+    expect(thread, 'a');
+    expect(
+      text,
+      'Accepted supplement\n\n'
+      "## Attached files (read them from this machine's filesystem):\n"
+      '- /host/uploads/123/sent.txt',
+    );
+    expect(images, isEmpty);
+    expect(api.lastSteerText, text, reason: 'native: through turn/steer');
+  }
+
+  testWidgets('an owned supplement clears exactly what it sent, keeping a '
+      'later edit', (t) async {
+    final (api, _) = await supplementFixture(t);
+    await t.enterText(_input, 'Later edit');
+    await t.pump();
+    api.steerGate!.complete();
+    await _frames(t);
+    expectOneSupplement(api);
+    expect(_controller(t).text, 'Later edit', reason: 'not what was sent');
+    expect(sentTile, findsNothing, reason: 'its file left the composer');
+    expect(
+      find.byKey(const Key('attachment-remove-0')),
+      findsNothing,
+      reason: 'nothing of it is left to remove',
+    );
+    // The accepted user message keeps its file reference: the one remaining
+    // `sent.txt` is the transcript's, not a composer tile.
+    expect(find.text('sent.txt'), findsOneWidget, reason: 'transcript row');
+    expect(api.turnStartCount, 0, reason: 'never sent again as a prompt');
+    expect(t.takeException(), isNull);
+  });
+
+  // Leaving the conversation ends the request's ownership of its view: its
+  // late (accepted) answer cannot tell which input it consumed, so the
+  // draft, its attachments and the queue stay as they are — nothing is
+  // cleared, queued or sent again.
   for (final returnBeforeAck in [false, true]) {
     testWidgets(
-      'accepted supplement clears only its original draft (return before ack: $returnBeforeAck)',
+      'a supplement answered after leaving its conversation keeps its exact '
+      'input (return before ack: $returnBeforeAck)',
       (t) async {
-        t.view.devicePixelRatio = 1;
-        t.view.physicalSize = const Size(1280, 900);
-        addTearDown(t.view.reset);
-        final api = FakeBridgeApi()
-          ..steerGate = Completer<void>()
-          ..readResult = const ThreadHistory(items: [], running: true)
-          ..appThreads.addAll([
-            const ThreadMeta(
-              id: 'a',
-              preview: 'Alpha',
-              cwd: '/project',
-              updatedAt: 0,
-            ),
-            const ThreadMeta(
-              id: 'b',
-              preview: 'Beta',
-              cwd: '/project',
-              updatedAt: 0,
-            ),
-          ]);
-        final previous = fsel.FileSelectorPlatform.instance;
-        final selector = FakeFileSelector()
-          ..files = [
-            MemXFile(Uint8List.fromList([1, 2]), 'sent.txt'),
-          ];
-        fsel.FileSelectorPlatform.instance = selector;
-        addTearDown(() => fsel.FileSelectorPlatform.instance = previous);
-        await _mount(t, api, settle: false);
-        await t.tap(find.byKey(const Key('attach-menu-btn')));
-        await _frames(t);
-        await t.tap(find.byKey(const Key('attach-file-btn')));
-        await _frames(t);
-        await t.tap(find.byKey(const Key('supplement-toggle')));
-        await t.enterText(_input, 'Accepted supplement');
-        await t.tap(find.byKey(const Key('send-btn')));
-        await t.pump();
+        final (api, selector) = await supplementFixture(t);
         await t.tap(find.byKey(const Key('conv-tile-b')));
         await _frames(t);
         await t.enterText(_input, 'Unfinished beta');
@@ -656,13 +717,17 @@ void main() {
         }
         expect(
           _controller(t).text,
-          returnBeforeAck ? 'Newer alpha draft' : isEmpty,
+          returnBeforeAck ? 'Newer alpha draft' : 'Accepted supplement',
         );
-        expect(find.text('sent.txt'), findsNothing);
-        if (returnBeforeAck) expect(find.text('new.txt'), findsOneWidget);
+        expect(find.text('sent.txt'), findsOneWidget, reason: 'kept');
+        if (returnBeforeAck) {
+          expect(find.text('new.txt'), findsOneWidget, reason: 'added after');
+        }
         await t.tap(find.byKey(const Key('conv-tile-b')));
         await _frames(t);
         expect(_controller(t).text, 'Unfinished beta');
+        expectOneSupplement(api);
+        expect(api.turnStartCount, 0, reason: 'nothing queued or replayed');
         expect(t.takeException(), isNull);
       },
     );

@@ -3,13 +3,22 @@
 pub mod account;
 pub mod acp;
 pub mod app_session;
+pub mod claude_setup;
+pub mod codex_login;
 pub mod config;
 pub mod discovery;
+pub mod host_apply;
+mod host_lease;
+mod host_names;
+pub mod host_profiles;
+mod host_services;
+pub mod host_start;
 pub mod hosting;
 #[cfg(test)]
 mod hosting_live_tests;
 pub mod logging;
 pub mod meta;
+mod owned_child;
 pub mod runtime;
 pub mod serve;
 pub mod serve_acp;

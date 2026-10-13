@@ -126,6 +126,10 @@ class AppServeStatus {
     this.agentError,
     this.authRequired = false,
     this.catalog,
+    this.configSource,
+    this.configRevision,
+    this.incarnation,
+    this.busy,
   });
 
   /// Service instance name.
@@ -208,6 +212,23 @@ class AppServeStatus {
   /// Null for every other host.
   final AcpCatalogStatus? catalog;
 
+  /// Where the running host gets its model service, as launched:
+  /// `inherited`, `official` or `custom`. Null from an older bridge.
+  final String? configSource;
+
+  /// The saved configuration revision the running host was launched with;
+  /// a newer saved [HostConfig.revision] means "restart to apply".
+  final int? configRevision;
+
+  /// This run's identity; it changes whenever the host starts again. Passed
+  /// to [BridgeApi.appServeApply] so a replaced host is never restarted.
+  /// Null from an older bridge.
+  final String? incarnation;
+
+  /// A lifecycle operation holds this host now: `starting`, `stopping`,
+  /// `restarting` or `applying`; null when idle.
+  final String? busy;
+
   /// Whether this host runs a native Codex app-server.
   bool get isCodex => provider == 'codex';
 
@@ -231,10 +252,27 @@ class AcpCatalogStatus {
     this.reason,
     this.plugin,
     this.providers = const [],
+    this.routeState,
+    this.routeReasons = const [],
+    this.routeProjects = const [],
   });
 
   /// `waiting` (no session opened yet), `reported` or `unavailable`.
   final String state;
+
+  /// How the plugin left the host's own provider in OpenCode's merged
+  /// configuration: `waiting`, `selected` (nothing to change), `enforced`
+  /// (settings were reset to it), `overridden` (an older plugin only
+  /// reported it) or `unverified`; `null` without an own provider.
+  final String? routeState;
+
+  /// What was reset or found (`model`, `small-model`, `agent-model`,
+  /// `enabled-providers`, `disabled-providers`, `provider`, `missing`), or
+  /// why the route is `unverified` (a catalog reason).
+  final List<String> routeReasons;
+
+  /// The project directories the verdict covers, as OpenCode loaded them.
+  final List<String> routeProjects;
 
   /// Why it is unavailable: `plugins-disabled`, `config-env-taken` or
   /// `install-failed`.
@@ -425,6 +463,106 @@ class AcpServeResult {
 
   /// Whether an existing host was reused.
   final bool reused;
+}
+
+/// The Claude preset's local environment: its ACP adapter, a Node.js new
+/// enough for it, and the native `claude` CLI the adapter drives. Paths and
+/// versions only.
+class AcpClaudeStatus {
+  /// Creates a status.
+  const AcpClaudeStatus({
+    required this.ready,
+    required this.adapter,
+    this.adapterPath,
+    required this.runtime,
+    this.runtimeVersion,
+    this.runtimePath,
+    required this.cli,
+    this.cliPath,
+    required this.canPrepare,
+    required this.package,
+    this.problem,
+  });
+
+  /// The preset can start now.
+  final bool ready;
+
+  /// `installed` / `prepared` / `missing`.
+  final String adapter;
+
+  /// The adapter executable.
+  final String? adapterPath;
+
+  /// `found` / `tooOld` / `missing` / `notNeeded`.
+  final String runtime;
+
+  /// The Node.js version found (or the newest too-old one).
+  final String? runtimeVersion;
+
+  /// The Node.js executable used.
+  final String? runtimePath;
+
+  /// `inherited` / `found` / `missing` (the adapter's bundled CLI is used).
+  final String cli;
+
+  /// The native CLI handed to the adapter.
+  final String? cliPath;
+
+  /// Start can prepare the pinned adapter first.
+  final bool canPrepare;
+
+  /// The npm package and version Start prepares.
+  final String package;
+
+  /// Why it cannot start, when it cannot.
+  final String? problem;
+}
+
+/// The preparation of Claude's pinned ACP adapter.
+class AcpClaudeSetup {
+  /// Creates a preparation state.
+  const AcpClaudeSetup({
+    required this.state,
+    this.stage,
+    this.elapsedMs = 0,
+    this.error,
+    this.run = 0,
+    this.started = false,
+  });
+
+  /// `idle` / `running` / `done` / `failed` / `cancelled`.
+  final String state;
+
+  /// `installing` / `verifying` while running.
+  final String? stage;
+
+  /// Milliseconds since it started.
+  final int elapsedMs;
+
+  /// Why it failed.
+  final String? error;
+
+  /// The run this state belongs to (0 before any).
+  final int run;
+
+  /// This call started [run]; a call that joined one did not.
+  final bool started;
+
+  /// It is still running.
+  bool get running => state == 'running';
+}
+
+/// What became of [BridgeApi.appTurnSupplement].
+class TurnSupplement {
+  /// Creates an outcome.
+  const TurnSupplement({required this.injected, this.turnId});
+
+  /// The running turn [turnId] took the input. Otherwise no turn was
+  /// running and nothing was consumed: send it as an ordinary prompt.
+  final bool injected;
+
+  /// The turn that took it.
+  final String? turnId;
 }
 
 /// One value of an ACP select configuration option.
@@ -1584,6 +1722,9 @@ class CodexSetupStatus {
     this.authMode,
     required this.needsSetup,
     required this.promptVariant,
+    this.selectedProvider,
+    this.configError = false,
+    this.effectiveSource = '',
   });
 
   /// Resolved `CODEX_HOME` (display path).
@@ -1607,6 +1748,240 @@ class CodexSetupStatus {
 
   /// Active system-prompt variant (`default` / `non_degraded` / `custom`).
   final String promptVariant;
+
+  /// `config.toml`'s top-level `model_provider`, when set.
+  final String? selectedProvider;
+
+  /// `config.toml` exists but could not be read or parsed.
+  final bool configError;
+
+  /// What a host inheriting this configuration uses: `custom`, `account`,
+  /// `none` or `invalid` (configured, not verified); empty from an older
+  /// bridge.
+  final String effectiveSource;
+}
+
+/// A host's runtime: what runs, not its model service.
+class HostRuntime {
+  /// A native Codex runtime.
+  const HostRuntime.codex({this.binary, this.port = 0, this.proxy})
+    : kind = 'codex',
+      agent = null;
+
+  /// An ACP agent runtime.
+  const HostRuntime.acp(AcpAgentSpec this.agent)
+    : kind = 'acp',
+      binary = null,
+      port = 0,
+      proxy = null;
+
+  /// `codex` or `acp`.
+  final String kind;
+
+  /// Codex: the executable; null uses the saved codex, then `PATH`.
+  final String? binary;
+
+  /// Codex: the app-server port; `0` picks one.
+  final int port;
+
+  /// Codex: the upstream proxy; null inherits the app's environment.
+  final String? proxy;
+
+  /// ACP: the agent's profile and exact command line.
+  final AcpAgentSpec? agent;
+
+  /// Whether this is a native Codex runtime.
+  bool get isCodex => kind == 'codex';
+}
+
+/// What a running host runs with now (never the key).
+class HostActive {
+  /// Creates an active-configuration snapshot.
+  const HostActive({
+    required this.incarnation,
+    required this.runtime,
+    this.source = 'inherited',
+    this.revision = 0,
+  });
+
+  /// The run identity to pass to [BridgeApi.appServeApply].
+  final String incarnation;
+
+  /// The runtime as launched (Codex: the exact executable used).
+  final HostRuntime runtime;
+
+  /// The model-service source as launched.
+  final String source;
+
+  /// The saved revision it was launched with; `0` when never saved.
+  final int revision;
+}
+
+/// A host instance's saved model-service configuration and desired runtime,
+/// plus what it runs with now. Never carries the key, only whether one is
+/// stored.
+class HostConfig {
+  /// Creates a saved configuration.
+  const HostConfig({
+    this.source = 'inherited',
+    this.protocol,
+    this.baseUrl,
+    this.model,
+    this.keySet = false,
+    this.revision = 0,
+    this.runtime,
+    this.problem,
+    this.active,
+  });
+
+  /// `inherited` (the agent's own configuration), `official` (native Codex
+  /// account) or `custom`.
+  final String source;
+
+  /// Custom provider API: `responses`, `anthropic-messages` or
+  /// `chat-completions`.
+  final String? protocol;
+
+  /// Custom provider base URL.
+  final String? baseUrl;
+
+  /// Custom provider default model: the model the provider uses for a new
+  /// session, not a per-conversation choice.
+  final String? model;
+
+  /// A key is stored for this instance.
+  final bool keySet;
+
+  /// Moves on every save; `0` when never saved.
+  final int revision;
+
+  /// The saved desired runtime, when one was saved.
+  final HostRuntime? runtime;
+
+  /// Why the saved record cannot be used (safe to show); saving replaces it.
+  final String? problem;
+
+  /// What the running host runs with now; null when it does not run.
+  final HostActive? active;
+
+  /// The saved configuration differs from what the running host runs.
+  bool get pendingApply => active != null && active!.revision != revision;
+}
+
+/// What a host configuration save asks for, everything but the key.
+class HostConfigInput {
+  /// Creates a save request.
+  const HostConfigInput({
+    required this.source,
+    this.protocol,
+    this.baseUrl,
+    this.model,
+  });
+
+  /// `inherited`, `official` or `custom`.
+  final String source;
+
+  /// Custom provider API.
+  final String? protocol;
+
+  /// Custom provider base URL.
+  final String? baseUrl;
+
+  /// Custom provider default model.
+  final String? model;
+}
+
+/// What a save does with the stored key.
+enum HostKeyAction {
+  /// Leave it as it is.
+  keep,
+
+  /// Store a new one.
+  replace,
+
+  /// Remove it.
+  remove,
+}
+
+/// What an engine can select, so the editor offers only real mappings.
+class HostConfigSupport {
+  /// Creates a support description.
+  const HostConfigSupport({
+    this.sources = const ['inherited'],
+    this.protocols = const [],
+    this.modelRequired = false,
+    this.keyRequired = false,
+  });
+
+  /// Selectable sources, in display order.
+  final List<String> sources;
+
+  /// Custom provider APIs; empty when the agent has no known mechanism.
+  final List<String> protocols;
+
+  /// A custom provider must name its default model (OpenCode: otherwise
+  /// the user's own default model of another provider stays selected).
+  final bool modelRequired;
+
+  /// A custom provider must have a key (Claude: otherwise its own sign-in
+  /// would be sent to the gateway).
+  final bool keyRequired;
+}
+
+/// The outcome of applying a saved configuration to a running host.
+class HostApplyResult {
+  /// Creates an apply outcome.
+  const HostApplyResult({
+    required this.name,
+    required this.applied,
+    this.restoredPrevious = false,
+    this.error,
+    this.restoreError,
+    this.revision,
+  });
+
+  /// Instance name.
+  final String name;
+
+  /// The host runs the new configuration.
+  final bool applied;
+
+  /// The new start failed and the previous configuration runs again.
+  final bool restoredPrevious;
+
+  /// Why the new start failed, when it did.
+  final String? error;
+
+  /// Why restoring the previous configuration failed too: the host is
+  /// stopped.
+  final String? restoreError;
+
+  /// The saved revision the host now runs, when it runs.
+  final int? revision;
+}
+
+/// A host started with its configuration by
+/// [BridgeApi.appServeStartConfigured].
+class HostStartResult {
+  /// Creates a start outcome.
+  const HostStartResult({
+    required this.name,
+    required this.provider,
+    required this.serviceKey,
+    this.reused = false,
+  });
+
+  /// Instance name as hosted.
+  final String name;
+
+  /// `codex` or `acp`.
+  final String provider;
+
+  /// The controller key (`app:` for Codex, `acp:` for an agent).
+  final String serviceKey;
+
+  /// An already-running host was reused.
+  final bool reused;
 }
 
 /// A started ChatGPT login on the external Codex. [mode] is `browser` (open
@@ -1642,13 +2017,26 @@ class CodexLoginStart {
 /// codex auth status for one app-server.
 class CodexAuthStatus {
   /// Creates a codex auth status.
-  const CodexAuthStatus({required this.authenticated, this.method});
+  const CodexAuthStatus({
+    required this.authenticated,
+    this.method,
+    this.completed,
+    this.error,
+  });
 
   /// Whether a credential is active (login complete / provider key present).
+  /// It may predate the current login attempt.
   final bool authenticated;
 
   /// Auth method when signed in (`chatgpt` / `apikey` / …).
   final String? method;
+
+  /// Private sign-in only: how the asked-for login ended (`true` succeeded,
+  /// `false` failed); null while it has not finished.
+  final bool? completed;
+
+  /// Why the asked-for login failed, when it did.
+  final String? error;
 }
 
 /// The whole engine surface the UI is allowed to touch. One real impl wraps
@@ -1855,6 +2243,24 @@ abstract interface class BridgeApi {
   /// The executable [program] resolves to on this device, or `null`.
   Future<String?> acpLocate(String program, {String? profileId});
 
+  /// Detect the Claude preset's adapter, Node.js and native CLI (nothing is
+  /// installed or changed).
+  Future<AcpClaudeStatus> acpClaudeStatus();
+
+  /// Start preparing Claude's pinned ACP adapter in the app's cache, or join
+  /// the preparation already running.
+  Future<AcpClaudeSetup> acpClaudePrepareStart();
+
+  /// Where the adapter preparation is.
+  AcpClaudeSetup acpClaudePrepareState();
+
+  /// Cancel the running adapter preparation.
+  AcpClaudeSetup acpClaudePrepareCancel();
+
+  /// Cancel preparation run [run] only (the one its caller started); a later
+  /// run started by another caller keeps going.
+  AcpClaudeSetup acpClaudePrepareCancelRun(int run);
+
   /// Launch and host an ACP agent as `acp:<name>` plus `meta:<name>`.
   /// Stopping hosting stops the agent.
   Future<AcpServeResult> appServeStartAcp({
@@ -1864,6 +2270,75 @@ abstract interface class BridgeApi {
 
   /// Restart the agent of a local ACP host.
   Future<void> appServeRestartAcp(String name);
+
+  // --- Per-host model service ---
+
+  /// The saved configuration of host [name] (inherited when never saved).
+  Future<HostConfig> hostConfigGet(String name);
+
+  /// What a Codex host ([spec] null) or the ACP agent [spec] can select.
+  HostConfigSupport hostConfigSupported({AcpAgentSpec? spec});
+
+  /// Save host [name]'s configuration for a Codex host ([spec] null) or the
+  /// ACP agent [spec], and with [runtime] its desired runtime (an agent
+  /// runtime is checked as that agent). [key] is required for
+  /// [HostKeyAction.replace]. With [expectedRevision], a save made elsewhere
+  /// meanwhile is refused. A running host keeps its configuration until
+  /// [appServeApply].
+  Future<HostConfig> hostConfigSave({
+    required String name,
+    required HostConfigInput input,
+    required HostKeyAction keyAction,
+    String? key,
+    int? expectedRevision,
+    AcpAgentSpec? spec,
+    HostRuntime? runtime,
+  });
+
+  /// Restart running host [name] with its saved configuration and runtime.
+  /// [expectedIncarnation] ([HostActive.incarnation]) and [expectedRevision]
+  /// ([HostConfig.revision]) name what was reviewed: a replaced host or a
+  /// newer save is refused. A failed start restores the previous one exactly.
+  Future<HostApplyResult> appServeApply(
+    String name, {
+    String? expectedIncarnation,
+    int? expectedRevision,
+  });
+
+  /// Save and start a new host [name] with [runtime] and this configuration
+  /// as one operation; a failed start puts the previous saved configuration
+  /// back. Refused when the name is already hosting.
+  Future<HostStartResult> appServeStartConfigured({
+    String? name,
+    required HostRuntime runtime,
+    required HostConfigInput input,
+    required HostKeyAction keyAction,
+    String? key,
+  });
+
+  /// Start a private loopback codex for one official sign-in (never on the
+  /// relay), with [binary] (null: the saved codex, then `PATH`) and [proxy];
+  /// returns its session id.
+  Future<String> codexLocalSessionOpen({String? binary, String? proxy});
+
+  /// Stop the private sign-in codex [sessionId].
+  Future<void> codexLocalSessionClose(String sessionId);
+
+  /// Begin the official ChatGPT login on the private sign-in codex.
+  Future<CodexLoginStart> codexLocalLoginStart(String sessionId);
+
+  /// The private sign-in codex's account and, with [loginId], how that login
+  /// ended ([CodexAuthStatus.completed]).
+  Future<CodexAuthStatus> codexLocalAuthStatus(
+    String sessionId, {
+    String? loginId,
+  });
+
+  /// Cancel login [loginId] on the private sign-in codex.
+  Future<void> codexLocalLoginCancel(String sessionId, String loginId);
+
+  /// Sign codex out through the private sign-in codex.
+  Future<void> codexLocalLogout(String sessionId);
 
   /// The ACP agent's latest per-session state (no network), or `null`.
   SessionSettings? appSessionSettings(String serviceKey, String threadId);
@@ -2072,6 +2547,19 @@ abstract interface class BridgeApi {
 
   /// Send an asynchronous answer and return the accepted active turn ID.
   Future<String> appTurnSteer(
+    String serviceKey,
+    String threadId,
+    String? turnId,
+    String text, {
+    List<String> images = const [],
+  });
+
+  /// Add input to the running turn [turnId] (Codex `turn/steer`, or an ACP
+  /// agent's negotiated steering). An ACP agent with no turn running
+  /// consumes nothing and says so (Codex fails instead); an error means it
+  /// was refused or its fate is unknown, and it must not be retried or
+  /// resent as a prompt.
+  Future<TurnSupplement> appTurnSupplement(
     String serviceKey,
     String threadId,
     String? turnId,

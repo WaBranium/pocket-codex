@@ -19,6 +19,10 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:pocket_codex/src/rust/api/bridge.dart' as frb;
+import 'package:pocket_codex/src/rust/api/bridge/connection.dart' as frb;
+import 'package:pocket_codex/src/rust/api/bridge/events.dart' as frb;
+import 'package:pocket_codex/src/rust/api/bridge/services.dart' as frb;
+import 'package:pocket_codex/src/rust/api/bridge/threads.dart' as frb;
 import 'package:pocket_codex/src/rust/frb_generated.dart';
 
 const _relay = String.fromEnvironment('PCX_RELAY');

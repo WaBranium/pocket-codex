@@ -19,10 +19,7 @@ Future<void> pumpDialog(WidgetTester tester, FakeBridgeApi api) async {
         home: Builder(
           builder: (context) => Scaffold(
             body: TextButton(
-              onPressed: () => showDialog<void>(
-                context: context,
-                builder: (_) => const LocalHostDialog(),
-              ),
+              onPressed: () => showHostingEditor(context),
               child: const Text('open'),
             ),
           ),
@@ -45,7 +42,12 @@ void main() {
       );
       expect(selector.segments.singleWhere((s) => s.value).enabled, isFalse);
       expect(find.text('暂未实现，请使用外置 Codex。'), findsOneWidget);
-      await tester.tap(find.text('内置引擎'));
+      // Scrolled into view first: below the fold the tap would land on the
+      // page's workspace navigation instead of the disabled segment.
+      final builtIn = find.text('内置引擎');
+      await tester.ensureVisible(builtIn);
+      await tester.pumpAndSettle();
+      await tester.tap(builtIn);
       await tester.pumpAndSettle();
       expect(
         tester
