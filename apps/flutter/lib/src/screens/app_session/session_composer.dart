@@ -147,6 +147,7 @@ extension _SessionComposer on _AppSessionState {
       ),
     );
     final agentTarget = _agentTarget();
+    final supplementAgent = _caps.providerName;
     final modeChips = [
       if (_fastAvailable)
         turnChip(
@@ -176,15 +177,36 @@ extension _SessionComposer on _AppSessionState {
               ? null
               : (selected) => _updateState(() => _supplement = selected),
         ),
-      // An ACP agent that did not advertise steering: say so instead of
-      // hiding the option; messages sent now queue for the next turn.
       if (_streaming && !_caps.steer && _caps.isAcp)
-        turnChip(
-          key: const Key('supplement-unavailable'),
-          tooltip: l10n.steerUnavailableHint,
-          label: l10n.steerMessage,
-          selected: false,
-          onSelected: null,
+        Tooltip(
+          message: l10n.steerUnavailableHint,
+          child: ActionChip(
+            key: const Key('supplement-unavailable'),
+            avatar: const Icon(Icons.info_outline, size: 15),
+            label: Text(l10n.steerQueueOnly),
+            visualDensity: VisualDensity.compact,
+            materialTapTargetSize: touch
+                ? MaterialTapTargetSize.padded
+                : MaterialTapTargetSize.shrinkWrap,
+            labelStyle: TextStyle(
+              fontSize: 12.5,
+              color: scheme.onSurfaceVariant,
+            ),
+            onPressed: () => showDialog<void>(
+              context: context,
+              builder: (context) => AlertDialog(
+                scrollable: true,
+                title: Text(l10n.steerUnavailableTitle),
+                content: Text(l10n.steerUnavailableDetails(supplementAgent)),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: Text(l10n.done),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
     ];
 

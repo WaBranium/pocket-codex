@@ -186,9 +186,11 @@ it cannot leave a consumed request unresolved on a live generation.
   after the bridge's connection or host view changed, a lost connection or
   no answer in time — leaves the outcome unknown: it is reported and never
   retried or turned into a prompt. The UI offers **Supplement** only for
-  such agents; for others it shows the option as unavailable and messages
-  queue for the next turn. Before changing anything the screen checks that
-  the answer still owns its input: the same service, host connection and
+  such agents; for others it shows **Queue only**, with a clickable explanation
+  of the connected agent's missing capability. Messages queue for the next
+  turn. OpenCode 1.18.35 does not advertise this extension; changing its
+  selected model does not enable it. Before changing anything the screen
+  checks that the answer still owns its input: the same service, host connection and
   generation, conversation view, draft and request (leaving the
   conversation drops the request, so returning to the same session does
   not revive it). The host connection is the screen's link epoch, which

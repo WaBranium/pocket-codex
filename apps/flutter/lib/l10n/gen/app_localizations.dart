@@ -3539,8 +3539,26 @@ abstract class AppLocalizations {
   /// No description provided for @steerUnavailableHint.
   ///
   /// In en, this message translates to:
-  /// **'This agent cannot add to a running turn. Messages you send now are queued for the next turn.'**
+  /// **'This connection does not offer running-turn supplements. Select for details.'**
   String get steerUnavailableHint;
+
+  /// No description provided for @steerQueueOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Queue only'**
+  String get steerQueueOnly;
+
+  /// No description provided for @steerUnavailableTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Supplement unavailable'**
+  String get steerUnavailableTitle;
+
+  /// No description provided for @steerUnavailableDetails.
+  ///
+  /// In en, this message translates to:
+  /// **'{agent} has not advertised support for adding messages to a running turn over this ACP connection. Messages you send now are queued for the next turn.\n\nSupplement is available when the connected agent advertises this capability; choosing a different model does not enable it.'**
+  String steerUnavailableDetails(String agent);
 
   /// No description provided for @steerQueuedAfterEnd.
   ///

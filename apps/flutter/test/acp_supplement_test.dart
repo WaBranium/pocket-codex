@@ -157,6 +157,35 @@ void main() {
     expect(api.turnStartCount, 0);
   });
 
+  for (final platform in [TargetPlatform.android, TargetPlatform.macOS]) {
+    testWidgets(
+      'supplement stays usable after normal send on $platform',
+      (t) async {
+        final api = await running(t);
+        ended(api, 't1');
+        await frames(t);
+        await t.enterText(
+          find.byKey(const Key('composer-input')),
+          'first turn',
+        );
+        await t.pump();
+        await t.tap(find.byKey(const Key('send-btn')));
+        await frames(t);
+        expect(api.turnStartCount, 1);
+        final toggle = find.byKey(const Key('supplement-toggle'));
+        expect(t.widget<FilterChip>(toggle).onSelected, isNotNull);
+        await supplement(t, 'adjust while running');
+        expect(api.supplementCalls, hasLength(1));
+        expect(api.supplementCalls.single.$1, 'ses-1');
+        expect(api.supplementCalls.single.$3, 'adjust while running');
+        expect(api.turnStartCount, 1, reason: 'no replacement turn');
+        expect(composerText(t), isEmpty);
+        expect(find.byKey(const Key('queued-0')), findsNothing);
+      },
+      variant: TargetPlatformVariant({platform}),
+    );
+  }
+
   testWidgets(
     'input the ended turn did not consume becomes the next turn once',
     (t) async {
@@ -250,9 +279,18 @@ void main() {
     expect(find.byKey(const Key('supplement-toggle')), findsNothing);
     final unavailable = find.byKey(const Key('supplement-unavailable'));
     expect(unavailable, findsOneWidget);
-    expect(t.widget<FilterChip>(unavailable).onSelected, isNull);
+    expect(find.text('仅支持排队'), findsOneWidget);
     await t.enterText(find.byKey(const Key('composer-input')), 'later');
     await t.pump();
+    await t.tap(unavailable);
+    await frames(t);
+    expect(find.text('补充说明不可用'), findsOneWidget);
+    expect(find.textContaining('Claude 没有通过当前 ACP 连接声明'), findsOneWidget);
+    expect(api.supplementCalls, isEmpty);
+    expect(api.turnStartCount, 0);
+    expect(composerText(t), 'later');
+    await t.tap(find.text('完成'));
+    await frames(t);
     await t.tap(find.byKey(const Key('send-btn')));
     await frames(t);
     expect(api.supplementCalls, isEmpty);

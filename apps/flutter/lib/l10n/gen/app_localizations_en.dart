@@ -1950,7 +1950,18 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get steerUnavailableHint =>
-      'This agent cannot add to a running turn. Messages you send now are queued for the next turn.';
+      'This connection does not offer running-turn supplements. Select for details.';
+
+  @override
+  String get steerQueueOnly => 'Queue only';
+
+  @override
+  String get steerUnavailableTitle => 'Supplement unavailable';
+
+  @override
+  String steerUnavailableDetails(String agent) {
+    return '$agent has not advertised support for adding messages to a running turn over this ACP connection. Messages you send now are queued for the next turn.\n\nSupplement is available when the connected agent advertises this capability; choosing a different model does not enable it.';
+  }
 
   @override
   String get steerQueuedAfterEnd =>

@@ -1884,7 +1884,18 @@ class AppLocalizationsZh extends AppLocalizations {
   String get steerTurnEnded => '当前轮次已变更或结束。草稿已保留，可作为新轮次发送。';
 
   @override
-  String get steerUnavailableHint => '该代理不支持向进行中的轮次补充说明；现在发送的消息会排队到下个轮次。';
+  String get steerUnavailableHint => '当前连接未提供运行中补充说明，点击查看原因。';
+
+  @override
+  String get steerQueueOnly => '仅支持排队';
+
+  @override
+  String get steerUnavailableTitle => '补充说明不可用';
+
+  @override
+  String steerUnavailableDetails(String agent) {
+    return '$agent 没有通过当前 ACP 连接声明运行中补充说明的能力。现在发送的消息会排队，在当前轮次结束后发送。\n\n连接的代理提供此能力后才能使用补充说明；切换模型不会开启它。';
+  }
 
   @override
   String get steerQueuedAfterEnd => '轮次已结束，补充内容将作为下一轮发送。';
