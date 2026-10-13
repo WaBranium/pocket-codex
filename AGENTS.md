@@ -132,14 +132,14 @@ We follow Linus Torvalds–style engineering. In short:
   it behind a Cargo feature.
 - Keep functions short and modules shallow. Refactor when nesting
   goes past three levels.
-- Keep handwritten Rust files at or below 1,000 lines. Split a larger file
-  by cohesive responsibility (lifecycle, sessions, routes, tests…) into
-  child modules; never by arbitrary line ranges, `include!`, or by
-  compressing code and docs. Keep public paths stable with explicit
-  re-exports and keep moved items at their original visibility scope.
-  Prefer a module over a new crate unless there is a real independent
-  boundary (a separate deployable, dependency set or consumer). Generated
-  files (e.g. `frb_generated.rs`) are maintained by their generator.
+- Keep handwritten Rust and Dart files at or below 1,000 lines. Split by
+  cohesive responsibility (lifecycle, sessions, routes, widgets, tests),
+  never by arbitrary line ranges or by compressing code and docs. Preserve
+  public imports and visibility. Rust uses child modules and re-exports,
+  not `include!`. Dart may use private library parts for state-owned session
+  behavior and stateless bridge mixins; keep lifecycle and state ownership
+  in one place. Prefer modules over new crates or runtime dispatch layers.
+  Generated bindings and localizations remain generator-owned.
 - Prefer `tracing` over `println!`/`eprintln!` for anything that is not
   CLI output the user explicitly asked for.
 - File paths in handoff messages and change descriptions follow `path:line`

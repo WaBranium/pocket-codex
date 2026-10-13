@@ -1,0 +1,159 @@
+part of '../app_session_screen.dart';
+
+/// One composer attachment. An IMAGE is processed locally (EXIF-bake /
+/// downscale / re-encode in a background isolate) and travels inline as a
+/// data URL; a FILE is uploaded to the HOST over the meta tunnel and travels
+/// as a path reference in the turn text (codex's native document workflow —
+/// its input protocol has no document slot). Either kind shows a spinner chip
+/// until [ready].
+class _Attachment {
+  _Attachment.image({required this.id, required this.name}) : isFile = false;
+  _Attachment.file({required this.id, required this.name}) : isFile = true;
+  final int id;
+  final String name;
+  final bool isFile;
+  ProcessedImage? processed; // image: null while the isolate is still working
+  String? hostPath; // file: null while the upload is still in flight
+  XFile? source;
+  Uint8List? sourceBytes;
+  String? error;
+
+  /// The draft it was admitted into and the admission it holds; an upload
+  /// re-checks it after reading the file (see [AttachmentTicket]).
+  _ComposerDraft? draft;
+  AttachmentTicket? ticket;
+
+  /// Whether this attachment is sendable.
+  bool get ready =>
+      error == null && (isFile ? hostPath != null : processed != null);
+}
+
+/// A message the user composed while a turn was already running. It isn't sent
+/// immediately — it waits in [_AppSessionState._queue] and fires as its own turn
+/// once the running (and any earlier queued) turns finish (codex-cli parity).
+/// The composer draft is snapshotted whole (text + its ready attachments) so the
+/// entry can be sent verbatim later, or handed back to the composer on Esc.
+class _Queued {
+  _Queued({required this.id, required this.text, required this.attachments});
+  final int id;
+  final String text; // the raw composer text, as typed
+  final List<_Attachment> attachments;
+
+  /// Being sent: it stays first in the queue until the host admits it, so a
+  /// refusal keeps its place; meanwhile it cannot be dequeued or discarded.
+  bool inFlight = false;
+
+  /// Its send failed in a way that leaves open whether the host admitted
+  /// it (the request or its answer was lost). It stays first, the queue
+  /// holds behind it, and it is never sent again by itself — not after a
+  /// reload, reconnect or turn end: only the user's explicit Retry sends it
+  /// again (see `_resendUncertain`); the user may also edit (tap) or remove
+  /// it.
+  bool uncertain = false;
+
+  /// Why its last send failed, while it is held at the head of a paused
+  /// queue: the Retry its banner offered is offered again after a reload,
+  /// reconnect or reopening cleared that banner (see `_offerHeldQueue`).
+  String? failure;
+
+  /// One-line preview for the queued-messages strip.
+  String get preview {
+    final t = text.trim();
+    if (t.isNotEmpty) return t;
+    return attachments.isEmpty ? '' : attachments.first.name;
+  }
+}
+
+/// One admitted turn whose `turn/started` has not arrived (see
+/// `_AppSessionState._awaitedStart`): the draft and thread it was sent from.
+/// The instance itself is the admission's token.
+class _AwaitedStart {
+  _AwaitedStart({required this.draft, required this.threadId});
+  final _ComposerDraft draft;
+  final String threadId;
+}
+
+/// The host connection a send began on was lost or replaced before the send
+/// completed (see `_AppSessionState._linkEpoch`).
+class _LinkMoved implements Exception {
+  const _LinkMoved();
+}
+
+/// The exact wire content of one send (text with file references, image
+/// data URLs), kept by its retry.
+class _Resend {
+  const _Resend({required this.text, required this.images});
+  final String text;
+  final List<String> images;
+}
+
+/// One entry in an option-picker bottom sheet (model / permission / effort).
+class _PickerOption<T> {
+  const _PickerOption({
+    required this.value,
+    required this.icon,
+    required this.label,
+    this.description,
+  });
+  final T value;
+  final IconData icon;
+  final String label;
+  final String? description;
+}
+
+/// Esc while renaming: leave the title edit without committing.
+class _CancelTitleEditIntent extends Intent {
+  const _CancelTitleEditIntent();
+}
+
+/// Paints a short accent bar on the leading edge of a selected row, centred
+/// vertically, without changing the row's layout.
+class _SelectionBar extends StatelessWidget {
+  const _SelectionBar({
+    required this.visible,
+    required this.color,
+    required this.child,
+  });
+
+  final bool visible;
+  final Color color;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!visible) return child;
+    return Stack(
+      alignment: Alignment.centerLeft,
+      children: [
+        child,
+        Positioned(
+          left: 0,
+          top: 0,
+          bottom: 0,
+          child: Center(
+            child: Container(
+              width: 3,
+              height: 16,
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: const BorderRadius.horizontal(
+                  right: Radius.circular(2),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// What an agent option change applies to: the service, conversation and the
+/// load, capability and connection generations it was offered under.
+typedef _AgentTarget = ({
+  String service,
+  String thread,
+  int load,
+  int caps,
+  int link,
+});

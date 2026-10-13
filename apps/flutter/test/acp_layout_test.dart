@@ -18,6 +18,7 @@ import 'package:pocket_codex/src/theme.dart';
 import 'package:pocket_codex/src/widgets/local_host_dialog.dart';
 
 import 'fake_bridge_api.dart';
+import 'support/acp_capabilities.dart';
 import 'support/ui_preview.dart';
 
 const _acp = 'pcx:dev:acp:agent';
@@ -37,26 +38,8 @@ const _names = {
 const _program =
     '/Applications/A Very Long Application Name.app/Contents/MacOS/agent-binary';
 
-AppCapabilities _caps(String agent) => AppCapabilities(
-  provider: 'acp',
-  fast: false,
-  permissionPresets: false,
-  guardian: false,
-  rateLimits: false,
-  takeover: false,
-  externalWriterMonitor: false,
-  localSessions: false,
-  planMode: false,
-  protocol: 'acp',
-  providerName: agent,
-  negotiated: true,
-  generation: 1,
-  sessionConfig: true,
-  permissionOptions: true,
-  sessionReopen: 'load',
-  sessionList: 'agent',
-  runningInventory: 'engine',
-);
+AppCapabilities _caps(String agent) =>
+    negotiatedAcpCapabilities(providerName: agent);
 
 Widget _app(Widget home, BridgeApi api, Locale locale, Brightness brightness) =>
     ProviderScope(

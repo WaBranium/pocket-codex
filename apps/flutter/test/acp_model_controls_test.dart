@@ -17,30 +17,14 @@ import 'package:pocket_codex/src/screens/app_session/option_picker.dart';
 import 'package:pocket_codex/src/screens/app_session_screen.dart';
 
 import 'fake_bridge_api.dart';
+import 'support/acp_capabilities.dart';
 import 'support/screen_harness.dart';
 
 const _acp = 'pcx:dev:acp:agent';
 
-const _caps = AppCapabilities(
-  provider: 'acp',
-  fast: false,
-  permissionPresets: false,
-  guardian: false,
-  rateLimits: false,
-  takeover: false,
-  externalWriterMonitor: false,
-  localSessions: false,
-  planMode: false,
-  protocol: 'acp',
+final _caps = negotiatedAcpCapabilities(
   providerName: 'OpenCode',
   profileId: 'opencode',
-  negotiated: true,
-  generation: 1,
-  sessionConfig: true,
-  permissionOptions: true,
-  sessionReopen: 'load',
-  sessionList: 'agent',
-  runningInventory: 'engine',
 );
 
 /// Models: provider id → [(model id, label, variants)]. OpenRouter-style ids

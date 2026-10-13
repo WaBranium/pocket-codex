@@ -1,0 +1,561 @@
+part of '../app_session_screen.dart';
+
+extension _SessionSend on _AppSessionState {
+  bool get _localSending => _localSendOwner != null;
+
+  /// Take the send lock for [owner]; a new operation begins.
+  void _holdSend(Object owner) {
+    _localSendOwner = owner;
+    _composerOp++;
+  }
+
+  /// Release the send lock if [owner] still holds it.
+  void _releaseSend(Object owner) {
+    if (identical(_localSendOwner, owner)) _localSendOwner = null;
+  }
+
+  bool get _awaitingTurnStart => _awaitedStart != null;
+  // Navigation clears local operations, but cannot unlock a draft's send.
+  bool get _sending => _localSending || _draft.sendPending;
+
+  Future<void> _send({
+    bool retry = false,
+    String? overrideText,
+    _Queued? queued,
+    _Resend? resend,
+  }) async {
+    // A retry re-sends exactly what its failed send put on the wire (its own
+    // captured copy; the last-sent fields move with every later send).
+    final typed = retry
+        ? (resend?.text ?? _lastUserText ?? '')
+        : (queued?.text.trim() ?? overrideText ?? _input.text.trim());
+    // Attachments ride an ordinary composer send only: a programmatic send
+    // (e.g. "implement the plan") must not consume them, and a retry re-sends
+    // the snapshot taken at the original send.
+    final ordinary = !retry && overrideText == null;
+    final sendAttachments = List<_Attachment>.of(
+      queued?.attachments ?? _attachments,
+    );
+    final images = retry
+        ? (resend?.images ?? _lastUserImages)
+        : !ordinary
+        ? const <String>[]
+        : [
+            for (final a in sendAttachments)
+              if (!a.isFile) ?a.processed?.dataUrl,
+          ];
+    // File attachments were already uploaded to the host at pick time; they
+    // travel as a path-reference block appended to the text (codex's native
+    // document workflow). On retry `typed` already contains the block, so no
+    // re-upload and no double-append.
+    final filePaths = ordinary
+        ? [
+            for (final a in sendAttachments)
+              if (a.isFile) ?a.hostPath,
+          ]
+        : const <String>[];
+    final text = appendFileRefs(typed, filePaths);
+    final again = _Resend(text: text, images: images);
+    // Block sends while reconnecting — a reconnect reloads history and would
+    // wipe an optimistic message added mid-flight.
+    if (_externalWriterMode ||
+        (text.isEmpty && images.isEmpty) ||
+        _sending ||
+        (queued != null && (queued.inFlight || queued.uncertain)) ||
+        _reconnecting ||
+        _historySyncing ||
+        _restoringSettings ||
+        _preparingSession ||
+        _showingCachedHistory) {
+      return;
+    }
+    // If this host is THIS machine's codex and it can't make model calls yet
+    // (no login AND no custom provider), a turn would silently fail. Steer the
+    // user to the setup wizard instead of starting an invalid conversation.
+    if (_codexNeedsSetup(watch: false)) {
+      _openCodexSetup();
+      return;
+    }
+    // Never send while an attachment is still processing/uploading — the
+    // message would silently ship without it. (The send button is disabled
+    // too; this also guards the Enter-to-send path.)
+    if (ordinary && sendAttachments.any((a) => !a.ready)) {
+      return;
+    }
+    // Take the send lock up front, before the retry probe's await below, so the
+    // composer can't start a second send during that round-trip (re-entrancy).
+    final api = ref.read(bridgeApiProvider);
+    final sendingDraft = _draft;
+    final request = Object();
+    _sendRequest = request;
+    // The whole send goes to the service and host connection it began on:
+    // nothing is dispatched once that connection was lost or replaced, and
+    // an answer arriving after that is not adopted (see [_LinkMoved]).
+    final service = widget.serviceKey;
+    final link = _linkEpoch;
+    bool sameLink() => _linkEpoch == link;
+    // This view still shows the request's draft (navigation and a newer
+    // send replace the request).
+    bool shown() =>
+        mounted &&
+        identical(_sendRequest, request) &&
+        identical(_draft, sendingDraft);
+    bool current() => shown() && sameLink();
+    var targetThread = _threadId;
+    final targetCwd = _cwd;
+    final isNewThread = targetThread == null;
+    final l10n = AppLocalizations.of(context);
+    final preview = typed.isNotEmpty
+        ? typed
+        : filePaths.isNotEmpty
+        ? l10n.fileOnlyMessage
+        : l10n.imageOnlyMessage;
+    _settingsRevision++;
+    final mode = _mode;
+    // Providers without these controls keep their own configuration: send
+    // nothing rather than a Codex preset they would have to interpret.
+    final presets = _caps.permissionPresets;
+    final tier = _caps.fast ? _requestedServiceTier : null;
+    // A queued message keeps its place until the host admits it.
+    _updateState(() {
+      _holdSend(request);
+      queued?.inFlight = true;
+    });
+    // Leaving before the send starts releases only what this request holds.
+    void abandon() {
+      queued?.inFlight = false;
+      if (!mounted) return;
+      _updateState(() => _releaseSend(request));
+    }
+
+    // Retry safety: a send can commit server-side just before the socket drops
+    // (we reconnect with reload:false to keep the optimistic bubble for a
+    // one-tap retry). Re-sending a committed turn records the prompt twice —
+    // which both shows a duplicate user bubble and leaves a trailing duplicate
+    // that hides the plan-implement choice. So on retry, ask the server first;
+    // if this prompt is already the latest user turn, just reload its (possibly
+    // in-progress) history instead of sending again. An unreadable history
+    // decides nothing: the retry stays offered and nothing is sent.
+    if (retry) {
+      // An answer of a connection that changed meanwhile is null (unverified).
+      final committed = await _turnAlreadyCommitted(text, images);
+      if (!shown()) {
+        abandon();
+        return;
+      }
+      if (committed != false) {
+        abandon();
+        if (committed == null) {
+          _updateState(() {
+            _error = l10n.retryUnverified;
+            _retry = () => _send(retry: true, resend: again);
+          });
+          return;
+        }
+        await _resumeAndLoad();
+        return;
+      }
+    }
+    String? bubble;
+    _updateState(() {
+      _error = null;
+      _retry = null;
+      _lastUserText = text;
+      _lastUserImages = images;
+      if (!retry) {
+        final id = 'local-user-${_localSeq++}';
+        bubble = id;
+        _itemIndex[id] = _items.length;
+        _items.add(
+          TranscriptItem(
+            id: id,
+            type: 'userMessage',
+            text: text,
+            images: resolveImageUrls(images),
+            imageUrls: images,
+          ),
+        );
+        // Remember the just-sent draft so an Esc "undo" (before any output)
+        // can restore it to the composer. Only for an ordinary send — a
+        // programmatic prompt (e.g. "implement the plan") has no user draft to
+        // hand back.
+        _undoableDraft = overrideText == null
+            ? (text: typed, attachments: List<_Attachment>.of(sendAttachments))
+            : null;
+        // Don't clear the composer for a programmatic send (e.g. "implement
+        // the plan") — the user may have text in progress there.
+        if (overrideText == null && queued == null) {
+          _attachments.clear();
+          _input.clear();
+        }
+        _saveDraft();
+      }
+    });
+    _scrollToEnd(force: true);
+    var dropped = false;
+    var sent = false;
+    // Whether turn/start was put on the wire: an error before it admitted
+    // nothing.
+    var dispatched = false;
+    // A failed queued message keeps its text and attachments at the head of
+    // its queue, which pauses until the user acts: it is never replayed by
+    // itself. A proven refusal (nothing was admitted) may simply be retried;
+    // an [uncertain] one is sent again only by the user's explicit Retry
+    // (see [_resendUncertain]).
+    var requeued = false;
+    void holdQueued(String message, {required bool uncertain}) {
+      final entry = queued;
+      if (entry == null) return;
+      requeued = true;
+      entry.inFlight = false;
+      entry.uncertain = uncertain;
+      entry.failure = message;
+      sendingDraft.queuePaused = true;
+      if (!mounted || !identical(_draft, sendingDraft)) return;
+      _updateState(() {
+        final index = bubble == null ? -1 : _itemIndex[bubble] ?? -1;
+        if (index >= 0 && index < _items.length && _items[index].id == bubble) {
+          _items.removeAt(index);
+          _rebuildItemIndex();
+          _cachedRows = null;
+        }
+        _undoableDraft = null;
+        // The banner belongs to this request's view; otherwise the next
+        // reload or reconnect of the conversation offers it (see
+        // [_offerHeldQueue]).
+        if (shown()) {
+          _error = uncertain
+              ? '$message\n${l10n.queuedUncertainRetry}'
+              : message;
+          _retry = uncertain ? () => _resendUncertain(entry) : _resumeQueue;
+        }
+      });
+    }
+
+    // The host connection moved before this send could complete. Its input
+    // goes back to its own draft with the reason — nothing is resent on the
+    // user's behalf — and its optimistic copy is withdrawn (the reconnect's
+    // reload shows what the host holds).
+    void returnToDraft(String message) {
+      _restoreDraft(typed, sendAttachments, into: sendingDraft);
+      if (!mounted || !identical(_draft, sendingDraft)) return;
+      _updateState(() {
+        final index = bubble == null ? -1 : _itemIndex[bubble] ?? -1;
+        if (index >= 0 && index < _items.length && _items[index].id == bubble) {
+          _items.removeAt(index);
+          _rebuildItemIndex();
+          _cachedRows = null;
+        }
+        _undoableDraft = null;
+      });
+      showToast(context, '$message ${l10n.sendReturnedToDraft}');
+    }
+
+    sendingDraft.sendPending = true;
+    _drafts.save(sendingDraft, changed: true);
+    try {
+      // Collaboration mode for this turn. Send it when the user explicitly
+      // toggled the plan chip (so an explicit on/off is always honored, even if
+      // our view of the server mode is stale), or when the desired toggle
+      // differs from the known mode; otherwise leave it unchanged (null) so
+      // ordinary turns don't force a model.
+      final collab = (_planToggledByUser || _plan != _planActive)
+          ? (_plan ? 'plan' : 'default')
+          : null;
+      // The effort this turn runs with: a pending pick, else the thread's
+      // current effort (re-asserted so a plan/permission turn can't drop it).
+      final effort = _effectiveEffort;
+      // Both plan and default collaboration settings require a concrete model
+      // id; resolve one (and reflect it in the chip) if left on "default".
+      var modelId = _model?.id;
+      if (collab != null && modelId == null) {
+        final models = await api.appModelList(service);
+        // An answer of a connection that moved names nothing for this one,
+        // and nothing more is asked of whichever host answers now.
+        if (!sameLink()) throw const _LinkMoved();
+        if (models.isNotEmpty) {
+          modelId = models.first.id;
+          if (current()) _updateState(() => _model = models.first);
+        }
+      }
+      // The server silently ignores collaborationMode without a concrete model,
+      // which would leave the thread in its previous mode while we optimistically
+      // flip _planActive below — a silent UI/server divergence. Refuse instead so
+      // the switch (enter/leave plan mode) never appears to succeed when it can't.
+      if (collab != null && modelId == null) {
+        if (queued != null) {
+          holdQueued(l10n.noModelForMode, uncertain: false);
+        } else if (shown()) {
+          _updateState(() {
+            _error = l10n.noModelForMode;
+            _retry = () => _send(retry: true, resend: again);
+          });
+        } else if (ordinary) {
+          _restoreDraft(typed, sendAttachments, into: sendingDraft);
+        }
+        return;
+      }
+      targetThread ??= await api.appThreadStart(
+        service,
+        model: modelId,
+        cwd: targetCwd,
+        approvalPolicy: presets ? mode.approval : null,
+        approvalsReviewer: presets ? mode.reviewer : null,
+        serviceTier: tier,
+        sandbox: presets ? mode.sandbox : null,
+      );
+      // A session created through a connection that moved since (lost,
+      // replaced, another generation or source) is not known to be the
+      // current host's: nothing adopts or records it, and the input stays
+      // in its own unsent draft.
+      if (!sameLink()) throw const _LinkMoved();
+      if (isNewThread) {
+        // The session exists for its draft even if the view moved on within
+        // the same connection; only that draft adopts it.
+        _drafts.adoptThread(sendingDraft, targetThread);
+        // The user may have reopened this same draft while thread/start waited.
+        if (mounted && identical(_draft, sendingDraft)) {
+          _threadId = targetThread;
+          ref
+              .read(uiPrefsProvider.notifier)
+              .setLastThread(service, targetThread);
+          // A new ACP session reports its own options (if any).
+          if (_caps.sessionConfig) _refreshAgentSettings();
+        }
+        // Surface the new session in the left pane immediately. `thread/list`
+        // can lag `thread/start`, so optimistically insert it now (newest
+        // first) and let _loadThreads reconcile once the server catches up.
+        final tid = targetThread;
+        if (mounted && !_threads.any((t) => t.id == tid)) {
+          _updateState(() {
+            _threads = [
+              ThreadMeta(
+                id: tid,
+                // Preview the TYPED text (never the appended file-reference
+                // block); an attachment-only first message gets a placeholder.
+                preview: preview,
+                cwd: targetCwd ?? '',
+                updatedAt: 0,
+              ),
+              ..._threads,
+            ];
+          });
+        }
+        if (mounted) _loadThreads();
+        // Persist this new thread's config now that it has a server-side id, so
+        // it's stored even if the first turn/start below fails.
+        if (current()) _persistThreadConfig();
+      }
+      // Record what this turn puts on the wire BEFORE sending: turn/started
+      // (and the stamp it takes) can arrive while the await below is still in
+      // flight. Turn params override thread defaults, so on servers that never
+      // notify settings these ARE the effective values.
+      if (current()) {
+        _sentModel = modelId;
+        _sentEffort = effort?.wire;
+      }
+      // Pass the current model + permission + collaboration mode every turn:
+      // turn/start overrides apply to this and subsequent turns, so switching
+      // works mid-conversation.
+      final turnRevision = _turnStateRevision;
+      // The model list or thread start above may have outlived the
+      // connection: nothing goes to whichever host answers now.
+      if (!sameLink()) throw const _LinkMoved();
+      dispatched = true;
+      await api.appTurnStart(
+        service,
+        targetThread,
+        text,
+        images: images,
+        model: modelId,
+        approvalPolicy: presets ? mode.approval : null,
+        approvalsReviewer: presets ? mode.reviewer : null,
+        serviceTier: tier,
+        sandbox: presets ? mode.sandbox : null,
+        collaborationMode: collab,
+        // Re-assert the effective effort every turn. The bridge puts it on the
+        // top-level `effort` field AND (when a collaborationMode is sent) into
+        // collaborationMode.settings, so toggling plan/permission never wipes the
+        // thread's sticky effort. null only when no effort has ever been set.
+        reasoningEffort: effort?.wire,
+      );
+      // Accepted by a connection that is gone now: whether the turn lives on
+      // is open, so nothing is adopted (no queue removal, no admission).
+      if (!sameLink()) throw const _LinkMoved();
+      sent = true;
+      if (queued != null) sendingDraft.queue.remove(queued);
+      // Admitted, but its start may not have arrived: until it does the
+      // session is busy and the queue must not send the next message.
+      if (current() && !_streaming && _turnStateRevision == turnRevision) {
+        _expectTurnStart(sendingDraft, targetThread);
+      }
+      if (current()) {
+        _updateState(() {
+          _planActive = _plan;
+          _planToggledByUser = false;
+          // The user's model pick (if any) is now on the wire; server
+          // confirmations may sync the pill again.
+          _modelPickPending = false;
+          if (_mode == mode) _modePickPending = false;
+          if (_serviceTier == tier) _serviceTierPickPending = false;
+          // The effort this turn ran with is now the thread's active effort.
+          _effortActive = effort;
+          // Clear the pending pick ONLY if the user hasn't chosen a NEWER effort
+          // while this turn was being sent. A mid-send `_pickEffort` sets
+          // `_effort` (and persists it) for the next turn; blindly nulling it
+          // here would silently revert that change (R4).
+          if (_effort == effort) _effort = null;
+        });
+        // Remember this thread's mode + effort so resuming/switching restores it.
+        if (_threadId != null) {
+          _AppSessionState._planByThread[_threadKey(_threadId!)] = _plan;
+          _AppSessionState._effortByThread[_threadKey(_threadId!)] = effort;
+        }
+        // Persist the config now that the thread has an id — covers a brand-new
+        // conversation whose settings were chosen before its first turn.
+        _persistThreadConfig();
+        // Adopt the bridge's cached runtime config: for a brand-new thread the
+        // start response reported the effective model/permissions, and any
+        // settings notification that raced the send is folded in too.
+        _refreshRuntimeFromCache();
+      }
+    } catch (e) {
+      final moved = e is _LinkMoved;
+      final msg = !moved
+          ? friendlyError(e)
+          : dispatched
+          ? l10n.sendAnswerStale
+          : l10n.sendHostChanged;
+      final refused =
+          !sent && (!dispatched || (!moved && _definitelyRefused(msg)));
+      if (queued != null && !sent) {
+        // Its text and attachments stay queued either way; only a proven
+        // refusal may be retried without asking the host first.
+        holdQueued(msg, uncertain: !refused);
+      } else if (moved && ordinary) {
+        returnToDraft(msg);
+      } else {
+        if (shown()) {
+          _updateState(() {
+            _error = msg;
+            _retry = () => _send(retry: true, resend: again);
+          });
+        } else if (ordinary) {
+          // This view moved on: the input goes back to its own draft (it is
+          // never sent from there by itself).
+          _restoreDraft(typed, sendAttachments, into: sendingDraft);
+        }
+        if (shown() && !moved && _looksDisconnected(msg)) dropped = true;
+      }
+    } finally {
+      if (queued != null && !requeued) queued.inFlight = false;
+      sendingDraft.sendPending = false;
+      _drafts.save(sendingDraft, changed: true);
+      if (mounted) _updateState(() => _releaseSend(request));
+      // Only an idle session drains; an admitted turn ends first (see
+      // [_awaitingTurnStart]).
+      if (sent &&
+          mounted &&
+          sameLink() &&
+          identical(_draft, sendingDraft) &&
+          _error == null &&
+          !dropped) {
+        _maybeFlushQueue();
+      }
+    }
+    // The connection dropped mid-send: recover it in the background so a retry
+    // (or the next message) succeeds. We do NOT auto-resend — the turn may have
+    // committed server-side before the socket dropped, and resending would
+    // duplicate it; the user retries with one tap instead. `reload: false`
+    // keeps the optimistic message visible (and the plan toggle) for that retry.
+    if (dropped && shown()) {
+      await _autoReconnect(reload: false);
+      // _autoReconnect cleared the error; re-offer the retry now that the
+      // connection is back (retry re-sends this send's copy into the existing
+      // bubble).
+      if (shown() && !_connectionLost) {
+        _updateState(() {
+          _error = AppLocalizations.of(context).turnFailed;
+          _retry = () => _send(retry: true, resend: again);
+        });
+      }
+    }
+  }
+
+  /// Whether the server already recorded [text] as the latest user turn — i.e.
+  /// a send committed before the socket dropped — so the user's explicit
+  /// Retry reloads instead of recording it twice. This only avoids the common
+  /// duplicate: a missing match is no proof that the send never arrived
+  /// (another writer, a bounded tail), which is why only the user's own Retry
+  /// acts on it. Returns null when the answer cannot be trusted: the history
+  /// was unreadable, or the conversation, connection or host changed while
+  /// it was read; the caller then keeps the message and sends nothing.
+  ///
+  /// Idempotency compares the full message content — text AND the image URL
+  /// list (history echoes the data URLs we sent verbatim): if the user
+  /// deliberately re-asks an identical prompt and *that* send drops before
+  /// committing, the latest committed user turn still matches, so the retry
+  /// reloads instead of resending. Comparing URLs (not just a count) matters
+  /// for image-only messages, which ALL have empty text — a count-only match
+  /// would swallow a retry of a *different* photo. Accepted edge — avoiding a
+  /// duplicate (costly) turn is preferred over re-sending a rare identical
+  /// consecutive prompt.
+  Future<bool?> _turnAlreadyCommitted(String text, List<String> images) async {
+    final tid = _threadId;
+    if (tid == null) return false;
+    // The answer counts only for the conversation, connection and host it
+    // was asked of.
+    final service = widget.serviceKey;
+    final link = _linkEpoch;
+    final hostGeneration = _caps.generation;
+    bool unchanged() =>
+        mounted &&
+        _threadId == tid &&
+        _linkEpoch == link &&
+        _caps.generation == hostGeneration;
+    try {
+      final api = ref.read(bridgeApiProvider);
+      await api.appThreadResume(service, tid);
+      if (!unchanged()) return null;
+      final history = await api.appThreadRead(service, tid);
+      if (!unchanged()) return null;
+      final want = text.trim();
+      for (final i in history.items.reversed) {
+        if (i.itemType == 'userMessage') {
+          return i.text.trim() == want && listEquals(i.images, images);
+        }
+      }
+      return false;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Whether a dispatched turn/start failed with one of the agent host's own
+  /// refusals, each given before a turn is admitted. Every other failure —
+  /// a lost request or answer, a timeout, any phrasing not listed here —
+  /// leaves open whether the turn was admitted.
+  bool _definitelyRefused(String msg) {
+    final m = msg.toLowerCase();
+    return const [
+      'the agent is not running',
+      'the agent host changed',
+      'unknown session',
+      'a turn is already running in this session',
+      'the session is still loading',
+      'too many sessions are busy',
+      'too many pending operations',
+      'invalid request:',
+    ].any(m.startsWith);
+  }
+
+  /// Whether an error message looks like the app-server connection dropped, so
+  /// the banner can offer "reconnect" (which re-establishes the session) rather
+  /// than a plain retry that would hit the same dead connection.
+  bool _looksDisconnected(String msg) {
+    final m = msg.toLowerCase();
+    return m.contains('connection closed') ||
+        m.contains('closed connection') ||
+        m.contains('not connected');
+  }
+}

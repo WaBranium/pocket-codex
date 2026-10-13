@@ -21,6 +21,7 @@ import 'package:pocket_codex/src/image_attachments.dart';
 import 'package:pocket_codex/src/screens/app_session_screen.dart';
 
 import 'fake_bridge_api.dart';
+import 'support/acp_capabilities.dart';
 import 'support/screen_harness.dart';
 
 const acp = 'pcx:dev:acp:claude';
@@ -29,27 +30,11 @@ AppCapabilities caps({
   required bool steer,
   int generation = 1,
   bool imageInput = false,
-}) => AppCapabilities(
-  provider: 'acp',
-  fast: false,
-  permissionPresets: false,
-  guardian: false,
-  rateLimits: false,
-  takeover: false,
-  externalWriterMonitor: false,
-  localSessions: false,
-  planMode: false,
-  protocol: 'acp',
+}) => negotiatedAcpCapabilities(
   providerName: 'Claude',
-  negotiated: true,
   generation: generation,
   imageInput: imageInput,
   steer: steer,
-  sessionConfig: true,
-  permissionOptions: true,
-  sessionReopen: 'load',
-  sessionList: 'agent',
-  runningInventory: 'engine',
 );
 
 Future<void> frames(WidgetTester t) async {

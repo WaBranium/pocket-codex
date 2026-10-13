@@ -1,0 +1,830 @@
+part of '../app_session_screen.dart';
+
+extension _SessionConversations on _AppSessionState {
+  Widget _sessionsPane(AppLocalizations l10n, {bool inDrawer = false}) {
+    final scheme = Theme.of(context).colorScheme;
+    // Live set of running threads for this service, so other sessions show a
+    // pulsing badge here too (not just the open one's status bar).
+    final running = <String>{
+      ...?ref.watch(runningThreadsProvider(widget.serviceKey)).valueOrNull,
+      if (_externalWriterRunning && _threadId != null) _threadId!,
+    };
+    // Close the drawer (mobile) if this pane is inside an open one.
+    void closeDrawerIfOpen(BuildContext ctx) {
+      if (Scaffold.maybeOf(ctx)?.isDrawerOpen ?? false) Navigator.pop(ctx);
+    }
+
+    // Filter by the search query, then bucket by recency: running threads go to
+    // "Active", today's to "Today", and the rest to "Earlier".
+    final q = _convQuery.trim().toLowerCase();
+    final known = {for (final thread in _threads) thread.id: thread};
+    for (final thread in _discoveredThreads.values) {
+      if (widget.home || _cwd == null || _cwd!.isEmpty || thread.cwd == _cwd) {
+        known.putIfAbsent(thread.id, () => thread);
+      }
+    }
+    final conversations = known.values.toList()
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    final matches = q.isEmpty
+        ? conversations
+        : conversations
+              .where(
+                (t) =>
+                    // A renamed conversation must be findable by the name the
+                    // user gave it — that's the text the row actually shows,
+                    // and searching the preview alone would miss it entirely.
+                    (t.title?.toLowerCase().contains(q) ?? false) ||
+                    t.preview.toLowerCase().contains(q) ||
+                    // The home pane spans projects, so let the filter reach
+                    // the project path too (mirrors the project tree's search).
+                    (widget.home && t.cwd.toLowerCase().contains(q)),
+              )
+              .toList(growable: false);
+    final allTree = SessionTree(
+      conversations,
+      (ThreadMeta t) => t.id,
+      (t) => t.parentThreadId,
+    );
+    final matchingIds = allTree.withAncestors(matches.map((t) => t.id));
+    final tree = SessionTree(
+      conversations.where((t) => matchingIds.contains(t.id)),
+      (ThreadMeta t) => t.id,
+      (t) => t.parentThreadId,
+    );
+    final filtered = tree.roots;
+    final activeParents = tree.withAncestors(running);
+    final reveal = tree.withAncestors([?_threadId])..remove(_threadId);
+    // Running state controls the group, not whether children are expanded.
+    final expandedParents = {
+      ..._expandedSessionParents,
+      ...reveal,
+      if (q.isNotEmpty) ...matchingIds,
+    }..removeAll(_collapsedSessionParents);
+    final now = DateTime.now();
+    final active = <ThreadMeta>[];
+    final today = <ThreadMeta>[];
+    final earlier = <ThreadMeta>[];
+    for (final t in filtered) {
+      if (activeParents.contains(t.id)) {
+        active.add(t);
+      } else if (_isSameDay(t.updatedAt, now)) {
+        today.add(t);
+      } else {
+        earlier.add(t);
+      }
+    }
+
+    return Builder(
+      builder: (ctx) {
+        Widget tile(ThreadMeta t, {required bool showProject}) =>
+            _conversationTile(
+              thread: t,
+              running: running.contains(t.id),
+              selected: t.id == _threadId,
+              now: now,
+              l10n: l10n,
+              // Only rows NOT already sitting under a project heading carry
+              // their own project name — under one it's just noise.
+              project: showProject ? _AppSessionState._leafOf(t.cwd) : null,
+              onTap: () {
+                closeDrawerIfOpen(ctx);
+                if (t.id != _threadId) _openThread(t.id, t.cwd);
+              },
+            );
+        // The activity view's taller row: name in bold over a one-line summary
+        // of where the conversation got to.
+        Widget activityTile(ThreadMeta t) => _activityTile(
+          thread: t,
+          running: running.contains(t.id),
+          selected: t.id == _threadId,
+          now: now,
+          l10n: l10n,
+          onTap: () {
+            closeDrawerIfOpen(ctx);
+            if (t.id != _threadId) _openThread(t.id, t.cwd);
+          },
+        );
+        Widget hierarchyRow(
+          ({ThreadMeta item, int depth}) row, {
+          bool showProject = false,
+        }) {
+          final t = row.item;
+          return SessionTreeRow(
+            id: t.id,
+            depth: row.depth,
+            childCount: tree.children[t.id]?.length ?? 0,
+            childSession: t.parentThreadId != null,
+            guardian: t.isGuardian,
+            expanded: expandedParents.contains(t.id),
+            onToggle: () => _updateState(() {
+              if (expandedParents.contains(t.id)) {
+                _expandedSessionParents.remove(t.id);
+                _collapsedSessionParents.add(t.id);
+              } else {
+                _collapsedSessionParents.remove(t.id);
+                _expandedSessionParents.add(t.id);
+              }
+            }),
+            child: _activityView
+                ? activityTile(t)
+                : tile(t, showProject: showProject),
+          );
+        }
+
+        // Row BUILDERS, not built rows. The activity view's tiles each read a
+        // thread summary (a full `thread/read` server-side) while building, so a
+        // pre-built list would fire one per conversation the moment the view is
+        // toggled — 500 transcripts across a relay tunnel to fill one viewport.
+        // Deferring construction lets `ListView.builder` create only the rows it
+        // actually shows, which is what makes the lazy fetch lazy.
+        final rows = <Widget Function()>[];
+        // The thread rows in display order, for Ctrl+Tab. A plain field, not
+        // state: it only has to be current by the time a key is pressed.
+        final order = <ThreadMeta>[];
+        // Index in [rows] of the open conversation, for the locate button.
+        int? selectedRow;
+        void group(
+          String label,
+          List<ThreadMeta> items, {
+          bool showProject = false,
+        }) {
+          if (items.isEmpty) return;
+          rows.add(() => _sectionLabel(label));
+          final visible = items
+              .expand((t) => tree.visible(t, expandedParents))
+              .toList(growable: false);
+          for (final row in visible) {
+            if (row.item.id == _threadId) {
+              selectedRow = rows.length + visible.indexOf(row);
+            }
+          }
+          order.addAll(visible.map((row) => row.item));
+          rows.addAll(
+            // Whichever view is on, one list means one row shape — an Active
+            // group in compact rows above summarized ones would read as two
+            // lists stapled together.
+            visible.map(
+              (row) =>
+                  () => hierarchyRow(row, showProject: showProject),
+            ),
+          );
+        }
+
+        // Running threads always lead, whatever project they belong to — they
+        // are the only rows the user may need to reach urgently.
+        group(l10n.groupActive, active, showProject: widget.home);
+        if (_activityView) {
+          // "When was I working on this", grouped by the day it last moved.
+          // Each row carries a one-line summary of the newest agent reply, so
+          // the list answers "what happened" without opening anything.
+          for (final d in _byDay(<ThreadMeta>[...today, ...earlier], now)) {
+            group(d.label, d.threads);
+          }
+        } else if (widget.home) {
+          // The home pane spans every project, so the rest reads as a tree:
+          // project → its conversations, newest project first. Switching the
+          // open draft must not move these headings. Each shows its newest few
+          // rows unless expanded, so many projects stay scannable at a glance.
+          // A live search is the one case that shows everything: the user is
+          // looking for a specific row, so hiding matches behind "show more"
+          // would be actively unhelpful.
+          final searching = q.isNotEmpty;
+          for (final p in _byProject(filtered)) {
+            final idle = p.threads
+                .where((t) => !activeParents.contains(t.id))
+                .toList();
+            rows.add(
+              () => _projectSectionLabel(
+                p.cwd,
+                count: p.threads.length,
+                onNew: () => _newConversationInProject(p.cwd, ctx),
+              ),
+            );
+            // A search overrides a collapsed project: these rows already
+            // matched the query, so hiding them would answer "no results" to a
+            // search that DID find something.
+            if (!searching && _collapsedProjects.contains(p.cwd)) continue;
+            final expanded = searching || _expandedProjects.contains(p.cwd);
+            var shown = expanded
+                ? idle
+                : idle
+                      .take(_AppSessionState._projectPeek)
+                      .toList(growable: false);
+            // Never truncate away the conversation that's actually open: the
+            // sidebar would show no selection at all, and the user loses where
+            // they are. It's the newest rows that are worth previewing, so keep
+            // them and append the open one rather than reordering.
+            if (!expanded &&
+                !shown.any((t) => t.id == _threadId || reveal.contains(t.id))) {
+              final open = idle.where(
+                (t) => t.id == _threadId || reveal.contains(t.id),
+              );
+              if (open.isNotEmpty) shown = [...shown, open.first];
+            }
+            final visible = shown
+                .expand((t) => tree.visible(t, expandedParents))
+                .toList(growable: false);
+            for (final row in visible) {
+              if (row.item.id == _threadId) {
+                selectedRow = rows.length + visible.indexOf(row);
+              }
+            }
+            order.addAll(visible.map((row) => row.item));
+            rows.addAll(
+              visible.map(
+                (row) =>
+                    () => hierarchyRow(row),
+              ),
+            );
+            final hidden = idle.length - shown.length;
+            if (!searching && (hidden > 0 || expanded)) {
+              rows.add(
+                () => _projectPeekToggle(
+                  cwd: p.cwd,
+                  hidden: hidden,
+                  expanded: expanded,
+                  l10n: l10n,
+                ),
+              );
+            }
+          }
+        } else {
+          // A project-scoped pane already has one project, so recency is the
+          // only axis left worth splitting on.
+          group(l10n.groupToday, today);
+          group(l10n.groupEarlier, earlier);
+        }
+        _visibleConversationOrder = order;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // In the mobile drawer, "back to projects" lives here (the AppBar's
+            // leading button opens this drawer instead). Desktop shows it as the
+            // AppBar leading, so the inline pane omits it. The home has no back
+            // destination at all.
+            if (inDrawer && !widget.home) ...[
+              ListTile(
+                key: const Key('drawer-back-to-sessions'),
+                dense: true,
+                leading: const Icon(Icons.arrow_back),
+                title: Text(l10n.backToSessions),
+                onTap: () {
+                  closeDrawerIfOpen(ctx);
+                  _backToSessions();
+                },
+              ),
+              const Divider(height: 1),
+            ],
+            // Mobile drawer only: the brand header (the desktop sidebar's top
+            // strip already carries it).
+            if (inDrawer && widget.home)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
+                child: Row(
+                  children: [
+                    const BrandLogo(size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        l10n.appTitle,
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            // Home only: which host this chat runs on, switchable when several
+            // app services are available.
+            if (widget.home) _serviceSwitcher(l10n),
+            // The primary action of a conversation list, as a row rather than
+            // a coloured disc: it reads as the first entry of the list it
+            // creates into, and keeps the accent free for live state.
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+              child: _sidebarAction(
+                key: const Key('new-conversation-btn'),
+                icon: Icons.edit_square,
+                label: l10n.newConversation,
+                onTap: () => _newConversationInProject(_cwd, ctx),
+              ),
+            ),
+            // Quick filter — shown once there are enough conversations to scan.
+            if (_threads.length > 6)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+                child: SizedBox(
+                  height: 32,
+                  child: TextField(
+                    key: const Key('conv-search'),
+                    focusNode: _convSearchFocus,
+                    onChanged: (v) => _updateState(() => _convQuery = v),
+                    style: const TextStyle(fontSize: 13),
+                    textAlignVertical: TextAlignVertical.center,
+                    decoration: InputDecoration(
+                      isDense: true,
+                      prefixIcon: Icon(
+                        Icons.search,
+                        size: 16,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                      prefixIconConstraints: const BoxConstraints(
+                        minWidth: 32,
+                        minHeight: 32,
+                      ),
+                      hintText: l10n.searchConversations,
+                      hintStyle: TextStyle(
+                        fontSize: 13,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                      filled: true,
+                      fillColor: scheme.onSurface.withValues(alpha: 0.05),
+                      contentPadding: EdgeInsets.zero,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(kRowRadius + 1),
+                        borderSide: BorderSide.none,
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(kRowRadius + 1),
+                        borderSide: BorderSide.none,
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(kRowRadius + 1),
+                        borderSide: BorderSide(color: scheme.outline),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            // List heading: what the list is grouped by, with the toggle that
+            // regroups it. Group by project, or by when it happened — two ways
+            // of asking "what was I doing", so it's a toggle rather than a
+            // replacement.
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 8, 2),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _activityView
+                          ? l10n.activityView
+                          : l10n.conversationsSection,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  // Scroll the list back to the open conversation, wherever
+                  // the user has wandered off to.
+                  if (selectedRow != null)
+                    SizedBox(
+                      width: 26,
+                      height: 26,
+                      child: IconButton(
+                        key: const Key('locate-conversation-btn'),
+                        padding: EdgeInsets.zero,
+                        style: IconButton.styleFrom(
+                          minimumSize: const Size(26, 26),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(kRowRadius),
+                          ),
+                        ),
+                        icon: Icon(
+                          Icons.my_location_rounded,
+                          size: 15,
+                          color: signalColor(scheme),
+                        ),
+                        tooltip: l10n.locateConversation,
+                        onPressed: () => _revealConversationRow(selectedRow!),
+                      ),
+                    ),
+                  SizedBox(
+                    width: 26,
+                    height: 26,
+                    child: IconButton(
+                      key: const Key('activity-view-btn'),
+                      padding: EdgeInsets.zero,
+                      style: IconButton.styleFrom(
+                        minimumSize: const Size(26, 26),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(kRowRadius),
+                        ),
+                      ),
+                      icon: Icon(
+                        _activityView
+                            ? Icons.folder_outlined
+                            : Icons.history_toggle_off,
+                        size: 15,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                      tooltip: _activityView
+                          ? l10n.conversationsSection
+                          : l10n.activityView,
+                      onPressed: () =>
+                          _updateState(() => _activityView = !_activityView),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // A project-scoped pane names its one project; the home pane lists
+            // every project as headings instead.
+            if (!widget.home)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.folder_outlined,
+                      size: 13,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 5),
+                    Expanded(
+                      child: Text(
+                        _projectName(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            Expanded(
+              child: filtered.isEmpty
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Text(
+                          q.isEmpty ? l10n.noThreads : l10n.noMatchingThreads,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    )
+                  // SuperListView so the locate button can reach a row that
+                  // has never been built (a long list lays rows out lazily).
+                  : SuperListView.builder(
+                      listController: _convListCtl,
+                      controller: _convScroll,
+                      padding: const EdgeInsets.fromLTRB(8, 0, 8, 10),
+                      itemCount: rows.length,
+                      itemBuilder: (_, i) => rows[i](),
+                    ),
+            ),
+            // Account quota, always visible rather than buried behind the
+            // gauge: it is warm from connect (see _loadQuota), so this row
+            // costs nothing and answers "how much have I got left" at a glance.
+            ?_quotaStrip(l10n),
+            // Home only: everything that used to require navigating away from
+            // the chat — management, the host's session browser (incl. force
+            // takeover), logs, settings — one tap from the sidebar.
+            if (widget.home) ...[
+              const Divider(height: 1),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                // Each button keeps its own share of the row instead of its
+                // intrinsic width: the sidebar drags down to 200 px, where a
+                // fixed-width row of five (manage / sessions / logs / theme /
+                // settings) would overflow rather than tighten.
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _paneShortcut(
+                        key: 'sidebar-manage-btn',
+                        icon: Icons.dns_outlined,
+                        tooltip: l10n.manageServices,
+                        ctx: ctx,
+                        route: '/manage',
+                      ),
+                    ),
+                    // The host session browser rides the meta tunnel, which is
+                    // an account-mode feature (mirrors the manage page's
+                    // Sessions tab gate).
+                    if (_caps.localSessions &&
+                        ref.watch(configProvider).valueOrNull?.mode ==
+                            'account')
+                      Expanded(
+                        child: _paneShortcut(
+                          key: 'sidebar-history-btn',
+                          icon: Icons.history,
+                          tooltip: l10n.hostSessions,
+                          ctx: ctx,
+                          route: Uri(
+                            path: '/sessions',
+                            queryParameters: {'svc': widget.serviceKey},
+                          ).toString(),
+                        ),
+                      ),
+                    Expanded(
+                      child: _paneShortcut(
+                        key: 'sidebar-logs-btn',
+                        icon: Icons.article_outlined,
+                        tooltip: l10n.logsTitle,
+                        ctx: ctx,
+                        route: '/logs',
+                      ),
+                    ),
+                    Expanded(
+                      child: _paneShortcut(
+                        key: 'sidebar-settings-btn',
+                        icon: Icons.settings_outlined,
+                        tooltip: l10n.settingsTitle,
+                        ctx: ctx,
+                        route: '/settings',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  /// One conversation row: a soft rounded tile with a leading icon, the preview
+  /// as title, and a relative-time (or "running") subtitle — the same card
+  /// language used by the guidance/option cards across the app.
+  Widget _conversationTile({
+    required ThreadMeta thread,
+    required bool running,
+    required bool selected,
+    required DateTime now,
+    required AppLocalizations l10n,
+    required VoidCallback onTap,
+    String? project,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    final fg = scheme.onSurface;
+    final muted = scheme.onSurfaceVariant;
+    final when = running
+        ? l10n.running
+        : _relativeTime(thread.updatedAt, now, l10n);
+    // Server previews are the first user message verbatim, which may be wire
+    // text (an attachment block) or codex's own machinery (a context
+    // fragment). Both resolve through the cleaner; nothing left means there is
+    // no title to show.
+    final cleaned = previewWithoutFileRefs(
+      thread.preview,
+      l10n.fileOnlyMessage,
+    ).trim();
+    // A user-set name wins over the preview, matching the top bar.
+    final title =
+        thread.title ?? (cleaned.isEmpty ? l10n.untitledThread : cleaned);
+    // Cross-project pane rows show "project · time" so the user always knows
+    // where a conversation lives.
+    // Facts about the row, ahead of the time: what is waiting in it, and where
+    // it lives when no project heading above says so.
+    final facts = [
+      if (thread.isVoice) l10n.voiceLive,
+      if (_drafts.hasDraft(thread.id)) l10n.draft,
+      if (_drafts.queuedCount(thread.id) > 0)
+        l10n.queuedCount(_drafts.queuedCount(thread.id)),
+      if (project != null && project.isNotEmpty) project,
+    ];
+    final signal = signalColor(scheme);
+    // Desktop rows are one line — title, then the time at the trailing edge —
+    // the way a source list sits: twice as many conversations per screen, and
+    // the eye scans titles without a second line breaking the column. Touch
+    // keeps two lines, where the row height is a target and not a cost.
+    final dense = isDesktop;
+    final titleText = Text(
+      title,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        fontSize: dense ? 13 : 14,
+        fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+        color: fg,
+      ),
+    );
+    final factsText = facts.isEmpty
+        ? null
+        : Text(
+            facts.join(' · '),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 11.5, color: muted),
+          );
+    final trailing = running
+        ? Semantics(
+            label: l10n.running,
+            child: PulsingDot(color: signal, size: 7),
+          )
+        : when.isEmpty
+        ? null
+        : Text(
+            when,
+            maxLines: 1,
+            style: TextStyle(
+              fontSize: 11.5,
+              color: muted,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          );
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 0.5),
+      child: Material(
+        key: Key('conv-tile-${thread.id}'),
+        // The open conversation carries the accent, so "where am I" is
+        // answerable at a glance in a long list: a tinted row with a short
+        // bar on its leading edge, like a macOS source list's selection.
+        color: selected ? selectedRowColor(scheme) : Colors.transparent,
+        shape: selected
+            ? RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(kRowRadius),
+                side: BorderSide.none,
+              )
+            : RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(kRowRadius),
+              ),
+        clipBehavior: Clip.antiAlias,
+        child: _SelectionBar(
+          visible: selected,
+          color: signalColor(scheme),
+          child: InkWell(
+            mouseCursor: clickable,
+            borderRadius: BorderRadius.circular(kRowRadius),
+            onTap: onTap,
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                // Rows under a project heading line up with its name, so the
+                // folder reads as their parent.
+                project == null && widget.home ? 28 : 10,
+                dense ? 6 : 10,
+                10,
+                dense ? 6 : 10,
+              ),
+              child: Row(
+                children: [
+                  if (thread.isVoice) ...[
+                    Icon(Icons.graphic_eq, size: 15, color: muted),
+                    const SizedBox(width: 6),
+                  ],
+                  Expanded(
+                    child: dense
+                        ? Row(
+                            children: [
+                              Flexible(child: titleText),
+                              if (factsText != null) ...[
+                                const SizedBox(width: 6),
+                                Flexible(child: factsText),
+                              ],
+                            ],
+                          )
+                        : Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              titleText,
+                              if (factsText != null) ...[
+                                const SizedBox(height: 2),
+                                factsText,
+                              ],
+                            ],
+                          ),
+                  ),
+                  if (trailing != null) ...[const SizedBox(width: 8), trailing],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// One activity-view row: the conversation's name in bold over a one-line
+  /// summary of where it got to, plus its project and time.
+  ///
+  /// The summary needs a `thread/read` per row, which is far too much to fetch
+  /// for a whole sidebar up front — so it loads when the row is first built
+  /// (i.e. when it scrolls into range) and Riverpod keeps it cached for the rest
+  /// of the session. Until it arrives the row shows the first user message,
+  /// which is already in hand: the layout never jumps, and a row is readable
+  /// immediately rather than blank behind a spinner.
+  Widget _activityTile({
+    required ThreadMeta thread,
+    required bool running,
+    required bool selected,
+    required DateTime now,
+    required AppLocalizations l10n,
+    required VoidCallback onTap,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    final fg = scheme.onSurface;
+    final muted = scheme.onSurfaceVariant;
+    final cleaned = previewWithoutFileRefs(
+      thread.preview,
+      l10n.fileOnlyMessage,
+    ).trim();
+    final title =
+        thread.title ?? (cleaned.isEmpty ? l10n.untitledThread : cleaned);
+    final summary =
+        ref
+            .watch(
+              threadSummaryProvider(
+                threadSummaryKey(widget.serviceKey, thread.id),
+              ),
+            )
+            .valueOrNull ??
+        // Fall back to the preview — unless the title already IS the preview,
+        // in which case repeating it twice tells the user nothing.
+        (thread.title == null ? '' : cleaned);
+    final when = running
+        ? l10n.running
+        : _relativeTime(thread.updatedAt, now, l10n);
+    // The home pane spans projects, so its rows say where they live; a
+    // project-scoped pane has only one, and repeating it per row is noise.
+    final meta = [
+      if (widget.home) _AppSessionState._leafOf(thread.cwd),
+      if (when.isNotEmpty) when,
+    ].where((s) => s.isNotEmpty).join(' · ');
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 1),
+      child: Material(
+        key: Key('activity-tile-${thread.id}'),
+        color: selected ? surfaceSelection(scheme) : Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(kControlRadius),
+          side: BorderSide(
+            color: selected ? selectionBorder(scheme) : Colors.transparent,
+          ),
+        ),
+        child: InkWell(
+          mouseCursor: clickable,
+          borderRadius: BorderRadius.circular(kControlRadius),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 13,
+                          // Heavier than the project tree's rows: here the
+                          // title has a summary under it to stand apart from.
+                          fontWeight: FontWeight.w600,
+                          color: fg,
+                        ),
+                      ),
+                      if (summary.isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          summary,
+                          key: Key('activity-summary-${thread.id}'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 12, color: muted),
+                        ),
+                      ],
+                      if (meta.isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          meta,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: running ? signalColor(scheme) : muted,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                if (running) ...[
+                  const SizedBox(width: 8),
+                  PulsingDot(color: signalColor(scheme), size: 7),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
