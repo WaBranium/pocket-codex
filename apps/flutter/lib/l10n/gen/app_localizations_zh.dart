@@ -2269,7 +2269,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get acpProgramNotFound => '本机未找到该程序。';
 
   @override
-  String get claudeEnvTitle => '本机的 Claude';
+  String get claudeEnvTitle => 'Claude 环境变量';
 
   @override
   String claudeAdapterInstalled(String path) {
@@ -2833,4 +2833,194 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get hostApiProxyNote =>
       '此主机还会发布一个独立的 Responses API 服务(api:<name>)。它始终使用本设备的官方 Codex 登录,而不是这里选择的供应商。';
+
+  @override
+  String get claudePrepareStageWorking => '正在准备 Claude ACP 适配器…';
+
+  @override
+  String get claudePrepareStageInstalling => '正在解析并安装依赖包…';
+
+  @override
+  String get claudePrepareStageDownloading => '正在下载依赖包…';
+
+  @override
+  String get claudePrepareStageVerifying => '正在校验下载的适配器…';
+
+  @override
+  String get claudePrepareStageDone => 'Claude ACP 适配器已就绪';
+
+  @override
+  String get claudePrepareStageFailed => '准备失败';
+
+  @override
+  String get claudePrepareStageCancelled => '已停止准备';
+
+  @override
+  String claudePrepareElapsed(String time) {
+    return '已用时 $time';
+  }
+
+  @override
+  String claudePrepareDownloaded(String size) {
+    return '已下载 $size';
+  }
+
+  @override
+  String claudePrepareSpeed(String speed) {
+    return '下载速度 $speed';
+  }
+
+  @override
+  String get claudePrepareSpeedMeasuring => '正在测速…';
+
+  @override
+  String get claudePrepareStepFetch => '下载并安装';
+
+  @override
+  String get claudePrepareStepVerify => '校验';
+
+  @override
+  String claudePrepareStep(int step, int total, String name) {
+    return '第 $step 步（共 $total 步）：$name';
+  }
+
+  @override
+  String get claudeEnvHint =>
+      '默认继承当前主机可获取的环境变量（macOS 包括登录 shell）。打开某项后仅覆盖此主机；保存不影响运行中的主机，重启后应用。模型能力以 Claude 版本和服务商支持为准。';
+
+  @override
+  String get claudeEnvProviderWins =>
+      '上方自定义服务商字段决定 URL、凭据和默认模型。环境连接覆盖仅在使用继承配置时生效。';
+
+  @override
+  String get claudeEnvInherited => '继承环境';
+
+  @override
+  String get claudeEnvCustom => '此主机自定义';
+
+  @override
+  String get claudeEnvStored => '已安全保存 · 留空保留';
+
+  @override
+  String get claudeEnvValue => '填写变量值';
+
+  @override
+  String get claudeEnvRequired => '请填写每个已启用的覆盖项，或将其切回继承环境。';
+
+  @override
+  String get claudeEnvConnection => '连接与凭据';
+
+  @override
+  String get claudeEnvModels => '模型与别名';
+
+  @override
+  String get claudeEnvReasoning => '推理与输出';
+
+  @override
+  String get claudeEnvNetwork => '网络与兼容性';
+
+  @override
+  String get claudeEnvBaseUrl => 'API 基础地址';
+
+  @override
+  String get claudeEnvAuthToken => 'Bearer 令牌';
+
+  @override
+  String get claudeEnvApiKey => 'Anthropic API 密钥';
+
+  @override
+  String get claudeEnvOAuthToken => '已有 OAuth 令牌';
+
+  @override
+  String get claudeEnvModel => '默认模型';
+
+  @override
+  String get claudeEnvOpus => 'Opus 别名对应模型';
+
+  @override
+  String get claudeEnvSonnet => 'Sonnet 别名对应模型';
+
+  @override
+  String get claudeEnvHaiku => 'Haiku 别名对应模型';
+
+  @override
+  String get claudeEnvCustomModel => '模型选择器附加选项';
+
+  @override
+  String get claudeEnvSubagentModel => '子智能体模型';
+
+  @override
+  String get claudeEnvEffort => '推理强度';
+
+  @override
+  String get claudeEnvThinkingTokens => '思考 token 预算';
+
+  @override
+  String get claudeEnvOutputTokens => '最大输出 token';
+
+  @override
+  String get claudeEnvDisableThinking => '省略 thinking 参数';
+
+  @override
+  String get claudeEnvDisableAdaptive => '关闭自适应思考（支持的模型）';
+
+  @override
+  String get claudeEnvTimeout => 'API 超时（毫秒）';
+
+  @override
+  String get claudeEnvHttpProxy => 'HTTP 代理';
+
+  @override
+  String get claudeEnvHttpsProxy => 'HTTPS 代理';
+
+  @override
+  String get claudeEnvNoProxy => '不经过代理的主机';
+
+  @override
+  String get claudeEnvDisableCaching => '关闭提示词缓存';
+
+  @override
+  String get claudeEnvDisableTraffic => '关闭非必要网络请求';
+
+  @override
+  String get claudeEnvNeedsValue => '需要填写值，或切回继承环境。';
+
+  @override
+  String get claudeEnvFlagOn => '开启';
+
+  @override
+  String get claudeEnvFlagOff => '关闭';
+
+  @override
+  String get claudeEnvCredential => '凭据';
+
+  @override
+  String get claudeEnvCredentialNote => 'Claude 只使用一种凭据；选择一种会替换此主机的其他凭据。';
+
+  @override
+  String get claudeEnvGroupInherited => '全部继承';
+
+  @override
+  String get claudeEnvGroupMissing => '仍有值待填写';
+
+  @override
+  String get claudeEnvAllInherited => '全部继承环境';
+
+  @override
+  String claudeEnvOverrides(int count) {
+    return '$count 项覆盖';
+  }
+
+  @override
+  String claudeEnvMissing(int count) {
+    return '$count 项待填写';
+  }
+
+  @override
+  String claudeEnvDormant(int count) {
+    return '已保留 $count 项连接覆盖，切回继承配置后重新生效。';
+  }
+
+  @override
+  String get claudeEnvEditDormant => '编辑未启用的覆盖项';
 }

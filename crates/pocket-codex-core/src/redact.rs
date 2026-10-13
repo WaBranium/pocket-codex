@@ -90,6 +90,13 @@ impl Redactor {
         }
     }
 
+    /// Include another supplied credential without exposing its forms.
+    pub fn include(&mut self, key: &Secret) {
+        self.forms.extend(Self::new(Some(key)).forms);
+        self.forms.sort();
+        self.forms.dedup();
+    }
+
     /// Whether there is no key to withhold.
     pub fn is_empty(&self) -> bool {
         self.forms.is_empty()

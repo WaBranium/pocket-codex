@@ -4289,7 +4289,7 @@ abstract class AppLocalizations {
   /// No description provided for @claudeEnvTitle.
   ///
   /// In en, this message translates to:
-  /// **'Claude on this computer'**
+  /// **'Claude environment'**
   String get claudeEnvTitle;
 
   /// No description provided for @claudeAdapterInstalled.
@@ -5244,6 +5244,354 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'This host also publishes a separate Responses API service (api:<name>). It always uses this device\'s official Codex sign-in, not the provider chosen here.'**
   String get hostApiProxyNote;
+
+  /// No description provided for @claudePrepareStageWorking.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing the Claude ACP adapter…'**
+  String get claudePrepareStageWorking;
+
+  /// No description provided for @claudePrepareStageInstalling.
+  ///
+  /// In en, this message translates to:
+  /// **'Resolving and installing packages…'**
+  String get claudePrepareStageInstalling;
+
+  /// No description provided for @claudePrepareStageDownloading.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloading packages…'**
+  String get claudePrepareStageDownloading;
+
+  /// No description provided for @claudePrepareStageVerifying.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking the downloaded adapter…'**
+  String get claudePrepareStageVerifying;
+
+  /// No description provided for @claudePrepareStageDone.
+  ///
+  /// In en, this message translates to:
+  /// **'The Claude ACP adapter is ready'**
+  String get claudePrepareStageDone;
+
+  /// No description provided for @claudePrepareStageFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparation failed'**
+  String get claudePrepareStageFailed;
+
+  /// No description provided for @claudePrepareStageCancelled.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparation stopped'**
+  String get claudePrepareStageCancelled;
+
+  /// No description provided for @claudePrepareElapsed.
+  ///
+  /// In en, this message translates to:
+  /// **'{time} elapsed'**
+  String claudePrepareElapsed(String time);
+
+  /// No description provided for @claudePrepareDownloaded.
+  ///
+  /// In en, this message translates to:
+  /// **'{size} downloaded'**
+  String claudePrepareDownloaded(String size);
+
+  /// No description provided for @claudePrepareSpeed.
+  ///
+  /// In en, this message translates to:
+  /// **'Download speed {speed}'**
+  String claudePrepareSpeed(String speed);
+
+  /// No description provided for @claudePrepareSpeedMeasuring.
+  ///
+  /// In en, this message translates to:
+  /// **'Measuring speed…'**
+  String get claudePrepareSpeedMeasuring;
+
+  /// No description provided for @claudePrepareStepFetch.
+  ///
+  /// In en, this message translates to:
+  /// **'Download and install'**
+  String get claudePrepareStepFetch;
+
+  /// No description provided for @claudePrepareStepVerify.
+  ///
+  /// In en, this message translates to:
+  /// **'Verify'**
+  String get claudePrepareStepVerify;
+
+  /// No description provided for @claudePrepareStep.
+  ///
+  /// In en, this message translates to:
+  /// **'Step {step} of {total}: {name}'**
+  String claudePrepareStep(int step, int total, String name);
+
+  /// No description provided for @claudeEnvHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Defaults inherit the environment available to this host (including the login shell on macOS). Turn on a field to override it for this host only. Save keeps the running host unchanged; restart to apply. Model support depends on your Claude version and provider.'**
+  String get claudeEnvHint;
+
+  /// No description provided for @claudeEnvProviderWins.
+  ///
+  /// In en, this message translates to:
+  /// **'The custom provider fields above control the URL, credential and default model. Environment connection overrides are used only with inherited configuration.'**
+  String get claudeEnvProviderWins;
+
+  /// No description provided for @claudeEnvInherited.
+  ///
+  /// In en, this message translates to:
+  /// **'Inherit environment'**
+  String get claudeEnvInherited;
+
+  /// No description provided for @claudeEnvCustom.
+  ///
+  /// In en, this message translates to:
+  /// **'Override for this host'**
+  String get claudeEnvCustom;
+
+  /// No description provided for @claudeEnvStored.
+  ///
+  /// In en, this message translates to:
+  /// **'Stored securely · leave blank to keep'**
+  String get claudeEnvStored;
+
+  /// No description provided for @claudeEnvValue.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a value'**
+  String get claudeEnvValue;
+
+  /// No description provided for @claudeEnvRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Fill each enabled override, or switch it back to inherit.'**
+  String get claudeEnvRequired;
+
+  /// No description provided for @claudeEnvConnection.
+  ///
+  /// In en, this message translates to:
+  /// **'Connection & credentials'**
+  String get claudeEnvConnection;
+
+  /// No description provided for @claudeEnvModels.
+  ///
+  /// In en, this message translates to:
+  /// **'Models & aliases'**
+  String get claudeEnvModels;
+
+  /// No description provided for @claudeEnvReasoning.
+  ///
+  /// In en, this message translates to:
+  /// **'Reasoning & output'**
+  String get claudeEnvReasoning;
+
+  /// No description provided for @claudeEnvNetwork.
+  ///
+  /// In en, this message translates to:
+  /// **'Network & compatibility'**
+  String get claudeEnvNetwork;
+
+  /// No description provided for @claudeEnvBaseUrl.
+  ///
+  /// In en, this message translates to:
+  /// **'API base URL'**
+  String get claudeEnvBaseUrl;
+
+  /// No description provided for @claudeEnvAuthToken.
+  ///
+  /// In en, this message translates to:
+  /// **'Bearer token'**
+  String get claudeEnvAuthToken;
+
+  /// No description provided for @claudeEnvApiKey.
+  ///
+  /// In en, this message translates to:
+  /// **'Anthropic API key'**
+  String get claudeEnvApiKey;
+
+  /// No description provided for @claudeEnvOAuthToken.
+  ///
+  /// In en, this message translates to:
+  /// **'Existing OAuth token'**
+  String get claudeEnvOAuthToken;
+
+  /// No description provided for @claudeEnvModel.
+  ///
+  /// In en, this message translates to:
+  /// **'Default model'**
+  String get claudeEnvModel;
+
+  /// No description provided for @claudeEnvOpus.
+  ///
+  /// In en, this message translates to:
+  /// **'Opus alias model'**
+  String get claudeEnvOpus;
+
+  /// No description provided for @claudeEnvSonnet.
+  ///
+  /// In en, this message translates to:
+  /// **'Sonnet alias model'**
+  String get claudeEnvSonnet;
+
+  /// No description provided for @claudeEnvHaiku.
+  ///
+  /// In en, this message translates to:
+  /// **'Haiku alias model'**
+  String get claudeEnvHaiku;
+
+  /// No description provided for @claudeEnvCustomModel.
+  ///
+  /// In en, this message translates to:
+  /// **'Additional model picker option'**
+  String get claudeEnvCustomModel;
+
+  /// No description provided for @claudeEnvSubagentModel.
+  ///
+  /// In en, this message translates to:
+  /// **'Subagent model'**
+  String get claudeEnvSubagentModel;
+
+  /// No description provided for @claudeEnvEffort.
+  ///
+  /// In en, this message translates to:
+  /// **'Reasoning effort'**
+  String get claudeEnvEffort;
+
+  /// No description provided for @claudeEnvThinkingTokens.
+  ///
+  /// In en, this message translates to:
+  /// **'Thinking token budget'**
+  String get claudeEnvThinkingTokens;
+
+  /// No description provided for @claudeEnvOutputTokens.
+  ///
+  /// In en, this message translates to:
+  /// **'Maximum output tokens'**
+  String get claudeEnvOutputTokens;
+
+  /// No description provided for @claudeEnvDisableThinking.
+  ///
+  /// In en, this message translates to:
+  /// **'Omit the thinking parameter'**
+  String get claudeEnvDisableThinking;
+
+  /// No description provided for @claudeEnvDisableAdaptive.
+  ///
+  /// In en, this message translates to:
+  /// **'Disable adaptive thinking (supported models)'**
+  String get claudeEnvDisableAdaptive;
+
+  /// No description provided for @claudeEnvTimeout.
+  ///
+  /// In en, this message translates to:
+  /// **'API timeout (milliseconds)'**
+  String get claudeEnvTimeout;
+
+  /// No description provided for @claudeEnvHttpProxy.
+  ///
+  /// In en, this message translates to:
+  /// **'HTTP proxy'**
+  String get claudeEnvHttpProxy;
+
+  /// No description provided for @claudeEnvHttpsProxy.
+  ///
+  /// In en, this message translates to:
+  /// **'HTTPS proxy'**
+  String get claudeEnvHttpsProxy;
+
+  /// No description provided for @claudeEnvNoProxy.
+  ///
+  /// In en, this message translates to:
+  /// **'Proxy bypass hosts'**
+  String get claudeEnvNoProxy;
+
+  /// No description provided for @claudeEnvDisableCaching.
+  ///
+  /// In en, this message translates to:
+  /// **'Disable prompt caching'**
+  String get claudeEnvDisableCaching;
+
+  /// No description provided for @claudeEnvDisableTraffic.
+  ///
+  /// In en, this message translates to:
+  /// **'Disable nonessential traffic'**
+  String get claudeEnvDisableTraffic;
+
+  /// No description provided for @claudeEnvNeedsValue.
+  ///
+  /// In en, this message translates to:
+  /// **'Needs a value, or switch back to inherit.'**
+  String get claudeEnvNeedsValue;
+
+  /// No description provided for @claudeEnvFlagOn.
+  ///
+  /// In en, this message translates to:
+  /// **'On'**
+  String get claudeEnvFlagOn;
+
+  /// No description provided for @claudeEnvFlagOff.
+  ///
+  /// In en, this message translates to:
+  /// **'Off'**
+  String get claudeEnvFlagOff;
+
+  /// No description provided for @claudeEnvCredential.
+  ///
+  /// In en, this message translates to:
+  /// **'Credential'**
+  String get claudeEnvCredential;
+
+  /// No description provided for @claudeEnvCredentialNote.
+  ///
+  /// In en, this message translates to:
+  /// **'Claude uses one credential. Choosing one replaces the others for this host.'**
+  String get claudeEnvCredentialNote;
+
+  /// No description provided for @claudeEnvGroupInherited.
+  ///
+  /// In en, this message translates to:
+  /// **'All inherited'**
+  String get claudeEnvGroupInherited;
+
+  /// No description provided for @claudeEnvGroupMissing.
+  ///
+  /// In en, this message translates to:
+  /// **'A value is still needed'**
+  String get claudeEnvGroupMissing;
+
+  /// No description provided for @claudeEnvAllInherited.
+  ///
+  /// In en, this message translates to:
+  /// **'Inherits everything'**
+  String get claudeEnvAllInherited;
+
+  /// No description provided for @claudeEnvOverrides.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 override} other{{count} overrides}}'**
+  String claudeEnvOverrides(int count);
+
+  /// No description provided for @claudeEnvMissing.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 value needed} other{{count} values needed}}'**
+  String claudeEnvMissing(int count);
+
+  /// No description provided for @claudeEnvDormant.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 saved connection override is kept and applies again with inherited configuration.} other{{count} saved connection overrides are kept and apply again with inherited configuration.}}'**
+  String claudeEnvDormant(int count);
+
+  /// No description provided for @claudeEnvEditDormant.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit inactive overrides'**
+  String get claudeEnvEditDormant;
 }
 
 class _AppLocalizationsDelegate

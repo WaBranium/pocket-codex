@@ -5,13 +5,13 @@ use super::{
     *,
 };
 
-/// A stand-in `node` that behaves like `node npm-cli.js install --prefix
-/// <stage> …`: `$4` is the staging directory. `body` runs after it lays out
-/// the package with `version` and `integrity`.
+/// A stand-in `node` that behaves like `node --require hook npm-cli.js install
+/// --prefix <stage> …`: `$6` is the staging directory. `body` runs after it
+/// lays out the package with `version` and `integrity`.
 fn fake_node(dir: &Path, version: &str, integrity: &str, body: &str) -> PathBuf {
     let script = format!(
         r#"#!/bin/sh
-stage="$4"
+stage="$6"
 pkg="$stage/node_modules/{ADAPTER_PACKAGE}"
 mkdir -p "$pkg/dist"
 printf '%s' "$PATH" > "$stage/../seen-path"

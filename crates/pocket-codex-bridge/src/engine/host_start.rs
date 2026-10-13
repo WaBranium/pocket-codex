@@ -177,6 +177,7 @@ mod tests {
     fn custom(url: &str, key: &str) -> Change {
         Change {
             input: ProfileInput {
+                claude_env: None,
                 source: Source::Custom,
                 protocol: Some(ApiProtocol::Responses),
                 base_url: Some(url.into()),

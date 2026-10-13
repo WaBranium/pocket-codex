@@ -1,8 +1,10 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:pocket_codex/l10n/gen/app_localizations.dart';
 import 'package:pocket_codex/src/bridge_api.dart';
 import 'package:pocket_codex/src/desktop_theme.dart';
 import 'package:pocket_codex/src/hosting/editor_block.dart';
+import 'package:pocket_codex/src/hosting/claude_environment_section.dart';
 import 'package:pocket_codex/src/theme.dart';
 import 'package:pocket_codex/src/widgets/group_card.dart';
 
@@ -17,7 +19,12 @@ import 'package:pocket_codex/src/widgets/group_card.dart';
 /// reported as set and kept unless replaced or removed.
 class ModelServiceDraft extends ChangeNotifier {
   /// Creates an empty (inherited) draft.
-  ModelServiceDraft();
+  ModelServiceDraft() {
+    environment.addListener(notifyListeners);
+  }
+
+  /// Claude behavior overrides for this same saved revision.
+  final environment = ClaudeEnvironmentDraft();
 
   /// Custom provider base URL.
   final baseUrl = TextEditingController();
@@ -77,6 +84,7 @@ class ModelServiceDraft extends ChangeNotifier {
   /// Fill the fields from [config] (a load or a save).
   void load(HostConfig config) {
     _saved = config;
+    environment.load(config.claudeEnv);
     _source = config.source;
     _protocol = config.protocol;
     baseUrl.text = config.baseUrl ?? '';
@@ -90,6 +98,7 @@ class ModelServiceDraft extends ChangeNotifier {
   /// Restrict the draft to what [support] allows (the agent changed).
   void restrict(HostConfigSupport support) {
     _support = support;
+    environment.variables = support.claudeVariables;
     _clamp();
     notifyListeners();
   }
@@ -118,6 +127,7 @@ class ModelServiceDraft extends ChangeNotifier {
 
   /// The save request for the current fields.
   HostConfigInput get input => HostConfigInput(
+    claudeEnv: _support.claudeVariables.isEmpty ? const {} : environment.input,
     source: _source,
     protocol: _source == 'custom' ? _protocol : null,
     baseUrl: _source == 'custom' ? baseUrl.text.trim() : null,
@@ -145,6 +155,9 @@ class ModelServiceDraft extends ChangeNotifier {
   /// keeps a stored key.
   String? problem(AppLocalizations l10n, {bool fresh = false}) {
     if (incompatible) return l10n.hostSourceUnsupported;
+    if (_support.claudeVariables.isNotEmpty && !environment.valid) {
+      return l10n.claudeEnvRequired;
+    }
     if (_source != 'custom') return null;
     if (baseUrl.text.trim().isEmpty) return l10n.hostBaseUrlRequired;
     if (_support.modelRequired && model.text.trim().isEmpty) {
@@ -159,7 +172,8 @@ class ModelServiceDraft extends ChangeNotifier {
   /// Whether the fields differ from [saved].
   bool get dirty {
     final i = input;
-    return i.source != _saved.source ||
+    return !mapEquals(i.claudeEnv, _saved.claudeEnv) ||
+        i.source != _saved.source ||
         (i.source == 'custom' &&
             (i.protocol != _saved.protocol ||
                 i.baseUrl != (_saved.baseUrl ?? '') ||
@@ -170,6 +184,8 @@ class ModelServiceDraft extends ChangeNotifier {
 
   @override
   void dispose() {
+    environment.removeListener(notifyListeners);
+    environment.dispose();
     baseUrl.dispose();
     key.dispose();
     model.dispose();
@@ -233,6 +249,14 @@ class ModelServiceSection extends StatelessWidget {
         hint: l10n.hostSectionModelHint,
         children: [
           EditorBlock(child: _body(context, l10n)),
+          if (draft.support.claudeVariables.isNotEmpty)
+            EditorBlock(
+              child: ClaudeEnvironmentSection(
+                draft: draft.environment,
+                enabled: enabled,
+                customProvider: draft.source == 'custom',
+              ),
+            ),
           if (footer != null) EditorBlock(child: footer!),
         ],
       ),

@@ -484,7 +484,8 @@ hosting dialog shows only paths and versions.
 
 When the adapter is missing and a Node.js 22+ with its npm was found, the
 editor offers **Prepare ACP environment** to install
-`@agentclientprotocol/claude-agent-acp@0.89.1` before hosting. It shows progress,
+`@agentclientprotocol/claude-agent-acp@0.89.1` before hosting. It shows download bytes and a measured recent transfer rate, with separate
+download/install and verification stages (no invented percentage or total),
 allows cancellation or retry, and refreshes readiness while preserving the
 form. Preparation alone never saves configuration, starts or restarts a host,
 or enables automatic hosting; the same control is available in a running
@@ -665,6 +666,48 @@ and says no key was found in the config or environment), and gateways that do
 not serve a `/models` listing. Other ACP agents get no catalog.
 
 ### Per-host model service
+
+Claude hosts offer **Claude environment** groups for connection credentials,
+exact model and alias IDs, reasoning/output and network settings. Every field
+inherits by default; enabling one records an override for this host. macOS
+GUI launches read missing allowlisted variables through the login shell,
+including `~/.zshenv`; explicit app environment values win. An already supplied
+connection group is kept together instead of mixing its endpoint with another
+shell account. Nothing is written to shell files or the app's environment.
+
+Saved credentials are masked and never read back; leave a stored secret field
+blank to keep it, or turn its override off to inherit again. Overrides share
+the host configuration's private-file transaction, revision checks and rollback.
+Saving does not interrupt the host; explicit restart applies the revision.
+Custom provider fields take priority for URL/key/default model; environment
+connection overrides apply with inherited configuration. The inactive-overrides
+control keeps those fields reachable for repair without clearing the draft.
+Saving a switch to another runtime removes Claude-specific overrides. No Claude login flow
+is added. Managed Claude policies and model support remain upstream decisions.
+
+Keep provider model IDs exact. For a gateway whose Opus model differs from
+Claude's built-in alias, set `ANTHROPIC_DEFAULT_OPUS_MODEL` to that gateway's ID;
+Pocket-Codex never guesses or rewrites it. See the upstream
+[environment reference](https://code.claude.com/docs/en/env-vars) and
+[model configuration](https://code.claude.com/docs/en/model-config).
+
+Validation on 2026-10-13 used a fresh isolated macOS home and the actual
+Flutter bridge library. A cold preparation received 111,701,171 package bytes,
+reported positive measured rates while downloading, and cleared the rate on
+completion. The host process had no provider URL/token; only its login-shell
+environment supplied them. An exact Opus alias configured through the host API
+survived save/apply and restart, a real prompt returned the expected text, and
+opening that fixture's existing conversation restored the reply without
+sending another turn. No Claude login was performed. The original manual app
+and its conversations were left running; its reported error was not retested
+in place. A gateway may still need its own exact model alias, and no alias is
+hardcoded by Pocket-Codex.
+
+The updated UI passed 32 real-font combinations (320/390/800/1440, English and
+Chinese, light and dark, 1×/2× text), keyboard/semantics checks, and the full
+Flutter suite (1,404 passed, 5 existing skips). The first-party Rust checks and
+macOS profile build also passed. These screenshots are Flutter-renderer
+previews; they do not claim a new native interaction check of the running app.
 
 A host may save a custom provider for the OpenCode preset (Responses,
 Anthropic Messages or Chat Completions, as a per-instance provider in the

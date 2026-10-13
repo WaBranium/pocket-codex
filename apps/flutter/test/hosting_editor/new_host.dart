@@ -1,6 +1,36 @@
 part of '../hosting_editor_test.dart';
 
 void _newHostTests() {
+  testWidgets(
+    'Claude environment draft survives agent changes and reaches start',
+    (t) async {
+      final api = _withClaude();
+      await _pumpEditor(t, api);
+      await _choosePreset(t, 'claude');
+      await _tapKey(t, 'claude-env-group-models');
+      await _tapKey(t, 'claude-env-override-ANTHROPIC_DEFAULT_OPUS_MODEL');
+      await _enter(
+        t,
+        'claude-env-value-ANTHROPIC_DEFAULT_OPUS_MODEL',
+        'provider.exact-opus',
+      );
+      await _choosePreset(t, 'opencode');
+      expect(find.byKey(const Key('claude-environment-section')), findsNothing);
+      await _choosePreset(t, 'claude');
+      final draft = t
+          .widget<ModelServiceSection>(find.byType(ModelServiceSection))
+          .draft;
+      expect(draft.input.claudeEnv, {
+        'ANTHROPIC_DEFAULT_OPUS_MODEL': 'provider.exact-opus',
+      });
+      await _tapKey(t, 'start-hosting-btn');
+      expect(api.startConfiguredCalls.single.$3.claudeEnv, {
+        'ANTHROPIC_DEFAULT_OPUS_MODEL': 'provider.exact-opus',
+      });
+      expect(api.startConfiguredCalls.single.$3.source, 'inherited');
+    },
+  );
+
   testWidgets('a new Codex host is saved and started as one operation', (
     t,
   ) async {

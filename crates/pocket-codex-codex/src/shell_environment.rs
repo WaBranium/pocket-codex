@@ -1,4 +1,4 @@
-//! Resolve a GUI host's shell PATH without changing the controller environment.
+//! Resolve a GUI host's shell PATH and selected child-only environment values.
 
 use std::{
     collections::HashSet,
@@ -36,15 +36,7 @@ pub(crate) fn child_path() -> Option<OsString> {
 #[cfg(target_os = "macos")]
 fn resolve_current_path() -> Option<OsString> {
     let inherited = std::env::var_os("PATH");
-    let shell = std::env::var_os("SHELL")
-        .map(std::path::PathBuf::from)
-        .or_else(|| {
-            nix::unistd::User::from_uid(nix::unistd::Uid::current())
-                .ok()
-                .flatten()
-                .map(|user| user.shell)
-        })
-        .unwrap_or_else(|| "/bin/zsh".into());
+    let shell = current_shell();
     let environment = std::env::vars_os().collect::<Vec<_>>();
     match resolve_path(&shell, &environment, inherited.as_deref(), Duration::from_secs(3)) {
         Ok(path) => Some(path),
@@ -53,6 +45,114 @@ fn resolve_current_path() -> Option<OsString> {
             None
         },
     }
+}
+
+#[cfg(target_os = "macos")]
+fn current_shell() -> std::path::PathBuf {
+    std::env::var_os("SHELL")
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            nix::unistd::User::from_uid(nix::unistd::Uid::current())
+                .ok()
+                .flatten()
+                .map(|user| user.shell)
+        })
+        .unwrap_or_else(|| "/bin/zsh".into())
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn child_variables(names: &[&str]) -> Result<Vec<(OsString, OsString)>> {
+    let environment = std::env::vars_os().collect::<Vec<_>>();
+    resolve_variables(&current_shell(), &environment, names, Duration::from_secs(3))
+}
+
+/// Read only named variables; startup output and unrelated secrets never enter
+/// the result. Explicit inherited values win over shell defaults.
+fn resolve_variables(
+    shell: &Path,
+    environment: &[(OsString, OsString)],
+    names: &[&str],
+    timeout: Duration,
+) -> Result<Vec<(OsString, OsString)>> {
+    if names.iter().any(|name| {
+        name.is_empty()
+            || !name
+                .bytes()
+                .enumerate()
+                .all(|(i, b)| b == b'_' || b.is_ascii_uppercase() || (i > 0 && b.is_ascii_digit()))
+    }) {
+        bail!("invalid shell environment variable name");
+    }
+    let inherited: Vec<_> = environment
+        .iter()
+        .filter(|(key, _)| names.iter().any(|name| key == name))
+        .cloned()
+        .collect();
+    if inherited.len() == names.len() || names.is_empty() {
+        return Ok(inherited);
+    }
+    if !shell.is_absolute() {
+        bail!("login shell must be an absolute path");
+    }
+    let directory = tempfile::Builder::new()
+        .permissions(std::fs::Permissions::from_mode(0o700))
+        .tempdir()
+        .context("creating private shell environment output")?;
+    let output = directory.path().join("environment");
+    let mut script = String::from("umask 077; { ");
+    for name in names {
+        script.push_str(&format!(
+            "if [ \"${{{name}+x}}\" = x ]; then printf '%s\\0%s\\0' '{name}' \"${name}\"; fi; "
+        ));
+    }
+    script.push_str("} > \"$POCKET_CODEX_ENV_FILE\"");
+    let child = Command::new(shell)
+        .args(["-ilc", &script])
+        .env_clear()
+        .envs(environment.iter().map(|(k, v)| (k, v)))
+        .env("POCKET_CODEX_ENV_FILE", &output)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0)
+        .spawn()
+        .context("starting login shell")?;
+    let mut probe = Probe(child);
+    probe.wait(timeout)?;
+    drop(probe);
+    let mut bytes = Vec::new();
+    File::open(output)?
+        .take(MAX_PATH_BYTES)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 == MAX_PATH_BYTES || (!bytes.is_empty() && bytes.last() != Some(&0)) {
+        bail!("invalid shell environment output");
+    }
+    let mut values = Vec::new();
+    if bytes.is_empty() {
+        return Ok(inherited);
+    }
+    let fields = bytes[..bytes.len() - 1]
+        .split(|byte| *byte == 0)
+        .collect::<Vec<_>>();
+    if fields.len() % 2 != 0 {
+        bail!("invalid shell environment output");
+    }
+    for pair in fields.chunks_exact(2) {
+        let [key, value] = [pair[0], pair[1]];
+        if !names.iter().any(|name| name.as_bytes() == key)
+            || values
+                .iter()
+                .any(|(prior, _): &(OsString, OsString)| prior.as_encoded_bytes() == key)
+        {
+            bail!("invalid shell environment output");
+        }
+        values.push((OsString::from_vec(key.to_vec()), OsString::from_vec(value.to_vec())));
+    }
+    for (key, value) in inherited {
+        values.retain(|(name, _)| name != &key);
+        values.push((key, value));
+    }
+    Ok(values)
 }
 
 fn resolve_path(
@@ -126,7 +226,7 @@ impl Probe {
                 Err(cause) => return Err(cause).context("waiting for login shell"),
             }
             if Instant::now() >= deadline {
-                bail!("login shell PATH probe timed out");
+                bail!("login shell probe timed out");
             }
             thread::sleep(
                 Duration::from_millis(10).min(deadline.saturating_duration_since(Instant::now())),

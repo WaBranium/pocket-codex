@@ -5013,6 +5013,8 @@ impl SseDecode for crate::api::bridge::hosting::AcpClaudeSetupDto {
         let mut var_state = <String>::sse_decode(deserializer);
         let mut var_stage = <Option<String>>::sse_decode(deserializer);
         let mut var_elapsedMs = <u64>::sse_decode(deserializer);
+        let mut var_downloadedBytes = <Option<u64>>::sse_decode(deserializer);
+        let mut var_downloadBytesPerSecond = <Option<u64>>::sse_decode(deserializer);
         let mut var_error = <Option<String>>::sse_decode(deserializer);
         let mut var_run = <u64>::sse_decode(deserializer);
         let mut var_started = <bool>::sse_decode(deserializer);
@@ -5020,6 +5022,8 @@ impl SseDecode for crate::api::bridge::hosting::AcpClaudeSetupDto {
             state: var_state,
             stage: var_stage,
             elapsed_ms: var_elapsedMs,
+            downloaded_bytes: var_downloadedBytes,
+            download_bytes_per_second: var_downloadBytesPerSecond,
             error: var_error,
             run: var_run,
             started: var_started,
@@ -5305,6 +5309,22 @@ impl SseDecode for bool {
     }
 }
 
+impl SseDecode for crate::api::bridge::host_config::ClaudeVariableDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_name = <String>::sse_decode(deserializer);
+        let mut var_group = <String>::sse_decode(deserializer);
+        let mut var_secret = <bool>::sse_decode(deserializer);
+        let mut var_choices = <Vec<String>>::sse_decode(deserializer);
+        return crate::api::bridge::host_config::ClaudeVariableDto {
+            name: var_name,
+            group: var_group,
+            secret: var_secret,
+            choices: var_choices,
+        };
+    }
+}
+
 impl SseDecode for crate::api::bridge::codex_setup::CodexAuthStatusDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -5547,6 +5567,10 @@ impl SseDecode for crate::api::bridge::host_config::HostApplyDto {
 impl SseDecode for crate::api::bridge::host_config::HostConfigDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_claudeEnv =
+            <Vec<crate::api::bridge::host_config::HostEnvironmentEntryDto>>::sse_decode(
+                deserializer,
+            );
         let mut var_source = <String>::sse_decode(deserializer);
         let mut var_protocol = <Option<String>>::sse_decode(deserializer);
         let mut var_baseUrl = <Option<String>>::sse_decode(deserializer);
@@ -5559,6 +5583,7 @@ impl SseDecode for crate::api::bridge::host_config::HostConfigDto {
         let mut var_active =
             <Option<crate::api::bridge::host_config::HostActiveDto>>::sse_decode(deserializer);
         return crate::api::bridge::host_config::HostConfigDto {
+            claude_env: var_claudeEnv,
             source: var_source,
             protocol: var_protocol,
             base_url: var_baseUrl,
@@ -5575,11 +5600,15 @@ impl SseDecode for crate::api::bridge::host_config::HostConfigDto {
 impl SseDecode for crate::api::bridge::host_config::HostConfigInputDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_claudeEnv = <Option<
+            Vec<crate::api::bridge::host_config::HostEnvironmentEntryDto>,
+        >>::sse_decode(deserializer);
         let mut var_source = <String>::sse_decode(deserializer);
         let mut var_protocol = <Option<String>>::sse_decode(deserializer);
         let mut var_baseUrl = <Option<String>>::sse_decode(deserializer);
         let mut var_model = <Option<String>>::sse_decode(deserializer);
         return crate::api::bridge::host_config::HostConfigInputDto {
+            claude_env: var_claudeEnv,
             source: var_source,
             protocol: var_protocol,
             base_url: var_baseUrl,
@@ -5591,15 +5620,30 @@ impl SseDecode for crate::api::bridge::host_config::HostConfigInputDto {
 impl SseDecode for crate::api::bridge::host_config::HostConfigSupportDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_claudeVariables =
+            <Vec<crate::api::bridge::host_config::ClaudeVariableDto>>::sse_decode(deserializer);
         let mut var_sources = <Vec<String>>::sse_decode(deserializer);
         let mut var_protocols = <Vec<String>>::sse_decode(deserializer);
         let mut var_modelRequired = <bool>::sse_decode(deserializer);
         let mut var_keyRequired = <bool>::sse_decode(deserializer);
         return crate::api::bridge::host_config::HostConfigSupportDto {
+            claude_variables: var_claudeVariables,
             sources: var_sources,
             protocols: var_protocols,
             model_required: var_modelRequired,
             key_required: var_keyRequired,
+        };
+    }
+}
+
+impl SseDecode for crate::api::bridge::host_config::HostEnvironmentEntryDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_name = <String>::sse_decode(deserializer);
+        let mut var_value = <Option<String>>::sse_decode(deserializer);
+        return crate::api::bridge::host_config::HostEnvironmentEntryDto {
+            name: var_name,
+            value: var_value,
         };
     }
 }
@@ -5710,6 +5754,20 @@ impl SseDecode for Vec<crate::api::bridge::hosting::AppServeStatusDto> {
     }
 }
 
+impl SseDecode for Vec<crate::api::bridge::host_config::ClaudeVariableDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::bridge::host_config::ClaudeVariableDto>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for Vec<crate::api::bridge::host_sessions::DirEntryDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -5741,6 +5799,20 @@ impl SseDecode for Vec<crate::api::bridge::host_sessions::HolderDto> {
         let mut ans_ = Vec::with_capacity(len_ as usize);
         for idx_ in 0..len_ {
             ans_.push(<crate::api::bridge::host_sessions::HolderDto>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::bridge::host_config::HostEnvironmentEntryDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::bridge::host_config::HostEnvironmentEntryDto>::sse_decode(
+                deserializer,
+            ));
         }
         return ans_;
     }
@@ -6143,6 +6215,21 @@ impl SseDecode for Option<Vec<String>> {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         if (<bool>::sse_decode(deserializer)) {
             return Some(<Vec<String>>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<Vec<crate::api::bridge::host_config::HostEnvironmentEntryDto>> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(
+                <Vec<crate::api::bridge::host_config::HostEnvironmentEntryDto>>::sse_decode(
+                    deserializer,
+                ),
+            );
         } else {
             return None;
         }
@@ -7389,6 +7476,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::bridge::hosting::AcpClaudeSet
             self.state.into_into_dart().into_dart(),
             self.stage.into_into_dart().into_dart(),
             self.elapsed_ms.into_into_dart().into_dart(),
+            self.downloaded_bytes.into_into_dart().into_dart(),
+            self.download_bytes_per_second.into_into_dart().into_dart(),
             self.error.into_into_dart().into_dart(),
             self.run.into_into_dart().into_dart(),
             self.started.into_into_dart().into_dart(),
@@ -7656,6 +7745,29 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::bridge::threads::AppTurnSuppl
     for crate::api::bridge::threads::AppTurnSupplementDto
 {
     fn into_into_dart(self) -> crate::api::bridge::threads::AppTurnSupplementDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::bridge::host_config::ClaudeVariableDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.name.into_into_dart().into_dart(),
+            self.group.into_into_dart().into_dart(),
+            self.secret.into_into_dart().into_dart(),
+            self.choices.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::bridge::host_config::ClaudeVariableDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::bridge::host_config::ClaudeVariableDto>
+    for crate::api::bridge::host_config::ClaudeVariableDto
+{
+    fn into_into_dart(self) -> crate::api::bridge::host_config::ClaudeVariableDto {
         self
     }
 }
@@ -7978,6 +8090,7 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::bridge::host_config::HostAppl
 impl flutter_rust_bridge::IntoDart for crate::api::bridge::host_config::HostConfigDto {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
+            self.claude_env.into_into_dart().into_dart(),
             self.source.into_into_dart().into_dart(),
             self.protocol.into_into_dart().into_dart(),
             self.base_url.into_into_dart().into_dart(),
@@ -8006,6 +8119,7 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::bridge::host_config::HostConf
 impl flutter_rust_bridge::IntoDart for crate::api::bridge::host_config::HostConfigInputDto {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
+            self.claude_env.into_into_dart().into_dart(),
             self.source.into_into_dart().into_dart(),
             self.protocol.into_into_dart().into_dart(),
             self.base_url.into_into_dart().into_dart(),
@@ -8029,6 +8143,7 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::bridge::host_config::HostConf
 impl flutter_rust_bridge::IntoDart for crate::api::bridge::host_config::HostConfigSupportDto {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
+            self.claude_variables.into_into_dart().into_dart(),
             self.sources.into_into_dart().into_dart(),
             self.protocols.into_into_dart().into_dart(),
             self.model_required.into_into_dart().into_dart(),
@@ -8045,6 +8160,24 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::bridge::host_config::HostConf
     for crate::api::bridge::host_config::HostConfigSupportDto
 {
     fn into_into_dart(self) -> crate::api::bridge::host_config::HostConfigSupportDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::bridge::host_config::HostEnvironmentEntryDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [self.name.into_into_dart().into_dart(), self.value.into_into_dart().into_dart()]
+            .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::bridge::host_config::HostEnvironmentEntryDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::bridge::host_config::HostEnvironmentEntryDto>
+    for crate::api::bridge::host_config::HostEnvironmentEntryDto
+{
+    fn into_into_dart(self) -> crate::api::bridge::host_config::HostEnvironmentEntryDto {
         self
     }
 }
@@ -8773,6 +8906,8 @@ impl SseEncode for crate::api::bridge::hosting::AcpClaudeSetupDto {
         <String>::sse_encode(self.state, serializer);
         <Option<String>>::sse_encode(self.stage, serializer);
         <u64>::sse_encode(self.elapsed_ms, serializer);
+        <Option<u64>>::sse_encode(self.downloaded_bytes, serializer);
+        <Option<u64>>::sse_encode(self.download_bytes_per_second, serializer);
         <Option<String>>::sse_encode(self.error, serializer);
         <u64>::sse_encode(self.run, serializer);
         <bool>::sse_encode(self.started, serializer);
@@ -8940,6 +9075,16 @@ impl SseEncode for bool {
     }
 }
 
+impl SseEncode for crate::api::bridge::host_config::ClaudeVariableDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.name, serializer);
+        <String>::sse_encode(self.group, serializer);
+        <bool>::sse_encode(self.secret, serializer);
+        <Vec<String>>::sse_encode(self.choices, serializer);
+    }
+}
+
 impl SseEncode for crate::api::bridge::codex_setup::CodexAuthStatusDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -9089,6 +9234,10 @@ impl SseEncode for crate::api::bridge::host_config::HostApplyDto {
 impl SseEncode for crate::api::bridge::host_config::HostConfigDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Vec<crate::api::bridge::host_config::HostEnvironmentEntryDto>>::sse_encode(
+            self.claude_env,
+            serializer,
+        );
         <String>::sse_encode(self.source, serializer);
         <Option<String>>::sse_encode(self.protocol, serializer);
         <Option<String>>::sse_encode(self.base_url, serializer);
@@ -9110,6 +9259,10 @@ impl SseEncode for crate::api::bridge::host_config::HostConfigDto {
 impl SseEncode for crate::api::bridge::host_config::HostConfigInputDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Option<Vec<crate::api::bridge::host_config::HostEnvironmentEntryDto>>>::sse_encode(
+            self.claude_env,
+            serializer,
+        );
         <String>::sse_encode(self.source, serializer);
         <Option<String>>::sse_encode(self.protocol, serializer);
         <Option<String>>::sse_encode(self.base_url, serializer);
@@ -9120,10 +9273,22 @@ impl SseEncode for crate::api::bridge::host_config::HostConfigInputDto {
 impl SseEncode for crate::api::bridge::host_config::HostConfigSupportDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Vec<crate::api::bridge::host_config::ClaudeVariableDto>>::sse_encode(
+            self.claude_variables,
+            serializer,
+        );
         <Vec<String>>::sse_encode(self.sources, serializer);
         <Vec<String>>::sse_encode(self.protocols, serializer);
         <bool>::sse_encode(self.model_required, serializer);
         <bool>::sse_encode(self.key_required, serializer);
+    }
+}
+
+impl SseEncode for crate::api::bridge::host_config::HostEnvironmentEntryDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.name, serializer);
+        <Option<String>>::sse_encode(self.value, serializer);
     }
 }
 
@@ -9205,6 +9370,16 @@ impl SseEncode for Vec<crate::api::bridge::hosting::AppServeStatusDto> {
     }
 }
 
+impl SseEncode for Vec<crate::api::bridge::host_config::ClaudeVariableDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::bridge::host_config::ClaudeVariableDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
 impl SseEncode for Vec<crate::api::bridge::host_sessions::DirEntryDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -9231,6 +9406,18 @@ impl SseEncode for Vec<crate::api::bridge::host_sessions::HolderDto> {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <crate::api::bridge::host_sessions::HolderDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::bridge::host_config::HostEnvironmentEntryDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::bridge::host_config::HostEnvironmentEntryDto>::sse_encode(
+                item, serializer,
+            );
         }
     }
 }
@@ -9545,6 +9732,18 @@ impl SseEncode for Option<Vec<String>> {
         <bool>::sse_encode(self.is_some(), serializer);
         if let Some(value) = self {
             <Vec<String>>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<Vec<crate::api::bridge::host_config::HostEnvironmentEntryDto>> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <Vec<crate::api::bridge::host_config::HostEnvironmentEntryDto>>::sse_encode(
+                value, serializer,
+            );
         }
     }
 }

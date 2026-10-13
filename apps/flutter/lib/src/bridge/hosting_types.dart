@@ -473,12 +473,14 @@ class AcpClaudeSetup {
     this.error,
     this.run = 0,
     this.started = false,
+    this.downloadedBytes,
+    this.downloadBytesPerSecond,
   });
 
   /// `idle` / `running` / `done` / `failed` / `cancelled`.
   final String state;
 
-  /// `installing` / `verifying` while running.
+  /// `installing` / `downloading` / `verifying` while running.
   final String? stage;
 
   /// Milliseconds since it started.
@@ -492,6 +494,12 @@ class AcpClaudeSetup {
 
   /// This call started [run]; a call that joined one did not.
   final bool started;
+
+  /// Actual package bytes received this run; null before telemetry arrives.
+  final int? downloadedBytes;
+
+  /// Recent package transfer rate; null when unavailable.
+  final int? downloadBytesPerSecond;
 
   /// It is still running.
   bool get running => state == 'running';

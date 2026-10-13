@@ -79,6 +79,28 @@ pub fn external_tool_path() -> Option<std::ffi::OsString> {
         None
     }
 }
+/// Resolve a related set of child-only environment variables for a GUI tool.
+/// Existing process values take precedence, including explicit empty values.
+/// On macOS, fill missing variables by reading only these names through the
+/// user's login shell with bounded output/time and owned process cleanup.
+/// Elsewhere the inherited environment is used. Values may be credentials:
+/// never log, persist or apply them to this process's environment.
+pub fn external_tool_environment(
+    names: &[&str],
+) -> anyhow::Result<Vec<(std::ffi::OsString, std::ffi::OsString)>> {
+    #[cfg(target_os = "macos")]
+    {
+        shell_environment::child_variables(names)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(names
+            .iter()
+            .filter_map(|name| std::env::var_os(name).map(|v| ((*name).into(), v)))
+            .collect())
+    }
+}
+
 pub use readiness::{
     spawn_ready, spawn_ready_redacted, spawn_ready_with_env, verify_ready, wait_for_readyz,
     SpawnReadyError, StartupFailure, READY_TIMEOUT,

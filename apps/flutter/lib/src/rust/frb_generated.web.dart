@@ -151,6 +151,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   BigInt dco_decode_box_autoadd_u_64(dynamic raw);
 
   @protected
+  ClaudeVariableDto dco_decode_claude_variable_dto(dynamic raw);
+
+  @protected
   CodexAuthStatusDto dco_decode_codex_auth_status_dto(dynamic raw);
 
   @protected
@@ -202,6 +205,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   HostConfigSupportDto dco_decode_host_config_support_dto(dynamic raw);
 
   @protected
+  HostEnvironmentEntryDto dco_decode_host_environment_entry_dto(dynamic raw);
+
+  @protected
   HostRuntimeDto dco_decode_host_runtime_dto(dynamic raw);
 
   @protected
@@ -228,6 +234,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<AppServeStatusDto> dco_decode_list_app_serve_status_dto(dynamic raw);
 
   @protected
+  List<ClaudeVariableDto> dco_decode_list_claude_variable_dto(dynamic raw);
+
+  @protected
   List<DirEntryDto> dco_decode_list_dir_entry_dto(dynamic raw);
 
   @protected
@@ -235,6 +244,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<HolderDto> dco_decode_list_holder_dto(dynamic raw);
+
+  @protected
+  List<HostEnvironmentEntryDto> dco_decode_list_host_environment_entry_dto(
+    dynamic raw,
+  );
 
   @protected
   List<LocalSessionDto> dco_decode_list_local_session_dto(dynamic raw);
@@ -338,6 +352,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<String>? dco_decode_opt_list_String(dynamic raw);
+
+  @protected
+  List<HostEnvironmentEntryDto>? dco_decode_opt_list_host_environment_entry_dto(
+    dynamic raw,
+  );
 
   @protected
   ProjectConfigDto dco_decode_project_config_dto(dynamic raw);
@@ -562,6 +581,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   BigInt sse_decode_box_autoadd_u_64(SseDeserializer deserializer);
 
   @protected
+  ClaudeVariableDto sse_decode_claude_variable_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   CodexAuthStatusDto sse_decode_codex_auth_status_dto(
     SseDeserializer deserializer,
   );
@@ -629,6 +653,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  HostEnvironmentEntryDto sse_decode_host_environment_entry_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   HostRuntimeDto sse_decode_host_runtime_dto(SseDeserializer deserializer);
 
   @protected
@@ -661,6 +690,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  List<ClaudeVariableDto> sse_decode_list_claude_variable_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<DirEntryDto> sse_decode_list_dir_entry_dto(SseDeserializer deserializer);
 
   @protected
@@ -670,6 +704,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<HolderDto> sse_decode_list_holder_dto(SseDeserializer deserializer);
+
+  @protected
+  List<HostEnvironmentEntryDto> sse_decode_list_host_environment_entry_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<LocalSessionDto> sse_decode_list_local_session_dto(
@@ -801,6 +840,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<String>? sse_decode_opt_list_String(SseDeserializer deserializer);
+
+  @protected
+  List<HostEnvironmentEntryDto>? sse_decode_opt_list_host_environment_entry_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   ProjectConfigDto sse_decode_project_config_dto(SseDeserializer deserializer);
@@ -1076,6 +1120,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_box_autoadd_u_64(BigInt self, SseSerializer serializer);
 
   @protected
+  void sse_encode_claude_variable_dto(
+    ClaudeVariableDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_codex_auth_status_dto(
     CodexAuthStatusDto self,
     SseSerializer serializer,
@@ -1154,6 +1204,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_host_environment_entry_dto(
+    HostEnvironmentEntryDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_host_runtime_dto(
     HostRuntimeDto self,
     SseSerializer serializer,
@@ -1196,6 +1252,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_claude_variable_dto(
+    List<ClaudeVariableDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_dir_entry_dto(
     List<DirEntryDto> self,
     SseSerializer serializer,
@@ -1210,6 +1272,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_holder_dto(
     List<HolderDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_host_environment_entry_dto(
+    List<HostEnvironmentEntryDto> self,
     SseSerializer serializer,
   );
 
@@ -1371,6 +1439,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_opt_list_String(List<String>? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_list_host_environment_entry_dto(
+    List<HostEnvironmentEntryDto>? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_project_config_dto(

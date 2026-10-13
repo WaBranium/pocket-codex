@@ -144,6 +144,55 @@ void _registerClaudePreparation() {
       expectNoHostMutation(api, prefs);
     });
 
+    testWidgets('Prepare shows the polled download size and speed, drops '
+        'the speed while verifying and leaves once ready', (t) async {
+      final api = claudeApi(missing);
+      await _pumpDialog(t, api);
+      await _chooseAcp(t, 'claude');
+      await prepareOnly(t);
+      final progress = find.byKey(const Key('claude-prepare-progress'));
+      expect(progress, findsOneWidget);
+      expect(
+        find.descendant(
+          of: progress,
+          matching: find.byKey(const Key('claude-prepare-downloaded')),
+        ),
+        findsNothing,
+        reason: 'no size before the bridge reports one',
+      );
+      final run = api.claudeSetup.run;
+      api.claudeSetup = AcpClaudeSetup(
+        state: 'running',
+        stage: 'downloading',
+        run: run,
+        elapsedMs: 3000,
+        downloadedBytes: 2500000,
+        downloadBytesPerSecond: 640000,
+      );
+      await t.pump(const Duration(milliseconds: 600));
+      expect(find.text('2.5 MB downloaded'), findsOneWidget);
+      expect(find.text('640 KB/s'), findsOneWidget);
+      expect(find.text('0:03'), findsOneWidget);
+      expect(find.byKey(const Key('claude-prepare-cancel')), findsOneWidget);
+      expect(find.byKey(const Key('claude-prepare-joined')), findsNothing);
+      api.claudeSetup = AcpClaudeSetup(
+        state: 'running',
+        stage: 'verifying',
+        run: run,
+        elapsedMs: 9000,
+        downloadedBytes: 4100000,
+        downloadBytesPerSecond: 0,
+      );
+      await t.pump(const Duration(milliseconds: 600));
+      expect(find.text('4.1 MB downloaded'), findsOneWidget);
+      expect(find.byKey(const Key('claude-prepare-speed')), findsNothing);
+      expect(find.text('Checking the downloaded adapter…'), findsOneWidget);
+      api.settleClaudePrepare('done');
+      await finishPreparation(t);
+      expect(progress, findsNothing);
+      expect(t.takeException(), isNull);
+    });
+
     testWidgets('independent Prepare joins without owning cancellation or '
         'using a late result after Stop waiting', (t) async {
       final api = claudeApi(missing)

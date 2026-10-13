@@ -178,3 +178,128 @@ fn real_zsh_startup_is_isolated_and_its_blocked_child_is_terminated() {
     assert!(resolve_path(zsh, &environment(root.path()), None, Duration::from_millis(500)).is_err());
     assert_stopped(&root.path().join("child.pid"));
 }
+
+#[test]
+fn provider_variables_are_allowlisted_private_and_preserved_verbatim() {
+    let root = tempfile::tempdir().expect("tempdir");
+    let shell = script(
+        root.path(),
+        "shell",
+        r#"
+        printf 'startup noise with a secret'
+        export ANTHROPIC_BASE_URL='https://provider.invalid/api'
+        export ANTHROPIC_AUTH_TOKEN='quotes " = spaces
+second line'
+        export UNRELATED_SECRET='not requested'
+        eval "$2"
+        [ "$(/bin/ls -l "$POCKET_CODEX_ENV_FILE" | /usr/bin/cut -c1-10)" = -rw------- ] || exit 8
+    "#,
+    );
+    let before = std::env::var_os("ANTHROPIC_AUTH_TOKEN");
+    let result = resolve_variables(
+        &shell,
+        &environment(root.path()),
+        &["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"],
+        Duration::from_secs(3),
+    )
+    .expect("variables");
+    assert_eq!(result, vec![
+        ("ANTHROPIC_BASE_URL".into(), "https://provider.invalid/api".into()),
+        ("ANTHROPIC_AUTH_TOKEN".into(), "quotes \" = spaces\nsecond line".into()),
+    ]);
+    assert_eq!(std::env::var_os("ANTHROPIC_AUTH_TOKEN"), before);
+}
+
+#[test]
+fn a_complete_inherited_set_skips_shell_and_preserves_empty_values() {
+    let env = vec![
+        ("ANTHROPIC_BASE_URL".into(), "".into()),
+        ("ANTHROPIC_AUTH_TOKEN".into(), "token".into()),
+    ];
+    let result = resolve_variables(
+        Path::new("must-not-start"),
+        &env,
+        &["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN"],
+        Duration::ZERO,
+    )
+    .expect("inherited");
+    assert_eq!(result, env, "an explicit empty endpoint also wins; no token is imported");
+}
+
+#[test]
+fn provider_probe_rejects_bad_output_and_never_leaks_values_in_errors() {
+    let root = tempfile::tempdir().expect("tempdir");
+    for body in [
+        "printf 'UNEXPECTED\\0secret-value\\0' > \"$POCKET_CODEX_ENV_FILE\"",
+        "printf 'ANTHROPIC_AUTH_TOKEN\\0secret-value' > \"$POCKET_CODEX_ENV_FILE\"",
+        "/usr/bin/head -c 131072 /dev/zero > \"$POCKET_CODEX_ENV_FILE\"",
+        "exit 2",
+    ] {
+        let shell = script(root.path(), "shell", body);
+        let error = resolve_variables(
+            &shell,
+            &environment(root.path()),
+            &["ANTHROPIC_AUTH_TOKEN"],
+            Duration::from_secs(3),
+        )
+        .expect_err("invalid");
+        assert!(!format!("{error:#}").contains("secret-value"));
+    }
+    assert!(
+        resolve_variables(Path::new("/bin/sh"), &[], &["X;touch nope"], Duration::ZERO).is_err()
+    );
+}
+
+#[test]
+fn zshenv_supplies_provider_variables_without_a_login_flow() {
+    let zsh = Path::new("/bin/zsh");
+    if !zsh.exists() && !cfg!(target_os = "macos") {
+        return;
+    }
+    let root = tempfile::tempdir().expect("tempdir");
+    fs::write(
+        root.path().join(".zshenv"),
+        "export ANTHROPIC_BASE_URL=https://provider.invalid\nexport \
+         ANTHROPIC_AUTH_TOKEN=test-token\n",
+    )
+    .expect("zshenv");
+    let values = resolve_variables(
+        zsh,
+        &environment(root.path()),
+        &["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN"],
+        Duration::from_secs(3),
+    )
+    .expect("zshenv");
+    assert_eq!(values.len(), 2);
+    assert_eq!(values[1].1, "test-token");
+}
+
+#[test]
+fn partial_inheritance_survives_shell_unsets_and_wins_over_shell_values() {
+    let root = tempfile::tempdir().expect("tempdir");
+    let names = &["ANTHROPIC_MODEL", "CLAUDE_CODE_EFFORT_LEVEL"];
+    let mut env = environment(root.path());
+    env.push(("ANTHROPIC_MODEL".into(), "parent-model".into()));
+    for (body, effort) in [
+        ("unset ANTHROPIC_MODEL; eval \"$2\"", None),
+        (
+            "export ANTHROPIC_MODEL=shell-model CLAUDE_CODE_EFFORT_LEVEL=high; eval \"$2\"",
+            Some("high"),
+        ),
+    ] {
+        let shell = script(root.path(), "shell", body);
+        let result: std::collections::BTreeMap<_, _> =
+            resolve_variables(&shell, &env, names, Duration::from_secs(3))
+                .expect("merged variables")
+                .into_iter()
+                .collect();
+        assert_eq!(
+            result.get(OsStr::new("ANTHROPIC_MODEL")),
+            Some(&OsString::from("parent-model"))
+        );
+        assert_eq!(
+            result.get(OsStr::new("CLAUDE_CODE_EFFORT_LEVEL")),
+            effort.map(OsString::from).as_ref()
+        );
+    }
+}

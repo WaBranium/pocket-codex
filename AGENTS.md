@@ -709,6 +709,12 @@ this file's roadmap so the source of truth stays in sync.
     spec, its argv and the session record key (the adapter path) stay what
     they were. An explicit path or any other program is launched verbatim;
     the native CLI is never spoken to.
+    Claude hosting inherits allowlisted environment variables (including the
+    macOS login shell) and exposes per-host overrides for credentials, model
+    aliases, reasoning/output and network controls. Secrets stay in private
+    host storage, with no readback or new login flow. Save and explicit restart
+    remain separate. Preparation displays measured package bytes and speed,
+    never a made-up percentage or download total.
     A missing adapter can be prepared by **Prepare ACP environment**, without
     saving, starting or restarting hosting, or by an explicit Start that
     announced it for the same agent and environment from an open editor

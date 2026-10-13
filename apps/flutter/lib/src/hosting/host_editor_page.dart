@@ -4,6 +4,7 @@ import 'package:pocket_codex/l10n/gen/app_localizations.dart';
 import 'package:pocket_codex/src/bridge_api.dart';
 import 'package:pocket_codex/src/hosting/acp_host_form.dart';
 import 'package:pocket_codex/src/hosting/agent_choice_grid.dart';
+import 'package:pocket_codex/src/hosting/claude_preparation_progress.dart';
 import 'package:pocket_codex/src/hosting/codex_runtime_section.dart';
 import 'package:pocket_codex/src/hosting/editor_block.dart';
 import 'package:pocket_codex/src/hosting/host_editor_actions.dart';
@@ -313,7 +314,7 @@ class _HostingEditorState extends ConsumerState<HostingEditor>
                       onPrepare: prepareClaudeEnvironment,
                     ),
                     if (claudeSetup case final setup? when setup.running)
-                      _claudeProgress(l10n, setup),
+                      _claudeProgress(setup),
                   ],
                 ),
         ),
@@ -359,7 +360,7 @@ class _HostingEditorState extends ConsumerState<HostingEditor>
                     onPrepare: prepareClaudeEnvironment,
                   ),
                   if (claudeSetup case final setup? when setup.running)
-                    _claudeProgress(l10n, setup),
+                    _claudeProgress(setup),
                 ],
               ),
             ),
@@ -375,31 +376,16 @@ class _HostingEditorState extends ConsumerState<HostingEditor>
     ];
   }
 
-  Widget _claudeProgress(AppLocalizations l10n, AcpClaudeSetup setup) {
-    final seconds = setup.elapsedMs ~/ 1000;
-    return Column(
+  /// The running preparation's card; Cancel or Stop waiting sits in the
+  /// action bar, by who owns the run.
+  Widget _claudeProgress(AcpClaudeSetup setup) => Padding(
+    padding: const EdgeInsets.only(top: 14),
+    child: ClaudePreparationProgress(
       key: const Key('claude-prepare-progress'),
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const SizedBox(height: 12),
-        const LinearProgressIndicator(),
-        const SizedBox(height: 6),
-        EditorNote(
-          setup.stage == 'verifying'
-              ? l10n.claudePrepareVerifying(seconds)
-              : l10n.claudePreparing(seconds),
-        ),
-        if (!ownsClaudePrepare) ...[
-          const SizedBox(height: 4),
-          EditorNote(
-            l10n.claudePrepareJoined,
-            key: const Key('claude-prepare-joined'),
-          ),
-        ],
-      ],
-    );
-  }
+      setup: setup,
+      joined: !ownsClaudePrepare,
+    ),
+  );
 
   Widget _actions(AppLocalizations l10n) {
     final scheme = Theme.of(context).colorScheme;

@@ -14,6 +14,7 @@ fn resolved(revision: u64) -> Resolved {
 
 fn keyed(revision: u64, key: &str) -> Resolved {
     Resolved {
+        claude_env: Default::default(),
         source: Source::Custom,
         endpoint: Some(ProviderEndpoint {
             protocol: ApiProtocol::Responses,

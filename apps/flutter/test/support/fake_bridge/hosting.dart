@@ -342,6 +342,19 @@ mixin _FakeHosting on _FakeBridgeState {
         modelRequired: true,
       ),
       'claude' => const HostConfigSupport(
+        claudeVariables: [
+          ClaudeVariable(
+            name: 'ANTHROPIC_AUTH_TOKEN',
+            group: 'connection',
+            secret: true,
+          ),
+          ClaudeVariable(name: 'ANTHROPIC_DEFAULT_OPUS_MODEL', group: 'models'),
+          ClaudeVariable(
+            name: 'CLAUDE_CODE_EFFORT_LEVEL',
+            group: 'reasoning',
+            choices: ['auto', 'low', 'medium', 'high', 'xhigh', 'max'],
+          ),
+        ],
         sources: ['inherited', 'custom'],
         protocols: ['anthropic-messages'],
         keyRequired: true,

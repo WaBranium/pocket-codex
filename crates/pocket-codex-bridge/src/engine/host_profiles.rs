@@ -58,6 +58,8 @@ use serde::{Deserialize, Serialize};
 
 use super::host_names;
 
+#[path = "host_profiles_environment.rs"]
+pub mod environment;
 #[path = "host_profiles_files.rs"]
 mod files;
 #[path = "host_profiles_secrets.rs"]
@@ -69,270 +71,14 @@ pub use self::secrets::{redact, redactor, Redactor};
 /// The current file version; version 1 (no key references) is still read.
 const FILE_VERSION: u32 = 2;
 
-/// Where a host gets its model service.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Source {
-    /// The agent's own existing configuration.
-    Inherited,
-    /// The official account (native Codex only).
-    Official,
-    /// An instance-owned provider.
-    Custom,
-}
-
-impl Source {
-    /// Stable name.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Inherited => "inherited",
-            Self::Official => "official",
-            Self::Custom => "custom",
-        }
-    }
-
-    /// Parse a stable name.
-    pub fn parse(raw: &str) -> Option<Self> {
-        [Self::Inherited, Self::Official, Self::Custom]
-            .into_iter()
-            .find(|s| s.as_str() == raw)
-    }
-}
-
-/// The engine a configuration is for, which decides what it may select.
-#[derive(Debug, Clone, Copy)]
-pub enum Engine<'a> {
-    /// Native Codex app-server.
-    Codex,
-    /// An ACP agent.
-    Acp(&'a AgentSpec),
-}
-
-impl Engine<'_> {
-    fn allows(&self, source: Source, protocol: Option<ApiProtocol>) -> Result<()> {
-        match (self, source) {
-            (_, Source::Inherited) => Ok(()),
-            (Engine::Codex, Source::Official) => Ok(()),
-            (Engine::Acp(_), Source::Official) => {
-                bail!("only native Codex offers an official-account sign-in here")
-            },
-            (engine, Source::Custom) => {
-                let protocol = protocol.ok_or_else(|| anyhow!("choose the provider's API"))?;
-                let supported: &[ApiProtocol] = match engine {
-                    Engine::Codex => &[ApiProtocol::Responses],
-                    Engine::Acp(spec) => acp_provider::supported_protocols(spec),
-                };
-                if supported.is_empty() {
-                    bail!(
-                        "this agent has no supported provider configuration; it uses its own \
-                         configuration"
-                    );
-                }
-                if !supported.contains(&protocol) {
-                    bail!("this agent cannot use a `{protocol}` provider; choose another agent");
-                }
-                Ok(())
-            },
-        }
-    }
-
-    fn admits(&self, runtime: &Runtime) -> Result<()> {
-        match (self, runtime) {
-            (
-                Engine::Codex,
-                Runtime::Codex {
-                    ..
-                },
-            ) => Ok(()),
-            (Engine::Acp(spec), Runtime::Acp(desired)) if *spec == desired => Ok(()),
-            (Engine::Acp(_), Runtime::Acp(_)) => {
-                bail!("the provider must be checked against the agent being saved")
-            },
-            _ => bail!("this runtime belongs to another kind of host"),
-        }
-    }
-}
-
-/// The runtime a host should run with.
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-pub enum Runtime {
-    /// A native Codex host.
-    Codex {
-        /// The codex executable (`None`: the app's saved one, then `PATH`).
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        binary: Option<String>,
-        /// The app-server port (`0`: automatic).
-        port: u16,
-        /// The upstream proxy (`None`: inherit the app's environment).
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        proxy: Option<String>,
-    },
-    /// An ACP agent: its profile and exact command line.
-    Acp(AgentSpec),
-}
-
-impl std::fmt::Debug for Runtime {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            // A proxy URL may carry credentials: only whether one is set.
-            Self::Codex {
-                binary,
-                port,
-                proxy,
-            } => f
-                .debug_struct("Codex")
-                .field("binary", binary)
-                .field("port", port)
-                .field("proxy", &proxy.is_some())
-                .finish(),
-            Self::Acp(spec) => f.debug_tuple("Acp").field(spec).finish(),
-        }
-    }
-}
-
-impl Runtime {
-    /// Validated and trimmed, or why not.
-    fn normalized(&self) -> Result<Self> {
-        match self {
-            Self::Codex {
-                binary,
-                port,
-                proxy,
-            } => {
-                let proxy = trimmed(proxy.as_deref());
-                if let Some(p) = proxy.as_deref() {
-                    pocket_codex_api_proxy::validate_proxy(p)?;
-                }
-                Ok(Self::Codex {
-                    binary: trimmed(binary.as_deref()),
-                    port: *port,
-                    proxy,
-                })
-            },
-            Self::Acp(spec) => {
-                spec.validate().map_err(|e| anyhow!("{e}"))?;
-                Ok(Self::Acp(spec.clone()))
-            },
-        }
-    }
-}
-
-/// A saved configuration, as readers see it: the key only as set or not.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HostProfile {
-    /// Where the host gets its model service.
-    pub source: Source,
-    /// The custom provider's API.
-    pub protocol: Option<ApiProtocol>,
-    /// The custom provider's base URL.
-    pub base_url: Option<String>,
-    /// The custom provider's default model.
-    pub model: Option<String>,
-    /// Whether a key is stored.
-    pub key_set: bool,
-    /// The desired runtime, when one was saved.
-    pub runtime: Option<Runtime>,
-    /// Moves on every save; `0` when nothing was ever saved.
-    pub revision: u64,
-    /// Why the saved record cannot be used as is (safe to show); saving
-    /// replaces it.
-    pub problem: Option<String>,
-}
-
-impl HostProfile {
-    fn inherited() -> Self {
-        Self {
-            source: Source::Inherited,
-            protocol: None,
-            base_url: None,
-            model: None,
-            key_set: false,
-            runtime: None,
-            revision: 0,
-            problem: None,
-        }
-    }
-}
-
-/// What a save asks for (everything but the key and the runtime).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProfileInput {
-    /// Where the host should get its model service.
-    pub source: Source,
-    /// The custom provider's API.
-    pub protocol: Option<ApiProtocol>,
-    /// The custom provider's base URL.
-    pub base_url: Option<String>,
-    /// The custom provider's default model.
-    pub model: Option<String>,
-}
-
-/// What a save does with the stored key.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum KeyChange {
-    /// Leave it as it is (set or not).
-    Keep,
-    /// Store this one instead.
-    Replace(Secret),
-    /// Remove it.
-    Remove,
-}
-
-/// What a save does with the desired runtime.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RuntimeChange {
-    /// Leave it as it is.
-    Keep,
-    /// Save this one.
-    Set(Runtime),
-    /// Forget it (the host runs as started). No editor asks for this yet;
-    /// the store's handling of it is exercised by its tests.
-    #[cfg(test)]
-    Clear,
-}
-
-/// One save: model service, key and runtime, committed together.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Change {
-    /// The model service.
-    pub input: ProfileInput,
-    /// The key.
-    pub key: KeyChange,
-    /// The desired runtime.
-    pub runtime: RuntimeChange,
-}
-
-/// The configuration a launch resolves to.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Resolved {
-    /// Where the host gets its model service.
-    pub source: Source,
-    /// The custom provider, with its key.
-    pub endpoint: Option<ProviderEndpoint>,
-    /// The opaque authority generation (see the module docs); `None` when
-    /// inherited.
-    pub authority: Option<String>,
-    /// The desired runtime of the same revision.
-    pub runtime: Option<Runtime>,
-    /// The saved revision this is.
-    pub revision: u64,
-}
-
-impl Resolved {
-    /// What an instance without a record resolves to.
-    pub fn inherited() -> Self {
-        Self {
-            source: Source::Inherited,
-            endpoint: None,
-            authority: None,
-            runtime: None,
-            revision: 0,
-        }
-    }
-}
+#[path = "host_profiles_types.rs"]
+mod types;
+pub use types::*;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct Record {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    claude_env: Option<String>,
     source: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     protocol: Option<String>,
@@ -493,6 +239,9 @@ fn profile_of(root: &Path, name: &str, record: Option<&Record>) -> HostProfile {
         base_url: record.base_url.clone(),
         model: record.model.clone(),
         key_set: record.key.is_some(),
+        claude_env: environment::read(root, name, record.claude_env.as_deref())
+            .map(|v| environment::visible(&v))
+            .unwrap_or_default(),
         runtime: record.runtime.clone(),
         revision: record.revision,
         problem,
@@ -538,6 +287,7 @@ fn parse(root: &Path, name: &str, record: &Record) -> Result<Parsed> {
             bail!("the stored key is missing; enter it again and save");
         }
     }
+    environment::read(root, name, record.claude_env.as_deref())?;
     if let Some(runtime) = &record.runtime {
         runtime.normalized().map_err(|_| invalid("runtime"))?;
     }
@@ -717,20 +467,65 @@ pub fn stage_in(
     let revision = current
         .checked_add(1)
         .ok_or_else(|| anyhow!("the saved revision cannot move further"))?;
+    let old_env = previous.as_ref().and_then(|r| r.claude_env.clone());
+    let (old_values, readable) = match environment::read(root, &name, old_env.as_deref()) {
+        Ok(values) => (values, true),
+        Err(_)
+            if input
+                .claude_env
+                .as_ref()
+                .is_some_and(|v| v.values().all(Option::is_some)) =>
+        {
+            (Default::default(), false)
+        },
+        Err(error) => return Err(error),
+    };
+    let values = match &input.claude_env {
+        Some(input) => environment::normalized(input, &old_values, engine)?,
+        None => old_values.clone(),
+    };
+    // Refuse overrides when changing the host to another runtime.
+    environment::normalized(
+        &values
+            .iter()
+            .map(|(n, v)| (n.clone(), Some(v.expose().to_string())))
+            .collect(),
+        &Default::default(),
+        engine,
+    )?;
+    let new_env = if readable && values == old_values {
+        old_env.clone()
+    } else {
+        environment::write(root, &name, &values)?
+    };
     let old_key = previous.as_ref().and_then(|r| r.key.clone());
-    let new_key = match &key {
-        KeyChange::Keep => old_key.clone(),
-        KeyChange::Remove => None,
-        KeyChange::Replace(secret) => {
-            let file = key_file_name(&name, Some(&uuid::Uuid::new_v4().to_string()));
-            let path = key_path(root, &file);
-            // A record must never durably name a key file a crash could
-            // lose: refuse the save before any record names it.
-            if write_private(&path, secret.expose().trim().as_bytes())? == Committed::Uncertain {
-                let _ = std::fs::remove_file(&path);
-                bail!("the key could not be stored durably; nothing was saved, try again");
+    let new_key_result = (|| -> Result<Option<String>> {
+        Ok(match &key {
+            KeyChange::Keep => old_key.clone(),
+            KeyChange::Remove => None,
+            KeyChange::Replace(secret) => {
+                let file = key_file_name(&name, Some(&uuid::Uuid::new_v4().to_string()));
+                let path = key_path(root, &file);
+                // A record must never durably name a key file a crash could
+                // lose: refuse the save before any record names it.
+                if write_private(&path, secret.expose().trim().as_bytes())? == Committed::Uncertain
+                {
+                    let _ = std::fs::remove_file(&path);
+                    bail!("the key could not be stored durably; nothing was saved, try again");
+                }
+                Some(file)
+            },
+        })
+    })();
+    let new_key = match new_key_result {
+        Ok(key) => key,
+        Err(error) => {
+            if new_env != old_env {
+                if let Some(file) = &new_env {
+                    let _ = std::fs::remove_file(key_path(root, file));
+                }
             }
-            Some(file)
+            return Err(error);
         },
     };
     let source = input.source.as_str().to_string();
@@ -740,9 +535,10 @@ pub fn stage_in(
             && p.base_url == base_url
             && p.model == model
             && p.key == new_key
+            && p.claude_env == new_env
     });
     let authority = match input.source {
-        Source::Inherited => None,
+        Source::Inherited if values.is_empty() => None,
         _ if same_service => previous
             .as_ref()
             .and_then(|p| p.authority.clone())
@@ -756,6 +552,7 @@ pub fn stage_in(
         RuntimeChange::Clear => None,
     };
     let record = Record {
+        claude_env: new_env.clone(),
         source,
         protocol: protocol.map(|p| p.as_str().to_string()),
         base_url,
@@ -771,7 +568,13 @@ pub fn stage_in(
     // releases them (see the module docs).
     let now = now_secs();
     let pin = uuid::Uuid::new_v4().to_string();
-    let mut pinned: Vec<String> = old_key.iter().chain(new_key.iter()).cloned().collect();
+    let mut pinned: Vec<String> = old_key
+        .iter()
+        .chain(new_key.iter())
+        .chain(old_env.iter())
+        .chain(new_env.iter())
+        .cloned()
+        .collect();
     pinned.dedup();
     if !pinned.is_empty() {
         profiles.pins.insert(pin.clone(), Pin {
@@ -785,6 +588,11 @@ pub fn stage_in(
         // is no record's, so remove it.
         if new_key != old_key {
             if let Some(file) = &new_key {
+                let _ = std::fs::remove_file(key_path(root, file));
+            }
+        }
+        if new_env != old_env {
+            if let Some(file) = &new_env {
                 let _ = std::fs::remove_file(key_path(root, file));
             }
         }
@@ -807,8 +615,8 @@ fn sweep(root: &Path, name: &str, profiles: &Profiles) {
     let keep: Vec<&str> = profiles
         .hosts
         .get(name)
-        .and_then(|r| r.key.as_deref())
         .into_iter()
+        .flat_map(|r| r.key.as_deref().into_iter().chain(r.claude_env.as_deref()))
         .chain(
             profiles
                 .pins
@@ -864,8 +672,9 @@ fn resolve_record(root: &Path, name: &str, record: &Record) -> Result<Resolved> 
     } else {
         None
     };
+    let claude_env = environment::read(root, name, record.claude_env.as_deref())?;
     let authority = match parsed.source {
-        Source::Inherited => None,
+        Source::Inherited if claude_env.is_empty() => None,
         // Version 1 had no authority: one per saved revision is safe.
         _ => Some(
             record
@@ -875,6 +684,7 @@ fn resolve_record(root: &Path, name: &str, record: &Record) -> Result<Resolved> 
         ),
     };
     Ok(Resolved {
+        claude_env,
         source: parsed.source,
         endpoint,
         authority,

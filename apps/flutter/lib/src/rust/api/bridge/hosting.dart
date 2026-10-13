@@ -304,11 +304,17 @@ class AcpClaudeSetupDto {
   /// `idle` / `running` / `done` / `failed` / `cancelled`.
   final String state;
 
-  /// `installing` / `verifying` while running.
+  /// `installing` / `downloading` / `verifying` while running.
   final String? stage;
 
   /// Milliseconds since it started.
   final BigInt elapsedMs;
+
+  /// Actual package bytes received; absent when telemetry is unavailable.
+  final BigInt? downloadedBytes;
+
+  /// Recent measured package transfer rate, in bytes per second.
+  final BigInt? downloadBytesPerSecond;
 
   /// Why it failed (safe to show).
   final String? error;
@@ -323,6 +329,8 @@ class AcpClaudeSetupDto {
     required this.state,
     this.stage,
     required this.elapsedMs,
+    this.downloadedBytes,
+    this.downloadBytesPerSecond,
     this.error,
     required this.run,
     required this.started,
@@ -333,6 +341,8 @@ class AcpClaudeSetupDto {
       state.hashCode ^
       stage.hashCode ^
       elapsedMs.hashCode ^
+      downloadedBytes.hashCode ^
+      downloadBytesPerSecond.hashCode ^
       error.hashCode ^
       run.hashCode ^
       started.hashCode;
@@ -345,6 +355,8 @@ class AcpClaudeSetupDto {
           state == other.state &&
           stage == other.stage &&
           elapsedMs == other.elapsedMs &&
+          downloadedBytes == other.downloadedBytes &&
+          downloadBytesPerSecond == other.downloadBytesPerSecond &&
           error == other.error &&
           run == other.run &&
           started == other.started;

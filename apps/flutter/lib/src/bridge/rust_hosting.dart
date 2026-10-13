@@ -206,6 +206,16 @@ mixin _RustHosting implements BridgeApi {
   HostConfigSupport hostConfigSupported({AcpAgentSpec? spec}) {
     final s = frb.hostConfigSupported(spec: _specDto(spec));
     return HostConfigSupport(
+      claudeVariables: s.claudeVariables
+          .map(
+            (v) => ClaudeVariable(
+              name: v.name,
+              group: v.group,
+              secret: v.secret,
+              choices: v.choices,
+            ),
+          )
+          .toList(),
       sources: s.sources,
       protocols: s.protocols,
       modelRequired: s.modelRequired,
@@ -332,6 +342,8 @@ AcpClaudeSetup _claudeSetup(frb.AcpClaudeSetupDto s) => AcpClaudeSetup(
   state: s.state,
   stage: s.stage,
   elapsedMs: s.elapsedMs.toInt(),
+  downloadedBytes: s.downloadedBytes?.toInt(),
+  downloadBytesPerSecond: s.downloadBytesPerSecond?.toInt(),
   error: s.error,
   run: s.run.toInt(),
   started: s.started,
@@ -367,6 +379,9 @@ frb.HostRuntimeDto _runtimeDto(HostRuntime r) => frb.HostRuntimeDto(
 
 frb.HostConfigInputDto _inputDto(HostConfigInput input) =>
     frb.HostConfigInputDto(
+      claudeEnv: input.claudeEnv?.entries
+          .map((v) => frb.HostEnvironmentEntryDto(name: v.key, value: v.value))
+          .toList(),
       source: input.source,
       protocol: input.protocol,
       baseUrl: input.baseUrl,
@@ -374,6 +389,7 @@ frb.HostConfigInputDto _inputDto(HostConfigInput input) =>
     );
 
 HostConfig _hostConfig(frb.HostConfigDto c) => HostConfig(
+  claudeEnv: {for (final v in c.claudeEnv) v.name: v.value},
   source: c.source,
   protocol: c.protocol,
   baseUrl: c.baseUrl,

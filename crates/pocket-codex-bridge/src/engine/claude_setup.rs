@@ -4,7 +4,7 @@
 //! Detection is `pocket_codex_host_svc::acp::claude`'s, run against the
 //! child `PATH` Codex children get, the user's home, and this app's runtime
 //! cache. Preparation (`acp::claude_setup`) is started only by an explicit
-//! request (the hosting dialog's Start), never by picking the preset or by
+//! request from the hosting editor, never by picking the preset or by
 //! restoring a host; overlapping requests join the one in progress. Each
 //! run has its own number: only the caller that started a run is told so
 //! ([`Snapshot::started`]), and [`prepare_cancel_run`] stops that run only,
@@ -67,10 +67,14 @@ pub fn status() -> Result<Status> {
 pub struct Snapshot {
     /// `idle` / `running` / `done` / `failed` / `cancelled`.
     pub state: &'static str,
-    /// `installing` / `verifying` while running.
+    /// `installing` / `downloading` / `verifying` while running.
     pub stage: Option<&'static str>,
     /// Milliseconds since it started.
     pub elapsed_ms: u64,
+    /// Actual received package bytes, when transfer telemetry is available.
+    pub downloaded_bytes: Option<u64>,
+    /// Recent measured transfer rate, in bytes per second.
+    pub download_bytes_per_second: Option<u64>,
     /// Why it failed (safe to show).
     pub error: Option<String>,
     /// The run this state belongs to (0 before any).
@@ -93,6 +97,7 @@ struct Job {
     started: Option<Instant>,
     /// Bumped by every start, so a finished run never overwrites a newer one.
     run: u64,
+    downloaded_bytes: Option<u64>,
 }
 
 fn job() -> MutexGuard<'static, Job> {
@@ -100,6 +105,7 @@ fn job() -> MutexGuard<'static, Job> {
         phase: Phase::Idle,
         started: None,
         run: 0,
+        downloaded_bytes: None,
     });
     JOB.lock().unwrap_or_else(|poison| poison.into_inner())
 }
@@ -114,6 +120,12 @@ impl Job {
                 "running",
                 stage.map(|stage| match stage {
                     Stage::Installing => "installing",
+                    Stage::Downloading {
+                        active: true, ..
+                    } => "downloading",
+                    Stage::Downloading {
+                        active: false, ..
+                    } => "installing",
                     Stage::Verifying => "verifying",
                 }),
                 None,
@@ -122,7 +134,21 @@ impl Job {
             Phase::Failed(error) => ("failed", None, Some(error.clone())),
             Phase::Cancelled => ("cancelled", None, None),
         };
+        let transfer = match &self.phase {
+            Phase::Running {
+                stage:
+                    Some(Stage::Downloading {
+                        bytes,
+                        bytes_per_second,
+                        active: true,
+                    }),
+                ..
+            } => Some((*bytes, *bytes_per_second)),
+            _ => None,
+        };
         Snapshot {
+            downloaded_bytes: self.downloaded_bytes,
+            download_bytes_per_second: transfer.map(|x| x.1),
             state,
             stage,
             elapsed_ms: self
@@ -154,6 +180,7 @@ pub fn prepare_start() -> Snapshot {
             cancel,
         };
         current.started = Some(Instant::now());
+        current.downloaded_bytes = None;
         let snapshot = Snapshot {
             started: true,
             ..current.snapshot()
@@ -242,6 +269,12 @@ async fn run_job(run: u64, mut cancelled: watch::Receiver<bool>) -> Phase {
             } = &mut current.phase
             {
                 *at = Some(stage);
+                if let Stage::Downloading {
+                    bytes, ..
+                } = stage
+                {
+                    current.downloaded_bytes = Some(bytes);
+                }
             }
         }
     };
@@ -305,6 +338,39 @@ mod tests {
             cancel,
         };
         cancelled
+    }
+
+    #[test]
+    fn transfer_metrics_survive_verification_and_finish_without_stale_speed() {
+        let (cancel, _) = watch::channel(false);
+        let mut current = Job {
+            phase: Phase::Running {
+                stage: Some(Stage::Downloading {
+                    bytes: 4096,
+                    bytes_per_second: 1024,
+                    active: true,
+                }),
+                cancel: cancel.clone(),
+            },
+            started: Some(Instant::now()),
+            run: 1,
+            downloaded_bytes: Some(4096),
+        };
+        assert_eq!(current.snapshot().download_bytes_per_second, Some(1024));
+        for phase in [
+            Phase::Running {
+                stage: Some(Stage::Verifying),
+                cancel,
+            },
+            Phase::Done,
+            Phase::Cancelled,
+            Phase::Failed("failed".into()),
+        ] {
+            current.phase = phase;
+            let snapshot = current.snapshot();
+            assert_eq!(snapshot.downloaded_bytes, Some(4096));
+            assert_eq!(snapshot.download_bytes_per_second, None);
+        }
     }
 
     #[test]

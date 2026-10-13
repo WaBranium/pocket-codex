@@ -28,7 +28,13 @@ pub(super) fn check_key(key: &str) -> Result<()> {
 /// The redactor for the key of `resolved` (see
 /// [`pocket_codex_core::redact`]).
 pub fn redactor(resolved: &Resolved) -> Redactor {
-    Redactor::new(resolved.endpoint.as_ref().and_then(|e| e.key.as_ref()))
+    let mut redactor = Redactor::new(resolved.endpoint.as_ref().and_then(|e| e.key.as_ref()));
+    for (name, value) in &resolved.claude_env {
+        if super::environment::variable(name).is_ok_and(|v| v.secret) {
+            redactor.include(value);
+        }
+    }
+    redactor
 }
 
 /// `text` with every stored secret of `resolved` removed, and bounded: for

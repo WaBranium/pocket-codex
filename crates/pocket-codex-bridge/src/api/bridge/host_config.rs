@@ -2,6 +2,7 @@
 //! applying it to a running host, starting a new host with it, and the
 //! official Codex sign-in that needs no running host.
 
+use anyhow::bail;
 use pocket_codex_core::provider::{ApiProtocol, Secret};
 
 use super::{codex_setup::CodexLoginStartDto, hosting::AcpAgentSpecDto, *};
@@ -88,6 +89,8 @@ pub struct HostActiveDto {
 /// A host instance's saved configuration and, when it runs, its active
 /// one. Never carries the key, only whether one is stored.
 pub struct HostConfigDto {
+    /// Saved Claude environment overrides; absent names inherit.
+    pub claude_env: Vec<HostEnvironmentEntryDto>,
     /// `inherited` (the agent's own configuration), `official` (native Codex
     /// account) or `custom`.
     pub source: String,
@@ -112,8 +115,32 @@ pub struct HostConfigDto {
     pub active: Option<HostActiveDto>,
 }
 
+/// One saved override. A missing value keeps a stored secret on input;
+/// on output it reports that a secret is set without exposing it.
+pub struct HostEnvironmentEntryDto {
+    /// Exact supported variable name.
+    pub name: String,
+    /// Explicit value, or a retained secret.
+    pub value: Option<String>,
+}
+
+/// One supported Claude environment control.
+pub struct ClaudeVariableDto {
+    /// Exact upstream variable name.
+    pub name: String,
+    /// Connection, models, reasoning, or network.
+    pub group: String,
+    /// The value must be masked and never read back.
+    pub secret: bool,
+    /// Allowed choices; empty means free text.
+    pub choices: Vec<String>,
+}
+
 /// What a save asks for, everything but the key.
 pub struct HostConfigInputDto {
+    /// None keeps the existing set; Some replaces it, with absent names
+    /// inheriting.
+    pub claude_env: Option<Vec<HostEnvironmentEntryDto>>,
     /// `inherited`, `official` or `custom`.
     pub source: String,
     /// Custom provider API (see [`HostConfigDto::protocol`]).
@@ -126,6 +153,8 @@ pub struct HostConfigInputDto {
 
 /// What an engine can select, so the editor offers only real mappings.
 pub struct HostConfigSupportDto {
+    /// Environment controls for Claude hosts, empty for other engines.
+    pub claude_variables: Vec<ClaudeVariableDto>,
     /// Selectable sources, in display order.
     pub sources: Vec<String>,
     /// Custom provider APIs; empty when the agent has no known mechanism.
@@ -167,6 +196,14 @@ pub struct HostStartedDto {
 
 fn dto(profile: host_profiles::HostProfile, active: Option<HostActiveDto>) -> HostConfigDto {
     HostConfigDto {
+        claude_env: profile
+            .claude_env
+            .into_iter()
+            .map(|(name, value)| HostEnvironmentEntryDto {
+                name,
+                value,
+            })
+            .collect(),
         source: profile.source.as_str().to_string(),
         protocol: profile.protocol.map(|p| p.as_str().to_string()),
         base_url: profile.base_url,
@@ -206,8 +243,21 @@ fn change_of(input: HostConfigInputDto, key_action: &str, key: Option<String>) -
         },
         other => return Err(anyhow!("unknown key action `{other}`")),
     };
+    let claude_env = input
+        .claude_env
+        .map(|entries| {
+            let mut values = std::collections::BTreeMap::new();
+            for entry in entries {
+                if values.insert(entry.name, entry.value).is_some() {
+                    bail!("duplicate Claude environment variable");
+                }
+            }
+            Ok(values)
+        })
+        .transpose()?;
     Ok(Change {
         input: ProfileInput {
+            claude_env,
             source,
             protocol: parse_protocol(input.protocol.as_deref())?,
             base_url: input.base_url,
@@ -229,6 +279,19 @@ pub fn host_config_get(name: String) -> Result<HostConfigDto> {
 #[frb(sync)]
 pub fn host_config_supported(spec: Option<AcpAgentSpecDto>) -> HostConfigSupportDto {
     use pocket_codex_host_svc::acp::provider;
+    let claude_variables = if spec.as_ref().is_some_and(|s| s.profile_id == "claude") {
+        host_profiles::environment::VARIABLES
+            .iter()
+            .map(|v| ClaudeVariableDto {
+                name: v.name.to_string(),
+                group: v.group.to_string(),
+                secret: v.secret,
+                choices: v.choices.iter().map(|s| (*s).to_string()).collect(),
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
     let (sources, protocols, (model_required, key_required)): (&[Source], &[ApiProtocol], _) =
         match spec {
             None => (
@@ -248,6 +311,7 @@ pub fn host_config_supported(spec: Option<AcpAgentSpecDto>) -> HostConfigSupport
             },
         };
     HostConfigSupportDto {
+        claude_variables,
         sources: sources.iter().map(|s| s.as_str().to_string()).collect(),
         protocols: protocols.iter().map(|p| p.as_str().to_string()).collect(),
         model_required,
@@ -448,6 +512,7 @@ mod tests {
     #[test]
     fn unknown_values_are_refused_before_anything_is_saved() {
         let input = || HostConfigInputDto {
+            claude_env: None,
             source: "custom".into(),
             protocol: Some("responses".into()),
             base_url: Some("https://gw.example.com".into()),

@@ -342,6 +342,7 @@ abstract class _FakeBridgeState implements BridgeApi {
   }
 
   HostConfig _withActive(HostConfig c, String name) => HostConfig(
+    claudeEnv: c.claudeEnv,
     source: c.source,
     protocol: c.protocol,
     baseUrl: c.baseUrl,
@@ -374,6 +375,17 @@ abstract class _FakeBridgeState implements BridgeApi {
     }
     final custom = input.source == 'custom';
     final saved = HostConfig(
+      claudeEnv: input.claudeEnv == null
+          ? current.claudeEnv
+          : {
+              for (final entry in input.claudeEnv!.entries)
+                entry.key:
+                    support.claudeVariables.any(
+                      (v) => v.name == entry.key && v.secret,
+                    )
+                    ? null
+                    : entry.value,
+            },
       source: input.source,
       protocol: input.protocol,
       baseUrl: input.baseUrl?.trim(),

@@ -32,7 +32,10 @@ use std::{
     time::Duration,
 };
 
-use tokio::{io::AsyncReadExt as _, sync::watch};
+use tokio::sync::watch;
+
+#[path = "claude_download.rs"]
+mod download;
 
 use super::{
     claude::{
@@ -67,6 +70,15 @@ pub struct Prepare {
 pub enum Stage {
     /// npm is downloading and installing the package.
     Installing,
+    /// Actual npm package response bytes and their recent transfer rate.
+    Downloading {
+        /// Cumulative bytes received during this preparation.
+        bytes: u64,
+        /// Measured bytes per second over the recent sampling window.
+        bytes_per_second: u64,
+        /// Whether package responses are still arriving.
+        active: bool,
+    },
     /// The installed files are being checked.
     Verifying,
 }
@@ -128,6 +140,8 @@ fn check_cancel(cancel: &watch::Receiver<bool>) -> Result<(), SetupError> {
 
 fn install_args(npm_cli: &Path, stage: &Path) -> Option<Vec<String>> {
     Some(vec![
+        "--require".into(),
+        stage.join("download-progress.cjs").to_str()?.to_string(),
         npm_cli.to_str()?.to_string(),
         "install".into(),
         "--prefix".into(),
@@ -145,7 +159,7 @@ fn install_args(npm_cli: &Path, stage: &Path) -> Option<Vec<String>> {
 /// turning `true` stops it.
 pub async fn prepare(
     job: &Prepare,
-    stage: impl Fn(Stage),
+    stage: impl Fn(Stage) + Sync,
     mut cancel: watch::Receiver<bool>,
 ) -> Result<PathBuf, SetupError> {
     if let Some(entry) = prepared_adapter(&job.cache) {
@@ -158,8 +172,11 @@ pub async fn prepare(
     let staging = root.join(format!(".stage-{}", uuid::Uuid::new_v4().simple()));
     tokio::fs::create_dir(&staging).await.map_err(io_error)?;
     let result = async {
+        tokio::fs::write(staging.join("download-progress.cjs"), download::HOOK)
+            .await
+            .map_err(io_error)?;
         stage(Stage::Installing);
-        install(job, &staging, &root, &mut cancel).await?;
+        install(job, &staging, &root, &mut cancel, &stage).await?;
         stage(Stage::Verifying);
         check_cancel(&cancel)?;
         verify(&staging)?;
@@ -178,6 +195,7 @@ async fn install(
     staging: &Path,
     root: &Path,
     cancel: &mut watch::Receiver<bool>,
+    progress: &(impl Fn(Stage) + Sync),
 ) -> Result<(), SetupError> {
     let args = install_args(&job.npm_cli, staging).ok_or(SetupError::Start)?;
     let npm_cache = root.join("npm-cache");
@@ -195,16 +213,24 @@ async fn install(
     let Spawned {
         process,
         stdin,
-        mut stdout,
+        stdout,
     } = process::spawn(&job.node, &args, path.as_ref(), &env).map_err(|_| SetupError::Start)?;
     drop(stdin);
-    let drain = tokio::spawn(async move {
-        let mut sink = [0u8; 8192];
-        while matches!(stdout.read(&mut sink).await, Ok(n) if n > 0) {}
-    });
+    let (samples, latest) = watch::channel(None);
+    let mut drain = tokio::spawn(download::drain(stdout, samples));
+    let mut rate = download::Rate::new(tokio::time::Instant::now());
     let leader = process.id();
     let deadline = tokio::time::Instant::now() + job.timeout;
     let stopped = loop {
+        if let Some(sample) = *latest.borrow() {
+            let bytes_per_second = rate.sample(tokio::time::Instant::now(), sample.bytes);
+            progress(Stage::Downloading {
+                bytes: sample.bytes,
+                bytes_per_second,
+                active: sample.active > 0,
+            });
+        }
+
         if *cancel.borrow() {
             break Some(SetupError::Cancelled);
         }
@@ -225,10 +251,24 @@ async fn install(
     if let Some(error) = stopped {
         process.terminate(TERM_GRACE).await;
         drain.abort();
+        let _ = drain.await;
         return Err(error);
     }
     let status = process.finish().await;
-    drain.abort();
+    if tokio::time::timeout(Duration::from_secs(1), &mut drain)
+        .await
+        .is_err()
+    {
+        drain.abort();
+        let _ = drain.await;
+    }
+    if let Some(sample) = *latest.borrow() {
+        progress(Stage::Downloading {
+            bytes: sample.bytes,
+            bytes_per_second: 0,
+            active: false,
+        });
+    }
     match status {
         Some(status) if status.success() => Ok(()),
         Some(status) => Err(SetupError::Install(

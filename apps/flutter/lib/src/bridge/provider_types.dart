@@ -125,6 +125,7 @@ class HostConfig {
     this.baseUrl,
     this.model,
     this.keySet = false,
+    this.claudeEnv = const {},
     this.revision = 0,
     this.runtime,
     this.problem,
@@ -148,6 +149,9 @@ class HostConfig {
 
   /// A key is stored for this instance.
   final bool keySet;
+
+  /// Explicit Claude overrides; null values indicate stored secrets.
+  final Map<String, String?> claudeEnv;
 
   /// Moves on every save; `0` when never saved.
   final int revision;
@@ -173,6 +177,7 @@ class HostConfigInput {
     this.protocol,
     this.baseUrl,
     this.model,
+    this.claudeEnv,
   });
 
   /// `inherited`, `official` or `custom`.
@@ -186,6 +191,9 @@ class HostConfigInput {
 
   /// Custom provider default model.
   final String? model;
+
+  /// Null keeps existing overrides; otherwise replace the set.
+  final Map<String, String?>? claudeEnv;
 }
 
 /// What a save does with the stored key.
@@ -208,6 +216,7 @@ class HostConfigSupport {
     this.protocols = const [],
     this.modelRequired = false,
     this.keyRequired = false,
+    this.claudeVariables = const [],
   });
 
   /// Selectable sources, in display order.
@@ -223,6 +232,9 @@ class HostConfigSupport {
   /// A custom provider must have a key (Claude: otherwise its own sign-in
   /// would be sent to the gateway).
   final bool keyRequired;
+
+  /// Supported Claude behavior controls.
+  final List<ClaudeVariable> claudeVariables;
 }
 
 /// The outcome of applying a saved configuration to a running host.
@@ -334,4 +346,18 @@ class CodexAuthStatus {
 
   /// Why the asked-for login failed, when it did.
   final String? error;
+}
+
+/// One supported Claude environment variable.
+class ClaudeVariable {
+  const ClaudeVariable({
+    required this.name,
+    required this.group,
+    this.secret = false,
+    this.choices = const [],
+  });
+  final String name;
+  final String group;
+  final bool secret;
+  final List<String> choices;
 }

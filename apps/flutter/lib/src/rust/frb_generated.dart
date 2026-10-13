@@ -5035,15 +5035,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   AcpClaudeSetupDto dco_decode_acp_claude_setup_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 6)
-      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
+    if (arr.length != 8)
+      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
     return AcpClaudeSetupDto(
       state: dco_decode_String(arr[0]),
       stage: dco_decode_opt_String(arr[1]),
       elapsedMs: dco_decode_u_64(arr[2]),
-      error: dco_decode_opt_String(arr[3]),
-      run: dco_decode_u_64(arr[4]),
-      started: dco_decode_bool(arr[5]),
+      downloadedBytes: dco_decode_opt_box_autoadd_u_64(arr[3]),
+      downloadBytesPerSecond: dco_decode_opt_box_autoadd_u_64(arr[4]),
+      error: dco_decode_opt_String(arr[5]),
+      run: dco_decode_u_64(arr[6]),
+      started: dco_decode_bool(arr[7]),
     );
   }
 
@@ -5325,6 +5327,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  ClaudeVariableDto dco_decode_claude_variable_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return ClaudeVariableDto(
+      name: dco_decode_String(arr[0]),
+      group: dco_decode_String(arr[1]),
+      secret: dco_decode_bool(arr[2]),
+      choices: dco_decode_list_String(arr[3]),
+    );
+  }
+
+  @protected
   CodexAuthStatusDto dco_decode_codex_auth_status_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -5530,18 +5546,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   HostConfigDto dco_decode_host_config_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 9)
-      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
+    if (arr.length != 10)
+      throw Exception('unexpected arr length: expect 10 but see ${arr.length}');
     return HostConfigDto(
-      source: dco_decode_String(arr[0]),
-      protocol: dco_decode_opt_String(arr[1]),
-      baseUrl: dco_decode_opt_String(arr[2]),
-      model: dco_decode_opt_String(arr[3]),
-      keySet: dco_decode_bool(arr[4]),
-      revision: dco_decode_u_64(arr[5]),
-      runtime: dco_decode_opt_box_autoadd_host_runtime_dto(arr[6]),
-      problem: dco_decode_opt_String(arr[7]),
-      active: dco_decode_opt_box_autoadd_host_active_dto(arr[8]),
+      claudeEnv: dco_decode_list_host_environment_entry_dto(arr[0]),
+      source: dco_decode_String(arr[1]),
+      protocol: dco_decode_opt_String(arr[2]),
+      baseUrl: dco_decode_opt_String(arr[3]),
+      model: dco_decode_opt_String(arr[4]),
+      keySet: dco_decode_bool(arr[5]),
+      revision: dco_decode_u_64(arr[6]),
+      runtime: dco_decode_opt_box_autoadd_host_runtime_dto(arr[7]),
+      problem: dco_decode_opt_String(arr[8]),
+      active: dco_decode_opt_box_autoadd_host_active_dto(arr[9]),
     );
   }
 
@@ -5549,13 +5566,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   HostConfigInputDto dco_decode_host_config_input_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 4)
-      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
     return HostConfigInputDto(
-      source: dco_decode_String(arr[0]),
-      protocol: dco_decode_opt_String(arr[1]),
-      baseUrl: dco_decode_opt_String(arr[2]),
-      model: dco_decode_opt_String(arr[3]),
+      claudeEnv: dco_decode_opt_list_host_environment_entry_dto(arr[0]),
+      source: dco_decode_String(arr[1]),
+      protocol: dco_decode_opt_String(arr[2]),
+      baseUrl: dco_decode_opt_String(arr[3]),
+      model: dco_decode_opt_String(arr[4]),
     );
   }
 
@@ -5563,13 +5581,26 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   HostConfigSupportDto dco_decode_host_config_support_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 4)
-      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
     return HostConfigSupportDto(
-      sources: dco_decode_list_String(arr[0]),
-      protocols: dco_decode_list_String(arr[1]),
-      modelRequired: dco_decode_bool(arr[2]),
-      keyRequired: dco_decode_bool(arr[3]),
+      claudeVariables: dco_decode_list_claude_variable_dto(arr[0]),
+      sources: dco_decode_list_String(arr[1]),
+      protocols: dco_decode_list_String(arr[2]),
+      modelRequired: dco_decode_bool(arr[3]),
+      keyRequired: dco_decode_bool(arr[4]),
+    );
+  }
+
+  @protected
+  HostEnvironmentEntryDto dco_decode_host_environment_entry_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return HostEnvironmentEntryDto(
+      name: dco_decode_String(arr[0]),
+      value: dco_decode_opt_String(arr[1]),
     );
   }
 
@@ -5643,6 +5674,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<ClaudeVariableDto> dco_decode_list_claude_variable_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_claude_variable_dto).toList();
+  }
+
+  @protected
   List<DirEntryDto> dco_decode_list_dir_entry_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_dir_entry_dto).toList();
@@ -5658,6 +5695,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   List<HolderDto> dco_decode_list_holder_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_holder_dto).toList();
+  }
+
+  @protected
+  List<HostEnvironmentEntryDto> dco_decode_list_host_environment_entry_dto(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>)
+        .map(dco_decode_host_environment_entry_dto)
+        .toList();
   }
 
   @protected
@@ -5906,6 +5953,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   List<String>? dco_decode_opt_list_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_list_String(raw);
+  }
+
+  @protected
+  List<HostEnvironmentEntryDto>? dco_decode_opt_list_host_environment_entry_dto(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_list_host_environment_entry_dto(raw);
   }
 
   @protected
@@ -6375,6 +6430,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_state = sse_decode_String(deserializer);
     var var_stage = sse_decode_opt_String(deserializer);
     var var_elapsedMs = sse_decode_u_64(deserializer);
+    var var_downloadedBytes = sse_decode_opt_box_autoadd_u_64(deserializer);
+    var var_downloadBytesPerSecond = sse_decode_opt_box_autoadd_u_64(
+      deserializer,
+    );
     var var_error = sse_decode_opt_String(deserializer);
     var var_run = sse_decode_u_64(deserializer);
     var var_started = sse_decode_bool(deserializer);
@@ -6382,6 +6441,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       state: var_state,
       stage: var_stage,
       elapsedMs: var_elapsedMs,
+      downloadedBytes: var_downloadedBytes,
+      downloadBytesPerSecond: var_downloadBytesPerSecond,
       error: var_error,
       run: var_run,
       started: var_started,
@@ -6768,6 +6829,23 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  ClaudeVariableDto sse_decode_claude_variable_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_name = sse_decode_String(deserializer);
+    var var_group = sse_decode_String(deserializer);
+    var var_secret = sse_decode_bool(deserializer);
+    var var_choices = sse_decode_list_String(deserializer);
+    return ClaudeVariableDto(
+      name: var_name,
+      group: var_group,
+      secret: var_secret,
+      choices: var_choices,
+    );
+  }
+
+  @protected
   CodexAuthStatusDto sse_decode_codex_auth_status_dto(
     SseDeserializer deserializer,
   ) {
@@ -6998,6 +7076,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   HostConfigDto sse_decode_host_config_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_claudeEnv = sse_decode_list_host_environment_entry_dto(
+      deserializer,
+    );
     var var_source = sse_decode_String(deserializer);
     var var_protocol = sse_decode_opt_String(deserializer);
     var var_baseUrl = sse_decode_opt_String(deserializer);
@@ -7008,6 +7089,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_problem = sse_decode_opt_String(deserializer);
     var var_active = sse_decode_opt_box_autoadd_host_active_dto(deserializer);
     return HostConfigDto(
+      claudeEnv: var_claudeEnv,
       source: var_source,
       protocol: var_protocol,
       baseUrl: var_baseUrl,
@@ -7025,11 +7107,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     SseDeserializer deserializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_claudeEnv = sse_decode_opt_list_host_environment_entry_dto(
+      deserializer,
+    );
     var var_source = sse_decode_String(deserializer);
     var var_protocol = sse_decode_opt_String(deserializer);
     var var_baseUrl = sse_decode_opt_String(deserializer);
     var var_model = sse_decode_opt_String(deserializer);
     return HostConfigInputDto(
+      claudeEnv: var_claudeEnv,
       source: var_source,
       protocol: var_protocol,
       baseUrl: var_baseUrl,
@@ -7042,16 +7128,28 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     SseDeserializer deserializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_claudeVariables = sse_decode_list_claude_variable_dto(deserializer);
     var var_sources = sse_decode_list_String(deserializer);
     var var_protocols = sse_decode_list_String(deserializer);
     var var_modelRequired = sse_decode_bool(deserializer);
     var var_keyRequired = sse_decode_bool(deserializer);
     return HostConfigSupportDto(
+      claudeVariables: var_claudeVariables,
       sources: var_sources,
       protocols: var_protocols,
       modelRequired: var_modelRequired,
       keyRequired: var_keyRequired,
     );
+  }
+
+  @protected
+  HostEnvironmentEntryDto sse_decode_host_environment_entry_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_name = sse_decode_String(deserializer);
+    var var_value = sse_decode_opt_String(deserializer);
+    return HostEnvironmentEntryDto(name: var_name, value: var_value);
   }
 
   @protected
@@ -7161,6 +7259,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<ClaudeVariableDto> sse_decode_list_claude_variable_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <ClaudeVariableDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_claude_variable_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<DirEntryDto> sse_decode_list_dir_entry_dto(
     SseDeserializer deserializer,
   ) {
@@ -7196,6 +7308,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var ans_ = <HolderDto>[];
     for (var idx_ = 0; idx_ < len_; ++idx_) {
       ans_.add(sse_decode_holder_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<HostEnvironmentEntryDto> sse_decode_list_host_environment_entry_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <HostEnvironmentEntryDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_host_environment_entry_dto(deserializer));
     }
     return ans_;
   }
@@ -7610,6 +7736,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
     if (sse_decode_bool(deserializer)) {
       return (sse_decode_list_String(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  List<HostEnvironmentEntryDto>? sse_decode_opt_list_host_environment_entry_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_list_host_environment_entry_dto(deserializer));
     } else {
       return null;
     }
@@ -8164,6 +8303,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.state, serializer);
     sse_encode_opt_String(self.stage, serializer);
     sse_encode_u_64(self.elapsedMs, serializer);
+    sse_encode_opt_box_autoadd_u_64(self.downloadedBytes, serializer);
+    sse_encode_opt_box_autoadd_u_64(self.downloadBytesPerSecond, serializer);
     sse_encode_opt_String(self.error, serializer);
     sse_encode_u_64(self.run, serializer);
     sse_encode_bool(self.started, serializer);
@@ -8448,6 +8589,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_claude_variable_dto(
+    ClaudeVariableDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.name, serializer);
+    sse_encode_String(self.group, serializer);
+    sse_encode_bool(self.secret, serializer);
+    sse_encode_list_String(self.choices, serializer);
+  }
+
+  @protected
   void sse_encode_codex_auth_status_dto(
     CodexAuthStatusDto self,
     SseSerializer serializer,
@@ -8612,6 +8765,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     SseSerializer serializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_list_host_environment_entry_dto(self.claudeEnv, serializer);
     sse_encode_String(self.source, serializer);
     sse_encode_opt_String(self.protocol, serializer);
     sse_encode_opt_String(self.baseUrl, serializer);
@@ -8629,6 +8783,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     SseSerializer serializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_opt_list_host_environment_entry_dto(self.claudeEnv, serializer);
     sse_encode_String(self.source, serializer);
     sse_encode_opt_String(self.protocol, serializer);
     sse_encode_opt_String(self.baseUrl, serializer);
@@ -8641,10 +8796,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     SseSerializer serializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_list_claude_variable_dto(self.claudeVariables, serializer);
     sse_encode_list_String(self.sources, serializer);
     sse_encode_list_String(self.protocols, serializer);
     sse_encode_bool(self.modelRequired, serializer);
     sse_encode_bool(self.keyRequired, serializer);
+  }
+
+  @protected
+  void sse_encode_host_environment_entry_dto(
+    HostEnvironmentEntryDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.name, serializer);
+    sse_encode_opt_String(self.value, serializer);
   }
 
   @protected
@@ -8736,6 +8902,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_claude_variable_dto(
+    List<ClaudeVariableDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_claude_variable_dto(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_dir_entry_dto(
     List<DirEntryDto> self,
     SseSerializer serializer,
@@ -8768,6 +8946,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
       sse_encode_holder_dto(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_host_environment_entry_dto(
+    List<HostEnvironmentEntryDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_host_environment_entry_dto(item, serializer);
     }
   }
 
@@ -9141,6 +9331,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_bool(self != null, serializer);
     if (self != null) {
       sse_encode_list_String(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_list_host_environment_entry_dto(
+    List<HostEnvironmentEntryDto>? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_list_host_environment_entry_dto(self, serializer);
     }
   }
 

@@ -13,6 +13,7 @@ fn spec(profile: &str) -> AgentSpec {
 
 fn custom(protocol: ApiProtocol, url: &str) -> ProfileInput {
     ProfileInput {
+        claude_env: None,
         source: Source::Custom,
         protocol: Some(protocol),
         base_url: Some(url.into()),
@@ -22,6 +23,7 @@ fn custom(protocol: ApiProtocol, url: &str) -> ProfileInput {
 
 fn inherited() -> ProfileInput {
     ProfileInput {
+        claude_env: None,
         source: Source::Inherited,
         protocol: None,
         base_url: None,
@@ -488,6 +490,7 @@ fn only_real_mappings_are_accepted() {
         refused("g", custom(protocol, url), Engine::Acp(&generic));
     }
     let official = ProfileInput {
+        claude_env: None,
         source: Source::Official,
         ..inherited()
     };
@@ -535,6 +538,7 @@ fn leaving_the_custom_provider_forgets_its_key_and_fields() {
     save(dir.path(), "c", &input, KeyChange::Replace(Secret::new("k")), None, Engine::Codex)
         .expect("1");
     let official = ProfileInput {
+        claude_env: None,
         source: Source::Official,
         ..input
     };

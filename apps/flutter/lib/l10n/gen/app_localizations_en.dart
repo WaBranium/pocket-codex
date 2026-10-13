@@ -2358,7 +2358,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get acpProgramNotFound => 'This program was not found on this device.';
 
   @override
-  String get claudeEnvTitle => 'Claude on this computer';
+  String get claudeEnvTitle => 'Claude environment';
 
   @override
   String claudeAdapterInstalled(String path) {
@@ -2961,4 +2961,218 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get hostApiProxyNote =>
       'This host also publishes a separate Responses API service (api:<name>). It always uses this device\'s official Codex sign-in, not the provider chosen here.';
+
+  @override
+  String get claudePrepareStageWorking => 'Preparing the Claude ACP adapter…';
+
+  @override
+  String get claudePrepareStageInstalling =>
+      'Resolving and installing packages…';
+
+  @override
+  String get claudePrepareStageDownloading => 'Downloading packages…';
+
+  @override
+  String get claudePrepareStageVerifying => 'Checking the downloaded adapter…';
+
+  @override
+  String get claudePrepareStageDone => 'The Claude ACP adapter is ready';
+
+  @override
+  String get claudePrepareStageFailed => 'Preparation failed';
+
+  @override
+  String get claudePrepareStageCancelled => 'Preparation stopped';
+
+  @override
+  String claudePrepareElapsed(String time) {
+    return '$time elapsed';
+  }
+
+  @override
+  String claudePrepareDownloaded(String size) {
+    return '$size downloaded';
+  }
+
+  @override
+  String claudePrepareSpeed(String speed) {
+    return 'Download speed $speed';
+  }
+
+  @override
+  String get claudePrepareSpeedMeasuring => 'Measuring speed…';
+
+  @override
+  String get claudePrepareStepFetch => 'Download and install';
+
+  @override
+  String get claudePrepareStepVerify => 'Verify';
+
+  @override
+  String claudePrepareStep(int step, int total, String name) {
+    return 'Step $step of $total: $name';
+  }
+
+  @override
+  String get claudeEnvHint =>
+      'Defaults inherit the environment available to this host (including the login shell on macOS). Turn on a field to override it for this host only. Save keeps the running host unchanged; restart to apply. Model support depends on your Claude version and provider.';
+
+  @override
+  String get claudeEnvProviderWins =>
+      'The custom provider fields above control the URL, credential and default model. Environment connection overrides are used only with inherited configuration.';
+
+  @override
+  String get claudeEnvInherited => 'Inherit environment';
+
+  @override
+  String get claudeEnvCustom => 'Override for this host';
+
+  @override
+  String get claudeEnvStored => 'Stored securely · leave blank to keep';
+
+  @override
+  String get claudeEnvValue => 'Enter a value';
+
+  @override
+  String get claudeEnvRequired =>
+      'Fill each enabled override, or switch it back to inherit.';
+
+  @override
+  String get claudeEnvConnection => 'Connection & credentials';
+
+  @override
+  String get claudeEnvModels => 'Models & aliases';
+
+  @override
+  String get claudeEnvReasoning => 'Reasoning & output';
+
+  @override
+  String get claudeEnvNetwork => 'Network & compatibility';
+
+  @override
+  String get claudeEnvBaseUrl => 'API base URL';
+
+  @override
+  String get claudeEnvAuthToken => 'Bearer token';
+
+  @override
+  String get claudeEnvApiKey => 'Anthropic API key';
+
+  @override
+  String get claudeEnvOAuthToken => 'Existing OAuth token';
+
+  @override
+  String get claudeEnvModel => 'Default model';
+
+  @override
+  String get claudeEnvOpus => 'Opus alias model';
+
+  @override
+  String get claudeEnvSonnet => 'Sonnet alias model';
+
+  @override
+  String get claudeEnvHaiku => 'Haiku alias model';
+
+  @override
+  String get claudeEnvCustomModel => 'Additional model picker option';
+
+  @override
+  String get claudeEnvSubagentModel => 'Subagent model';
+
+  @override
+  String get claudeEnvEffort => 'Reasoning effort';
+
+  @override
+  String get claudeEnvThinkingTokens => 'Thinking token budget';
+
+  @override
+  String get claudeEnvOutputTokens => 'Maximum output tokens';
+
+  @override
+  String get claudeEnvDisableThinking => 'Omit the thinking parameter';
+
+  @override
+  String get claudeEnvDisableAdaptive =>
+      'Disable adaptive thinking (supported models)';
+
+  @override
+  String get claudeEnvTimeout => 'API timeout (milliseconds)';
+
+  @override
+  String get claudeEnvHttpProxy => 'HTTP proxy';
+
+  @override
+  String get claudeEnvHttpsProxy => 'HTTPS proxy';
+
+  @override
+  String get claudeEnvNoProxy => 'Proxy bypass hosts';
+
+  @override
+  String get claudeEnvDisableCaching => 'Disable prompt caching';
+
+  @override
+  String get claudeEnvDisableTraffic => 'Disable nonessential traffic';
+
+  @override
+  String get claudeEnvNeedsValue => 'Needs a value, or switch back to inherit.';
+
+  @override
+  String get claudeEnvFlagOn => 'On';
+
+  @override
+  String get claudeEnvFlagOff => 'Off';
+
+  @override
+  String get claudeEnvCredential => 'Credential';
+
+  @override
+  String get claudeEnvCredentialNote =>
+      'Claude uses one credential. Choosing one replaces the others for this host.';
+
+  @override
+  String get claudeEnvGroupInherited => 'All inherited';
+
+  @override
+  String get claudeEnvGroupMissing => 'A value is still needed';
+
+  @override
+  String get claudeEnvAllInherited => 'Inherits everything';
+
+  @override
+  String claudeEnvOverrides(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count overrides',
+      one: '1 override',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String claudeEnvMissing(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count values needed',
+      one: '1 value needed',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String claudeEnvDormant(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count saved connection overrides are kept and apply again with inherited configuration.',
+      one:
+          '1 saved connection override is kept and applies again with inherited configuration.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get claudeEnvEditDormant => 'Edit inactive overrides';
 }

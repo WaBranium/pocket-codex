@@ -294,10 +294,14 @@ pub struct AcpClaudeStatusDto {
 pub struct AcpClaudeSetupDto {
     /// `idle` / `running` / `done` / `failed` / `cancelled`.
     pub state: String,
-    /// `installing` / `verifying` while running.
+    /// `installing` / `downloading` / `verifying` while running.
     pub stage: Option<String>,
     /// Milliseconds since it started.
     pub elapsed_ms: u64,
+    /// Actual package bytes received; absent when telemetry is unavailable.
+    pub downloaded_bytes: Option<u64>,
+    /// Recent measured package transfer rate, in bytes per second.
+    pub download_bytes_per_second: Option<u64>,
     /// Why it failed (safe to show).
     pub error: Option<String>,
     /// The run this state belongs to (0 before any).
@@ -311,6 +315,8 @@ fn setup_dto(snapshot: claude_setup::Snapshot) -> AcpClaudeSetupDto {
         state: snapshot.state.to_string(),
         stage: snapshot.stage.map(str::to_string),
         elapsed_ms: snapshot.elapsed_ms,
+        downloaded_bytes: snapshot.downloaded_bytes,
+        download_bytes_per_second: snapshot.download_bytes_per_second,
         error: snapshot.error,
         run: snapshot.run,
         started: snapshot.started,

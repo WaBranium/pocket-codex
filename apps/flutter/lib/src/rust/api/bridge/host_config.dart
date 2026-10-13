@@ -126,6 +126,42 @@ Future<void> codexLocalLogout({required String sessionId}) => RustLib
     .api
     .crateApiBridgeHostConfigCodexLocalLogout(sessionId: sessionId);
 
+/// One supported Claude environment control.
+class ClaudeVariableDto {
+  /// Exact upstream variable name.
+  final String name;
+
+  /// Connection, models, reasoning, or network.
+  final String group;
+
+  /// The value must be masked and never read back.
+  final bool secret;
+
+  /// Allowed choices; empty means free text.
+  final List<String> choices;
+
+  const ClaudeVariableDto({
+    required this.name,
+    required this.group,
+    required this.secret,
+    required this.choices,
+  });
+
+  @override
+  int get hashCode =>
+      name.hashCode ^ group.hashCode ^ secret.hashCode ^ choices.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ClaudeVariableDto &&
+          runtimeType == other.runtimeType &&
+          name == other.name &&
+          group == other.group &&
+          secret == other.secret &&
+          choices == other.choices;
+}
+
 /// How the private sign-in codex reports its account, and how one login
 /// attempt there ended.
 class CodexLocalAuthDto {
@@ -261,6 +297,9 @@ class HostApplyDto {
 /// A host instance's saved configuration and, when it runs, its active
 /// one. Never carries the key, only whether one is stored.
 class HostConfigDto {
+  /// Saved Claude environment overrides; absent names inherit.
+  final List<HostEnvironmentEntryDto> claudeEnv;
+
   /// `inherited` (the agent's own configuration), `official` (native Codex
   /// account) or `custom`.
   final String source;
@@ -293,6 +332,7 @@ class HostConfigDto {
   final HostActiveDto? active;
 
   const HostConfigDto({
+    required this.claudeEnv,
     required this.source,
     this.protocol,
     this.baseUrl,
@@ -306,6 +346,7 @@ class HostConfigDto {
 
   @override
   int get hashCode =>
+      claudeEnv.hashCode ^
       source.hashCode ^
       protocol.hashCode ^
       baseUrl.hashCode ^
@@ -321,6 +362,7 @@ class HostConfigDto {
       identical(this, other) ||
       other is HostConfigDto &&
           runtimeType == other.runtimeType &&
+          claudeEnv == other.claudeEnv &&
           source == other.source &&
           protocol == other.protocol &&
           baseUrl == other.baseUrl &&
@@ -334,6 +376,10 @@ class HostConfigDto {
 
 /// What a save asks for, everything but the key.
 class HostConfigInputDto {
+  /// None keeps the existing set; Some replaces it, with absent names
+  /// inheriting.
+  final List<HostEnvironmentEntryDto>? claudeEnv;
+
   /// `inherited`, `official` or `custom`.
   final String source;
 
@@ -347,6 +393,7 @@ class HostConfigInputDto {
   final String? model;
 
   const HostConfigInputDto({
+    this.claudeEnv,
     required this.source,
     this.protocol,
     this.baseUrl,
@@ -355,13 +402,18 @@ class HostConfigInputDto {
 
   @override
   int get hashCode =>
-      source.hashCode ^ protocol.hashCode ^ baseUrl.hashCode ^ model.hashCode;
+      claudeEnv.hashCode ^
+      source.hashCode ^
+      protocol.hashCode ^
+      baseUrl.hashCode ^
+      model.hashCode;
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is HostConfigInputDto &&
           runtimeType == other.runtimeType &&
+          claudeEnv == other.claudeEnv &&
           source == other.source &&
           protocol == other.protocol &&
           baseUrl == other.baseUrl &&
@@ -370,6 +422,9 @@ class HostConfigInputDto {
 
 /// What an engine can select, so the editor offers only real mappings.
 class HostConfigSupportDto {
+  /// Environment controls for Claude hosts, empty for other engines.
+  final List<ClaudeVariableDto> claudeVariables;
+
   /// Selectable sources, in display order.
   final List<String> sources;
 
@@ -383,6 +438,7 @@ class HostConfigSupportDto {
   final bool keyRequired;
 
   const HostConfigSupportDto({
+    required this.claudeVariables,
     required this.sources,
     required this.protocols,
     required this.modelRequired,
@@ -391,6 +447,7 @@ class HostConfigSupportDto {
 
   @override
   int get hashCode =>
+      claudeVariables.hashCode ^
       sources.hashCode ^
       protocols.hashCode ^
       modelRequired.hashCode ^
@@ -401,10 +458,34 @@ class HostConfigSupportDto {
       identical(this, other) ||
       other is HostConfigSupportDto &&
           runtimeType == other.runtimeType &&
+          claudeVariables == other.claudeVariables &&
           sources == other.sources &&
           protocols == other.protocols &&
           modelRequired == other.modelRequired &&
           keyRequired == other.keyRequired;
+}
+
+/// One saved override. A missing value keeps a stored secret on input;
+/// on output it reports that a secret is set without exposing it.
+class HostEnvironmentEntryDto {
+  /// Exact supported variable name.
+  final String name;
+
+  /// Explicit value, or a retained secret.
+  final String? value;
+
+  const HostEnvironmentEntryDto({required this.name, this.value});
+
+  @override
+  int get hashCode => name.hashCode ^ value.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is HostEnvironmentEntryDto &&
+          runtimeType == other.runtimeType &&
+          name == other.name &&
+          value == other.value;
 }
 
 /// A host's runtime: what runs, not its model service.

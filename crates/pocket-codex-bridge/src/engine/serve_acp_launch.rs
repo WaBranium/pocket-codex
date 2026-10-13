@@ -108,10 +108,15 @@ pub(crate) fn prepare(
         Some(provider) => provider,
         None => host_profiles::resolve_in(profiles, name)?,
     };
-    let (provider_launch, authority) = match host_profiles::acp(&provider, &spec, name)? {
+    let (mut provider_launch, authority) = match host_profiles::acp(&provider, &spec, name)? {
         Some((launch, authority)) => (launch, Some(authority)),
         None => (Default::default(), None),
     };
+    if spec.profile_id == claude::PROFILE_ID {
+        host_profiles::environment::launch(&spec, &provider, &mut provider_launch)
+            .context("resolving the Claude host environment")?;
+    }
+    let authority = authority.or_else(|| provider.authority.clone());
     let (program, claude) = resolve(&spec)?;
     let state = pocket_codex_core::paths::state_dir().context("resolving the state directory")?;
     // Session authority belongs to exactly this invocation (resolved

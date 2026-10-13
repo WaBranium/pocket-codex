@@ -8,6 +8,7 @@ use super::*;
 /// A session entry whose "child" is this test process under a wrong start
 /// time: an identity that must never be signalled.
 fn fake(id: &str) -> Private {
+    runtime::init(std::env::temp_dir()).expect("test runtime");
     let me = OwnedChild::of(std::process::id()).expect("this process runs");
     Private {
         key: format!("{KEY_PREFIX}{id}"),
@@ -253,14 +254,20 @@ fn a_fake_server_left_unfinished_is_cancelled_and_joined() {
         dropper.join().expect("dropper");
     }
     let idle = fake_server(serde_json::json!({}));
+    let idle_addr = idle.url.trim_start_matches("ws://").to_string();
     dropped_within(idle, None);
+    std::net::TcpListener::bind(&idle_addr).expect("the idle listener was released");
 
     let connected = fake_server(serde_json::json!({}));
     let addr = connected.url.trim_start_matches("ws://").to_string();
     let open = std::net::TcpStream::connect(&addr).expect("connect");
     dropped_within(connected, Some(open));
-    // Nothing holds the port any more: it can be bound again.
-    std::net::TcpListener::bind(&addr).expect("the socket was released");
+    // Linux may retain the accepted connection in TIME_WAIT after both
+    // handles close. Check the listener is gone, not immediate port reuse.
+    let addr = addr.parse().expect("socket address");
+    let error = std::net::TcpStream::connect_timeout(&addr, Duration::from_secs(1))
+        .expect_err("the cancelled server accepts no new connections");
+    assert_eq!(error.kind(), std::io::ErrorKind::ConnectionRefused);
 }
 
 /// A fixture "codex" child to be stopped (or kept).
