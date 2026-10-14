@@ -19,41 +19,9 @@
 use anyhow::{anyhow, Result};
 use pocket_codex_codex::{liveness::Holder, rollout, takeover};
 use pocket_codex_core::state::RuntimeState;
+pub use pocket_codex_host_svc::sessions::{list as list_local_sessions, LocalSession};
 
 use crate::engine::app_session;
-
-/// One session discovered under `CODEX_HOME`, with the state the UI needs
-/// to render it read-only or resumable.
-#[derive(Clone, Debug)]
-pub struct LocalSession {
-    /// Thread / conversation id.
-    pub thread_id: String,
-    /// Working directory the session controls, when recorded.
-    pub cwd: Option<String>,
-    /// Best-effort first-user-message preview.
-    pub preview: String,
-    /// Originating client (`cli` / `vscode` / …), when recorded.
-    pub source: Option<String>,
-    /// Parent thread, when this session is a spawned child.
-    pub parent_thread_id: Option<String>,
-    /// Persisted thread classification.
-    pub thread_source: Option<String>,
-    /// Last-modified time of the rollout, unix seconds.
-    pub updated_at: i64,
-    /// Most-recent-turn state tag (`empty`/`completed`/`aborted`/`incomplete`).
-    pub turn_state: String,
-    /// Whether the rollout is currently held open by a live process.
-    pub held_open: bool,
-    /// Resume-safety tag (`resumable`/`resumableUnfinished`/`ownedRunning`/
-    /// `ownedIdle`).
-    pub safety: String,
-    /// Whether the UI may offer a resume action (false only while a turn is
-    /// actively running).
-    pub allows_resume: bool,
-    /// Whether resuming requires a force takeover (a live owner must be
-    /// evicted first).
-    pub requires_takeover: bool,
-}
 
 /// A single session's liveness detail, including the processes a force
 /// takeover would target.
@@ -117,43 +85,6 @@ fn protected_pids() -> Vec<u32> {
         }
     }
     pids
-}
-
-/// List every session under `CODEX_HOME`, newest first, each annotated
-/// with its resume-safety state. Reads only the local filesystem and
-/// process table; no app-server connection is required.
-pub fn list_local_sessions() -> Result<Vec<LocalSession>> {
-    let sessions = rollout::scan_sessions().map_err(|e| anyhow!("scanning sessions: {e}"))?;
-    // Probe liveness for every session in one batched call rather than spawning
-    // an `lsof` per session in the loop (which blocked the worker for seconds
-    // once a user had dozens of sessions).
-    let held = pocket_codex_codex::liveness::held_open_paths(
-        &sessions
-            .iter()
-            .map(|s| s.rollout_path.clone())
-            .collect::<Vec<_>>(),
-    );
-    let mut out = Vec::with_capacity(sessions.len());
-    for info in sessions {
-        let held_open = held.contains(&info.rollout_path);
-        let safety = takeover::classify(&info.turn_state, held_open);
-        let guardian = info.thread_source.as_deref() == Some("guardian_review");
-        out.push(LocalSession {
-            thread_id: info.thread_id,
-            cwd: info.cwd,
-            preview: info.preview,
-            source: info.source,
-            parent_thread_id: info.parent_thread_id,
-            thread_source: info.thread_source,
-            updated_at: info.updated_at,
-            turn_state: info.turn_state.tag().to_string(),
-            held_open,
-            safety: safety.tag().to_string(),
-            allows_resume: !guardian && safety.allows_resume(),
-            requires_takeover: !guardian && safety.requires_takeover(),
-        });
-    }
-    Ok(out)
 }
 
 /// Inspect one session's liveness in detail, listing the would-be

@@ -106,6 +106,23 @@ fn holder_dto(h: pocket_codex_codex::liveness::Holder) -> HolderDto {
     }
 }
 
+fn local_session_dto(s: sessions::LocalSession) -> LocalSessionDto {
+    LocalSessionDto {
+        thread_id: s.thread_id,
+        cwd: s.cwd,
+        preview: s.preview,
+        source: s.source,
+        parent_thread_id: s.parent_thread_id,
+        thread_source: s.thread_source,
+        updated_at: s.updated_at,
+        turn_state: s.turn_state,
+        held_open: s.held_open,
+        safety: s.safety,
+        allows_resume: s.allows_resume,
+        requires_takeover: s.requires_takeover,
+    }
+}
+
 /// List every codex session under the shared `CODEX_HOME`, newest first,
 /// each annotated with whether it is safe to resume.
 ///
@@ -117,20 +134,7 @@ fn holder_dto(h: pocket_codex_codex::liveness::Holder) -> HolderDto {
 pub fn app_local_sessions() -> Result<Vec<LocalSessionDto>> {
     Ok(sessions::list_local_sessions()?
         .into_iter()
-        .map(|s| LocalSessionDto {
-            thread_id: s.thread_id,
-            cwd: s.cwd,
-            preview: s.preview,
-            source: s.source,
-            parent_thread_id: s.parent_thread_id,
-            thread_source: s.thread_source,
-            updated_at: s.updated_at,
-            turn_state: s.turn_state,
-            held_open: s.held_open,
-            safety: s.safety,
-            allows_resume: s.allows_resume,
-            requires_takeover: s.requires_takeover,
-        })
+        .map(local_session_dto)
         .collect())
 }
 
@@ -292,20 +296,7 @@ pub fn meta_sessions(
 ) -> Result<Vec<LocalSessionDto>> {
     Ok(meta::sessions(&service_key, running_only.unwrap_or(false))?
         .into_iter()
-        .map(|s| LocalSessionDto {
-            thread_id: s.thread_id,
-            cwd: s.cwd,
-            preview: s.preview,
-            source: s.source,
-            parent_thread_id: s.parent_thread_id,
-            thread_source: s.thread_source,
-            updated_at: s.updated_at,
-            turn_state: s.turn_state,
-            held_open: s.held_open,
-            safety: s.safety,
-            allows_resume: s.allows_resume,
-            requires_takeover: s.requires_takeover,
-        })
+        .map(local_session_dto)
         .collect())
 }
 

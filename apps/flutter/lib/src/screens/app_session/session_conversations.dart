@@ -155,6 +155,19 @@ extension _SessionConversations on _AppSessionState {
         final order = <ThreadMeta>[];
         // Index in [rows] of the open conversation, for the locate button.
         int? selectedRow;
+        void appendThreads(
+          Iterable<ThreadMeta> items, {
+          bool showProject = false,
+        }) {
+          for (final row in items.expand(
+            (t) => tree.visible(t, expandedParents),
+          )) {
+            if (row.item.id == _threadId) selectedRow = rows.length;
+            order.add(row.item);
+            rows.add(() => hierarchyRow(row, showProject: showProject));
+          }
+        }
+
         void group(
           String label,
           List<ThreadMeta> items, {
@@ -162,24 +175,7 @@ extension _SessionConversations on _AppSessionState {
         }) {
           if (items.isEmpty) return;
           rows.add(() => _sectionLabel(label));
-          final visible = items
-              .expand((t) => tree.visible(t, expandedParents))
-              .toList(growable: false);
-          for (final row in visible) {
-            if (row.item.id == _threadId) {
-              selectedRow = rows.length + visible.indexOf(row);
-            }
-          }
-          order.addAll(visible.map((row) => row.item));
-          rows.addAll(
-            // Whichever view is on, one list means one row shape — an Active
-            // group in compact rows above summarized ones would read as two
-            // lists stapled together.
-            visible.map(
-              (row) =>
-                  () => hierarchyRow(row, showProject: showProject),
-            ),
-          );
+          appendThreads(items, showProject: showProject);
         }
 
         // Running threads always lead, whatever project they belong to — they
@@ -233,21 +229,7 @@ extension _SessionConversations on _AppSessionState {
               );
               if (open.isNotEmpty) shown = [...shown, open.first];
             }
-            final visible = shown
-                .expand((t) => tree.visible(t, expandedParents))
-                .toList(growable: false);
-            for (final row in visible) {
-              if (row.item.id == _threadId) {
-                selectedRow = rows.length + visible.indexOf(row);
-              }
-            }
-            order.addAll(visible.map((row) => row.item));
-            rows.addAll(
-              visible.map(
-                (row) =>
-                    () => hierarchyRow(row),
-              ),
-            );
+            appendThreads(shown);
             final hidden = idle.length - shown.length;
             if (!searching && (hidden > 0 || expanded)) {
               rows.add(

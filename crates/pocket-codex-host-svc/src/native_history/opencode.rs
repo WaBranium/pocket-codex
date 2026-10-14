@@ -159,25 +159,25 @@ impl OpenCodeHistory {
         let mut transaction = connection.begin().await?;
         let row = load_session(&mut transaction, session).await?;
         let v2_exists = table_exists(&mut transaction, "session_message").await?;
-        let v2_rows: i64 = if v2_exists {
-            sqlx::query_scalar("SELECT COUNT(*) FROM session_message WHERE session_id=?")
+        let v2_rows: bool = if v2_exists {
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM session_message WHERE session_id=?)")
                 .bind(session)
                 .fetch_one(&mut *transaction)
                 .await?
         } else {
-            0
+            false
         };
         let legacy_exists = table_exists(&mut transaction, "message").await?;
-        let legacy_rows: i64 = if legacy_exists {
-            sqlx::query_scalar("SELECT COUNT(*) FROM message WHERE session_id=?")
+        let legacy_rows: bool = if legacy_exists {
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM message WHERE session_id=?)")
                 .bind(session)
                 .fetch_one(&mut *transaction)
                 .await?
         } else {
-            0
+            false
         };
         ensure!(v2_exists || legacy_exists, "unsupported OpenCode history schema");
-        let mut records = if v2_rows > 0 || (v2_exists && legacy_rows == 0) {
+        let mut records = if v2_rows || (v2_exists && !legacy_rows) {
             v2::read(&mut transaction, &row, session, before, limit).await?
         } else {
             legacy::read(&mut transaction, &row, session, before, limit).await?

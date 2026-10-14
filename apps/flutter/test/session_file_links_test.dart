@@ -170,7 +170,14 @@ void main() {
         await host(tester, api, '/host/report.md');
         await tester.runAsync(() async {
           await tester.tap(find.text('Download'));
-          await Future<void>.delayed(const Duration(milliseconds: 100));
+          // Keep real filesystem I/O outside the fake clock until the
+          // operation has removed its staging directory.
+          await (() async {
+            while (api.destination == null ||
+                File(api.destination!).parent.existsSync()) {
+              await Future<void>.delayed(const Duration(milliseconds: 10));
+            }
+          })().timeout(const Duration(seconds: 5));
         });
         await tester.pumpAndSettle();
         expect(api.destination, isNotNull);
