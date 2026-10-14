@@ -173,7 +173,8 @@ extension _SessionQueue on _AppSessionState {
   /// every turn end (and after a reconnect). Send its captured attachments and
   /// text without replacing a newer draft still in the composer.
   void _maybeFlushQueue() {
-    if (_queue.isEmpty ||
+    if (_externalWriterMode ||
+        _queue.isEmpty ||
         _draft.queuePaused ||
         _queue.first.inFlight ||
         // Only the user's explicit Retry sends it again (see

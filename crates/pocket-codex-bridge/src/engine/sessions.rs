@@ -14,7 +14,7 @@
 //! * a *finished* session whose rollout is *free* is plainly resumable;
 //! * a finished session still *held open* by another codex app-server (e.g. the
 //!   desktop app) is resumable only via a confirmed [`force_resume`], which
-//!   best-effort evicts the holder first.
+//!   releases the holder before resuming and refuses a failed release.
 
 use anyhow::{anyhow, Result};
 use pocket_codex_codex::{liveness::Holder, rollout, takeover};
@@ -84,8 +84,8 @@ pub struct ForceResumeOutcome {
     /// Holders the kill could not reach (already gone, denied, or
     /// respawned-and-distinct).
     pub survived: Vec<Holder>,
-    /// Whether the rollout is still held open after the eviction attempt
-    /// (the resume proceeds regardless — an accepted risk).
+    /// Whether the rollout is still held open after the eviction attempt.
+    /// A true value blocks the subsequent resume.
     pub still_held: bool,
     /// Whether the subsequent `thread/resume` into our app-server
     /// succeeded.
@@ -198,11 +198,10 @@ pub fn local_session_transcript(thread_id: &str) -> Result<Vec<rollout::Transcri
 
 /// Force-resume a session into the app-server behind `service_key`.
 ///
-/// Best-effort evicts every live process holding the session's rollout
-/// open (except Pocket-Codex's own app-server), then issues
-/// `thread/resume` regardless of whether the eviction fully succeeded —
-/// the caller has already confirmed they accept the consequences. The
-/// returned [`ForceResumeOutcome`] reports exactly what happened.
+/// Evicts live processes holding the session's rollout open (except
+/// Pocket-Codex's own app-server), then issues `thread/resume` only if the
+/// release succeeded. The returned [`ForceResumeOutcome`] preserves failed
+/// releases and their cause without admitting another writer.
 ///
 /// The caller is responsible for gating this on user confirmation and for
 /// not offering it while a turn is actively running (see
@@ -229,9 +228,12 @@ pub fn force_resume(service_key: &str, thread_id: &str) -> Result<ForceResumeOut
     let protected = protected_pids();
     let report = takeover::force_release(&path, &protected);
 
-    let (resumed, resume_error) = match app_session::thread_resume(service_key, thread_id) {
-        Ok(()) => (true, None),
-        Err(err) => (false, Some(err.to_string())),
+    let (resumed, resume_error) = match report.resume_blocker() {
+        Some(reason) => (false, Some(reason.to_owned())),
+        None => match app_session::thread_resume(service_key, thread_id) {
+            Ok(()) => (true, None),
+            Err(err) => (false, Some(err.to_string())),
+        },
     };
 
     Ok(ForceResumeOutcome {

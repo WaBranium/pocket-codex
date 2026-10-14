@@ -196,9 +196,13 @@ pub struct Session {
     pub usage: Option<(u64, u64)>,
     /// The running turn.
     pub active: Option<ActiveTurn>,
-    /// `session/load` or `session/resume` is in progress: no prompts, no
-    /// file authority, and updates are not live.
+    /// Loading or releasing: no prompts, no new file authority, and updates
+    /// are not live.
     pub pending: bool,
+    /// An explicit release started; retries may finish an uncertain close.
+    pub releasing: bool,
+    /// Native identities retained across an uncertain close and its retries.
+    pub release_owners: Vec<pocket_codex_core::process::ProcessIdentity>,
     /// Updates are `session/load` history replay.
     pub replaying: bool,
     touched: u64,
@@ -325,6 +329,8 @@ impl State {
             usage: None,
             active: None,
             pending,
+            releasing: false,
+            release_owners: Vec::new(),
             replaying,
             touched,
         });
@@ -335,7 +341,7 @@ impl State {
     /// `false` when it is no longer pending here.
     pub fn confirm(&mut self, id: &str, settings: SessionSettings) -> bool {
         match self.sessions.get_mut(id) {
-            Some(session) if session.pending => {
+            Some(session) if session.pending && !session.releasing => {
                 session.pending = false;
                 session.replaying = false;
                 session.settings = settings;
@@ -609,6 +615,7 @@ impl State {
             "admitted": true,
             "cwd": session.cwd,
             "pending": session.pending,
+            "releasing": session.releasing,
             "configOptions": session.settings.config_options,
             "modes": session.settings.modes,
             "title": session.title,

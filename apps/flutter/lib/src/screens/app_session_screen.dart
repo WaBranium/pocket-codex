@@ -74,6 +74,7 @@ import 'package:pocket_codex/src/widgets/project_menu.dart';
 import 'package:pocket_codex/src/widgets/project_section_header.dart';
 import 'package:pocket_codex/src/widgets/status_dots.dart';
 import 'package:pocket_codex/src/widgets/takeover_dialog.dart';
+import 'package:pocket_codex/src/widgets/session_control_dialog.dart';
 import 'package:pocket_codex/src/widgets/theme_toggle.dart';
 import 'package:pocket_codex/src/widgets/turn_minimap.dart';
 import 'package:pocket_codex/src/widgets/turn_outline.dart';
@@ -86,6 +87,7 @@ part 'app_session/session_attachments.dart';
 part 'app_session/session_capabilities.dart';
 part 'app_session/session_composer.dart';
 part 'app_session/session_configuration.dart';
+part 'app_session/session_control.dart';
 part 'app_session/session_conversations.dart';
 part 'app_session/session_events.dart';
 part 'app_session/session_external_writer.dart';
@@ -510,6 +512,7 @@ class _AppSessionState extends ConsumerState<AppSessionScreen>
   bool _externalHistoryDirty = false;
   bool _externalWriterLegacy = false;
   int _externalWriterEpoch = 0;
+  bool _sessionControlOpen = false;
   bool _takingOver = false;
 
   /// The local operation (a send, a supplement, an answer) holding the

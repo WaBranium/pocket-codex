@@ -97,6 +97,36 @@ async fn failed_probe_remains_unknown_and_does_not_reuse_older_evidence() {
         .is_some_and(|value| value.records.is_empty()));
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn handoff_probe_bypasses_display_cache_and_distinguishes_failure_from_empty() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().expect("fixture");
+    let program = root.path().join("inventory");
+    std::fs::write(&program, "#!/bin/sh\ncat >/dev/null\nprintf '[]'\n").expect("script");
+    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).expect("mode");
+    let probe = Probe::new(program.clone(), root.path().into(), root.path().into());
+    let id = "a0000000-0000-4000-8000-000000000000";
+    *probe.cache.lock().await = Some(Inventory {
+        at: Instant::now(),
+        records: vec![Record {
+            pid: 123,
+            session_id: id.into(),
+            cwd: root.path().into(),
+            started_at: 1,
+            status: "running".into(),
+        }],
+    });
+    assert!(probe
+        .idle_owners(id)
+        .await
+        .expect("fresh empty inventory")
+        .is_empty());
+    std::fs::write(&program, "#!/bin/sh\ncat >/dev/null\nprintf 'not-json'\n").expect("failure");
+    assert!(probe.idle_owners(id).await.is_err(), "parse failure is not a released session");
+    assert!(probe.idle_owners("invalid").await.is_err());
+}
+
 #[tokio::test]
 #[ignore = "requires a parent-owned native CLI runtime fixture"]
 async fn native_cli_fixture_ownership_is_read_only() {

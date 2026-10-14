@@ -636,9 +636,13 @@ fn clear_running(shared: &mut Shared, thread: &str, turn: &str) -> Option<AppEve
 fn session_state(shared: &mut Shared, body: &Value) -> Vec<AppEvent> {
     let thread = str_of(body, "sessionId").to_string();
     let previous_title = shared.sessions.get(&thread).map(|old| old["title"].clone());
-    shared.sessions.insert(thread.clone(), body.clone());
+    if body["admitted"] == false {
+        shared.sessions.remove(&thread);
+    } else {
+        shared.sessions.insert(thread.clone(), body.clone());
+    }
     let mut out = vec![event(SESSION_UPDATED, Some(&thread), body.clone())];
-    if previous_title.is_some_and(|old| old != body["title"]) {
+    if body["admitted"] != false && previous_title.is_some_and(|old| old != body["title"]) {
         out.push(event(
             "thread/name/updated",
             Some(&thread),
@@ -745,6 +749,13 @@ pub fn reconcile(shared: &mut Shared, snapshot: &Value) -> Plan {
         }
     }
     shared.permissions = pending;
+    for id in shared
+        .sessions
+        .keys()
+        .filter(|id| !sessions.contains_key(*id))
+    {
+        events.push(event(SESSION_UPDATED, Some(id), json!({"sessionId":id,"admitted":false})));
+    }
     shared.sessions = sessions;
     for body in shared.sessions.values() {
         events.push(event(SESSION_UPDATED, Some(str_of(body, "sessionId")), body.clone()));

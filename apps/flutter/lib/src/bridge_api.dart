@@ -11,6 +11,7 @@ part 'bridge/native_session_types.dart';
 part 'bridge/hosting_types.dart';
 part 'bridge/provider_types.dart';
 part 'bridge/thread_types.dart';
+part 'bridge/session_control_types.dart';
 
 abstract interface class BridgeApi {
   /// Read only local disk; cached history is display-only until synchronized.
@@ -632,6 +633,19 @@ abstract interface class BridgeApi {
   /// and resumes it into its colocated app-server. Gate on explicit
   /// confirmation; do not call while a turn is actively running.
   Future<ForceResumeReport> metaForceResume(String serviceKey, String threadId);
+
+  /// An ownership snapshot. Inspecting it never starts or restores a writer.
+  Future<SessionControl> appAcpSessionControl(
+    String serviceKey,
+    String threadId,
+  );
+
+  /// Apply the action to the exact displayed host, generation and source.
+  Future<void> appAcpControlSession(
+    String serviceKey,
+    SessionControl snapshot,
+    String action,
+  );
 
   /// Upload a document/file attachment to the host behind [serviceKey] (over
   /// its meta tunnel — loopback when this app is the host). Returns the

@@ -584,8 +584,10 @@ its own catalog and creates its thread on first send.
 
 Existing Claude/OpenCode histories can instead open through the independent
 [provider-native history reader](native-agent-history.md), without restoring
-them through ACP. These external histories remain read-only; the normal
-writable ACP path stays available to sessions owned by the running host.
+them through ACP. Browsing remains read-only. The connected host's separate
+Session control dialog offers verified Claude release/acquisition and reuse of
+an admitted OpenCode session on its existing engine; the native-history guide
+records the exact ownership and external-client limits.
 
 ### OpenCode gateway models by default
 

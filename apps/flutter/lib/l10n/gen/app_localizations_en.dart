@@ -3290,4 +3290,71 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get nativeHistoryWindowHint =>
       'A bounded history window is shown. Some content is omitted or outside this window.';
+
+  @override
+  String get sessionControlTitle => 'Session access';
+
+  @override
+  String get sessionControlChecking => 'Checking the current writer…';
+
+  @override
+  String get sessionControlOwned =>
+      'This host already runs this session. Continue here using the same writer.';
+
+  @override
+  String get sessionControlSameEngine =>
+      'Continue through this OpenCode engine. It serializes messages from connected devices. Starting another engine for this session can cause concurrent writes.';
+
+  @override
+  String get sessionControlReleased =>
+      'No registered Claude writer was found. You can acquire the original session here; ownership will be checked again before sending is enabled.';
+
+  @override
+  String get sessionControlExternalIdle =>
+      'Claude is idle in another client, but that client still holds the session. Release it in the owning Pocket host, or exit the original Claude client, then refresh here.';
+
+  @override
+  String get sessionControlExternalRunning =>
+      'Another Claude client is still running a turn. Wait for it to finish, then release the session in that client.';
+
+  @override
+  String get sessionControlReleasePending =>
+      'Release has not been confirmed. Sending remains blocked. Retry release to verify that the writer has exited.';
+
+  @override
+  String get sessionControlLoading =>
+      'This host is restoring the session. Refresh when it finishes.';
+
+  @override
+  String get sessionControlEngineRequired =>
+      'OpenCode keeps turn ownership inside its running engine. A separate ACP process cannot attach to an external engine or prove that it released this session. Connect to the Pocket host already running it to continue; this view will not start a second writer or stop another engine.';
+
+  @override
+  String get sessionControlStopped =>
+      'The selected host is not ready. Start or reconnect that host, then refresh.';
+
+  @override
+  String get sessionControlUnknown =>
+      'Writer ownership could not be verified, or this agent does not support handoff. Viewing remains available; refresh to check again.';
+
+  @override
+  String get sessionControlExclusiveNote =>
+      'Keep this session closed in other native clients while using it here. Pocket hosts share a writer lock, but independent native clients do not honor it.';
+
+  @override
+  String get sessionControlReleaseNote =>
+      'Release closes this host’s idle writer and switches all its connected devices to read-only. History stays on disk; this screen keeps its unsent draft, attachments and queue.';
+
+  @override
+  String get sessionControlChanged =>
+      'The host or conversation changed. Reopen session access for the current view.';
+
+  @override
+  String get sessionControlRelease => 'Release to read-only';
+
+  @override
+  String get sessionControlContinue => 'Continue on this host';
+
+  @override
+  String get sessionControlAcquire => 'Acquire original session';
 }

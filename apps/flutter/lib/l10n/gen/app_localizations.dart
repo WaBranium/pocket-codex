@@ -5778,6 +5778,114 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'A bounded history window is shown. Some content is omitted or outside this window.'**
   String get nativeHistoryWindowHint;
+
+  /// No description provided for @sessionControlTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Session access'**
+  String get sessionControlTitle;
+
+  /// No description provided for @sessionControlChecking.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking the current writer…'**
+  String get sessionControlChecking;
+
+  /// No description provided for @sessionControlOwned.
+  ///
+  /// In en, this message translates to:
+  /// **'This host already runs this session. Continue here using the same writer.'**
+  String get sessionControlOwned;
+
+  /// No description provided for @sessionControlSameEngine.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue through this OpenCode engine. It serializes messages from connected devices. Starting another engine for this session can cause concurrent writes.'**
+  String get sessionControlSameEngine;
+
+  /// No description provided for @sessionControlReleased.
+  ///
+  /// In en, this message translates to:
+  /// **'No registered Claude writer was found. You can acquire the original session here; ownership will be checked again before sending is enabled.'**
+  String get sessionControlReleased;
+
+  /// No description provided for @sessionControlExternalIdle.
+  ///
+  /// In en, this message translates to:
+  /// **'Claude is idle in another client, but that client still holds the session. Release it in the owning Pocket host, or exit the original Claude client, then refresh here.'**
+  String get sessionControlExternalIdle;
+
+  /// No description provided for @sessionControlExternalRunning.
+  ///
+  /// In en, this message translates to:
+  /// **'Another Claude client is still running a turn. Wait for it to finish, then release the session in that client.'**
+  String get sessionControlExternalRunning;
+
+  /// No description provided for @sessionControlReleasePending.
+  ///
+  /// In en, this message translates to:
+  /// **'Release has not been confirmed. Sending remains blocked. Retry release to verify that the writer has exited.'**
+  String get sessionControlReleasePending;
+
+  /// No description provided for @sessionControlLoading.
+  ///
+  /// In en, this message translates to:
+  /// **'This host is restoring the session. Refresh when it finishes.'**
+  String get sessionControlLoading;
+
+  /// No description provided for @sessionControlEngineRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'OpenCode keeps turn ownership inside its running engine. A separate ACP process cannot attach to an external engine or prove that it released this session. Connect to the Pocket host already running it to continue; this view will not start a second writer or stop another engine.'**
+  String get sessionControlEngineRequired;
+
+  /// No description provided for @sessionControlStopped.
+  ///
+  /// In en, this message translates to:
+  /// **'The selected host is not ready. Start or reconnect that host, then refresh.'**
+  String get sessionControlStopped;
+
+  /// No description provided for @sessionControlUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'Writer ownership could not be verified, or this agent does not support handoff. Viewing remains available; refresh to check again.'**
+  String get sessionControlUnknown;
+
+  /// No description provided for @sessionControlExclusiveNote.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep this session closed in other native clients while using it here. Pocket hosts share a writer lock, but independent native clients do not honor it.'**
+  String get sessionControlExclusiveNote;
+
+  /// No description provided for @sessionControlReleaseNote.
+  ///
+  /// In en, this message translates to:
+  /// **'Release closes this host’s idle writer and switches all its connected devices to read-only. History stays on disk; this screen keeps its unsent draft, attachments and queue.'**
+  String get sessionControlReleaseNote;
+
+  /// No description provided for @sessionControlChanged.
+  ///
+  /// In en, this message translates to:
+  /// **'The host or conversation changed. Reopen session access for the current view.'**
+  String get sessionControlChanged;
+
+  /// No description provided for @sessionControlRelease.
+  ///
+  /// In en, this message translates to:
+  /// **'Release to read-only'**
+  String get sessionControlRelease;
+
+  /// No description provided for @sessionControlContinue.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue on this host'**
+  String get sessionControlContinue;
+
+  /// No description provided for @sessionControlAcquire.
+  ///
+  /// In en, this message translates to:
+  /// **'Acquire original session'**
+  String get sessionControlAcquire;
 }
 
 class _AppLocalizationsDelegate

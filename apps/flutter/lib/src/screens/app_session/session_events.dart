@@ -87,6 +87,18 @@ extension _SessionEvents on _AppSessionState {
     }
     // The agent replaced this session's options / modes / usage.
     if (e.kind == 'acp/session/updated') {
+      // A release by any controller withdraws write admission immediately.
+      // Keep the draft and queue in their slot, even if close later fails.
+      if (_caps.isAcp && e.threadId == _threadId) {
+        try {
+          final raw = jsonDecode(e.raw);
+          if (raw is Map &&
+              (raw['admitted'] == false || raw['releasing'] == true) &&
+              !_externalWriterMode) {
+            _enterExternalWriterMode(_threadId!);
+          }
+        } catch (_) {}
+      }
       // Includes the session opened ahead for the shown draft.
       if (e.threadId == _agentSessionThread) _refreshAgentSettings();
       return;

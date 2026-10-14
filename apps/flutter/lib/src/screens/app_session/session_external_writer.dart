@@ -93,7 +93,10 @@ extension _SessionExternalWriter on _AppSessionState {
     _externalWriterLegacy = !paginated;
     final followTail = _loading || _atBottom;
     final wasRunning = _externalWriterRunning;
-    final willRun = update.liveness.turnState == 'incomplete';
+    final willRun = const {
+      'incomplete',
+      'running',
+    }.contains(update.liveness.turnState);
     final refreshDiff =
         !paginated &&
         _items
@@ -175,7 +178,9 @@ extension _SessionExternalWriter on _AppSessionState {
       final followTail = _loading || _atBottom;
       final anchor = followTail ? null : _captureHistoryAnchor();
       _updateState(() {
-        if (_historyEpoch != null &&
+        // ACP replay and native history use different item identities, even
+        // when replay had no epoch. Replace only after a successful read.
+        if ((_caps.isAcp || _historyEpoch != null) &&
             history.historyEpoch != null &&
             _historyEpoch != history.historyEpoch) {
           _replaceTranscriptItems(const []);
@@ -473,13 +478,11 @@ extension _SessionExternalWriter on _AppSessionState {
                 stateControl,
                 if (_caps.isAcp && !canResume) ...[
                   const SizedBox(height: 8),
-                  Text(
-                    l10n.nativeHistoryTakeoverUnavailable,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: scheme.onSurfaceVariant,
-                    ),
+                  OutlinedButton.icon(
+                    key: const Key('chat-session-control'),
+                    onPressed: _takingOver ? null : _showSessionControl,
+                    icon: const Icon(Icons.swap_horiz_rounded, size: 18),
+                    label: Text(l10n.sessionControlTitle),
                   ),
                 ],
                 if (hasCwd) ...[

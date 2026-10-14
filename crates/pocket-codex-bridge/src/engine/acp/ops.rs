@@ -88,7 +88,7 @@ pub fn running_threads(service_key: &str) -> Result<Vec<String>> {
 }
 
 /// The host changed while a request was in flight: its answer is not shown.
-fn superseded() -> anyhow::Error {
+pub(super) fn superseded() -> anyhow::Error {
     anyhow!("the agent host changed while this was in progress; try again")
 }
 

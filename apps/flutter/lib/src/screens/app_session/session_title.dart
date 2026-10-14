@@ -253,8 +253,14 @@ extension _SessionTitle on _AppSessionState {
                   onSelected: (v) {
                     if (v == 'compact') _compact();
                     if (v == 'rename') _beginTitleEdit();
+                    if (v == 'session-control') _showSessionControl();
                   },
                   itemBuilder: (c) => [
+                    if (_caps.isAcp && !_guardianReadOnly)
+                      PopupMenuItem(
+                        value: 'session-control',
+                        child: Text(l10n.sessionControlTitle),
+                      ),
                     PopupMenuItem(
                       value: 'rename',
                       child: Text(l10n.renameConversation),

@@ -116,10 +116,12 @@ impl AgentHost {
                 env: options.env,
                 store,
                 native_history,
+                native_claims: Mutex::new(HashMap::new()),
                 persist: Persist::spawn(apply),
                 state: Mutex::new(State::default()),
                 lifecycle: tokio::sync::Mutex::new(None),
                 dispatch: tokio::sync::Mutex::new(()),
+                session_control: tokio::sync::Mutex::new(()),
                 stopping: watch::channel(false).0,
                 restarts: Mutex::new(VecDeque::new()),
                 budgets: Mutex::new(Budgets::default()),
@@ -254,6 +256,7 @@ impl AgentHost {
     async fn teardown(&self, running: Running, phase: Phase) {
         self.state().invalidate(running.generation, phase);
         dispose(running.peer, running.process).await;
+        self.release_stopped_claims(running.generation).await;
     }
 
     /// Generation `generation` ended on its own (exit, crash, protocol

@@ -145,8 +145,8 @@ class ForceResumeReport {
   /// Holders the kill could not reach.
   final List<Holder> survived;
 
-  /// Whether the rollout is still held open after the attempt (the resume
-  /// proceeded regardless).
+  /// Whether the rollout is still held open after the attempt. A true value
+  /// blocks the subsequent resume.
   final bool stillHeld;
 
   /// Whether the subsequent `thread/resume` succeeded.

@@ -4,6 +4,7 @@
 //! ownership from a successful read. A readable transcript can still have
 //! another live writer.
 
+mod claim;
 mod claude;
 mod command;
 mod discovery;
@@ -13,6 +14,7 @@ mod ownership;
 mod provider;
 mod source;
 
+pub use claim::{ClaimError, SessionClaim};
 pub use claude::ClaudeHistory;
 #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 pub use opencode::OpenCodeHistory;

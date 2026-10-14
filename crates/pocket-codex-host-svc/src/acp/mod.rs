@@ -33,6 +33,7 @@ pub mod process;
 pub mod provider;
 pub mod replica;
 pub mod schema;
+pub mod session_control;
 pub mod spec;
 pub mod state;
 pub mod store;

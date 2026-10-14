@@ -67,6 +67,62 @@ impl Probe {
         (records.len() <= 1024).then_some(records)
     }
 
+    pub(super) async fn unowned_sessions(
+        &self,
+        sessions: &[String],
+    ) -> anyhow::Result<Vec<String>> {
+        let records = self
+            .inventory()
+            .await
+            .ok_or_else(|| anyhow::anyhow!("Claude ownership probe failed"))?;
+        Ok(sessions
+            .iter()
+            .filter(|id| !records.iter().any(|r| r.session_id == **id))
+            .cloned()
+            .collect())
+    }
+
+    /// Fresh positive/negative evidence for an explicit handoff, never the
+    /// display cache's failure-as-unknown projection.
+    pub(super) async fn idle_owners(&self, session: &str) -> anyhow::Result<Vec<ProcessIdentity>> {
+        anyhow::ensure!(uuid::Uuid::parse_str(session).is_ok(), "invalid native session id");
+        let records = self.inventory().await.ok_or_else(|| {
+            anyhow::anyhow!("Claude ownership could not be inspected; keep the session read-only")
+        })?;
+        let records: Vec<_> = records
+            .into_iter()
+            .filter(|r| r.session_id == session)
+            .collect();
+        anyhow::ensure!(records.len() <= 8, "too many native session owners");
+        let program = self.program.clone();
+        tokio::task::spawn_blocking(move || {
+            let program = program
+                .canonicalize()
+                .map_err(|_| anyhow::anyhow!("Claude executable changed"))?;
+            let mut owners = Vec::new();
+            for record in records {
+                anyhow::ensure!(
+                    record.status == "idle",
+                    "Claude still has an active or unknown turn"
+                );
+                let process = process_identity(record.pid)
+                    .ok_or_else(|| anyhow::anyhow!("Claude owner changed; refresh and retry"))?;
+                let cwd = record
+                    .cwd
+                    .canonicalize()
+                    .map_err(|_| anyhow::anyhow!("Claude owner directory changed"))?;
+                anyhow::ensure!(
+                    matches_identity(&record, &program, &cwd, &process),
+                    "Claude owner identity changed"
+                );
+                anyhow::ensure!(!owners.contains(&process), "ambiguous Claude ownership");
+                owners.push(process);
+            }
+            Ok(owners)
+        })
+        .await?
+    }
+
     pub(super) async fn inspect(&self, session: &str) -> SessionLiveness {
         if uuid::Uuid::parse_str(session).is_err() {
             return unknown(session);
@@ -92,6 +148,27 @@ impl Probe {
             .cloned()
             .collect();
         drop(cached);
+        let program = self.program.clone();
+        let id = session.to_owned();
+        tokio::task::spawn_blocking(move || inspect_records(&id, &program, &records))
+            .await
+            .unwrap_or_else(|_| unknown(session))
+    }
+
+    pub(super) async fn inspect_fresh(&self, session: &str) -> SessionLiveness {
+        if uuid::Uuid::parse_str(session).is_err() {
+            return unknown(session);
+        }
+        let Some(records) = self.inventory().await else { return unknown(session) };
+        let records: Vec<_> = records
+            .into_iter()
+            .filter(|r| r.session_id == session)
+            .collect();
+        if records.is_empty() {
+            let mut view = unknown(session);
+            view.safety = "nativeUnowned".into();
+            return view;
+        }
         let program = self.program.clone();
         let id = session.to_owned();
         tokio::task::spawn_blocking(move || inspect_records(&id, &program, &records))

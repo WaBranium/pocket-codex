@@ -68,7 +68,7 @@
 //! [`MAX_TRANSCRIPTS`]: super::state::MAX_TRANSCRIPTS
 
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     ffi::OsString,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, Weak},
@@ -94,6 +94,7 @@ use super::{
     store::{Change, Pending, SessionStore},
 };
 
+mod handoff;
 mod inbound;
 mod lifecycle;
 mod native_history;
@@ -309,9 +310,14 @@ struct Inner {
     persist: Persist,
     state: Mutex<State>,
     lifecycle: tokio::sync::Mutex<Option<Running>>,
+    /// Separate from replay state and dropped after the process owner. A
+    /// normal teardown retains these claims until native exit is verified.
+    native_claims: Mutex<HashMap<String, handoff::HeldClaim>>,
     /// Orders every prompt dispatch and `session/cancel` (see the module
     /// docs).
     dispatch: tokio::sync::Mutex<()>,
+    /// Orders configuration exchanges and idle-session release.
+    session_control: tokio::sync::Mutex<()>,
     /// Set once by [`AgentHost::stop`]: no launch starts or completes after.
     stopping: watch::Sender<bool>,
     restarts: Mutex<VecDeque<std::time::Instant>>,

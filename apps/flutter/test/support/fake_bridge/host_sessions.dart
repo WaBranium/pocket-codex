@@ -2,6 +2,19 @@ part of '../../fake_bridge_api.dart';
 
 mixin _FakeHostSessions on _FakeBridgeState {
   @override
+  Future<SessionControl> appAcpSessionControl(
+    String serviceKey,
+    String threadId,
+  ) async => throw UnsupportedError('No session control fixture');
+
+  @override
+  Future<void> appAcpControlSession(
+    String serviceKey,
+    SessionControl snapshot,
+    String action,
+  ) async => throw UnsupportedError('No session control fixture');
+
+  @override
   Future<NativeSessionList> appNativeSessions(
     String provider, {
     String? cursor,

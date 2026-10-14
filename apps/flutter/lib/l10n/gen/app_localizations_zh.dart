@@ -3129,4 +3129,66 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get nativeHistoryWindowHint => '当前显示有限的历史窗口，部分内容已省略或位于窗口之外。';
+
+  @override
+  String get sessionControlTitle => '会话控制';
+
+  @override
+  String get sessionControlChecking => '正在检查会话归属…';
+
+  @override
+  String get sessionControlOwned => '当前主机已持有此会话，可直接复用同一写入方继续对话。';
+
+  @override
+  String get sessionControlSameEngine =>
+      '可通过当前 OpenCode 引擎继续会话，它会串行处理已连接设备的消息。另启一个引擎处理同一会话可能造成并发写入。';
+
+  @override
+  String get sessionControlReleased =>
+      '未发现仍持有此会话的 Claude 进程。可以在此获取原会话，启用发送前会再次核实归属。';
+
+  @override
+  String get sessionControlExternalIdle =>
+      'Claude 在另一客户端中空闲，但仍持有此会话。请在原 Pocket 主机中释放，或退出原 Claude 客户端，然后在这里刷新。';
+
+  @override
+  String get sessionControlExternalRunning =>
+      '另一 Claude 客户端仍在执行一轮对话。请等待结束，再在原客户端释放会话。';
+
+  @override
+  String get sessionControlReleasePending =>
+      '尚未确认释放完成，发送保持禁用。可以重试释放，核实写入方是否已退出。';
+
+  @override
+  String get sessionControlLoading => '当前主机正在恢复会话，请完成后刷新。';
+
+  @override
+  String get sessionControlEngineRequired =>
+      'OpenCode 的运行归属保存在各自引擎内部。独立 ACP 进程无法附加到外部引擎，也无法确认它已释放此会话。请连接正在运行它的 Pocket 主机继续；这里不会另启写入方或停止其他引擎。';
+
+  @override
+  String get sessionControlStopped => '所选主机尚未就绪，请启动或重新连接该主机后刷新。';
+
+  @override
+  String get sessionControlUnknown => '暂时无法核实写入归属，或此智能体不支持交接。可以继续查看，稍后刷新重试。';
+
+  @override
+  String get sessionControlExclusiveNote =>
+      '在这里使用期间，请勿在其他原生客户端中再次打开同一会话。Pocket 主机之间有写入互斥，独立原生客户端不会遵守该互斥。';
+
+  @override
+  String get sessionControlReleaseNote =>
+      '释放会关闭当前主机的空闲写入方，其连接设备将转为只读。历史保留在磁盘，本页面保留未发送的草稿、附件和队列。';
+
+  @override
+  String get sessionControlChanged => '主机或会话已变化，请为当前页面重新打开会话控制。';
+
+  @override
+  String get sessionControlRelease => '释放到只读';
+
+  @override
+  String get sessionControlContinue => '在此主机继续';
+
+  @override
+  String get sessionControlAcquire => '获取原会话';
 }

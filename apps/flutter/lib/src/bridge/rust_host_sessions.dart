@@ -2,6 +2,49 @@ part of '../bridge_api_rust.dart';
 
 mixin _RustHostSessions implements BridgeApi {
   @override
+  Future<SessionControl> appAcpSessionControl(
+    String serviceKey,
+    String threadId,
+  ) async {
+    final v = await frb.appAcpSessionControl(
+      serviceKey: serviceKey,
+      threadId: threadId,
+    );
+    return SessionControl(
+      sessionId: v.sessionId,
+      hostId: v.hostId,
+      generation: v.generation.toInt(),
+      sourceGeneration: v.sourceGeneration,
+      provider: v.provider,
+      status: v.status,
+      canContinue: v.canContinue,
+      canRelease: v.canRelease,
+      canAcquire: v.canAcquire,
+    );
+  }
+
+  @override
+  Future<void> appAcpControlSession(
+    String serviceKey,
+    SessionControl snapshot,
+    String action,
+  ) => frb.appAcpControlSession(
+    serviceKey: serviceKey,
+    action: action,
+    snapshot: frb.SessionControlDto(
+      sessionId: snapshot.sessionId,
+      hostId: snapshot.hostId,
+      generation: BigInt.from(snapshot.generation),
+      sourceGeneration: snapshot.sourceGeneration,
+      provider: snapshot.provider,
+      status: snapshot.status,
+      canContinue: snapshot.canContinue,
+      canRelease: snapshot.canRelease,
+      canAcquire: snapshot.canAcquire,
+    ),
+  );
+
+  @override
   Future<NativeSessionList> appNativeSessions(
     String provider, {
     String? cursor,

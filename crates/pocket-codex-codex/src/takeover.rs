@@ -11,10 +11,9 @@
 //! no live process owns the session. The clean cases ([`ResumeSafety`])
 //! cover that. But a user may *knowingly* want to pull a session that the
 //! desktop app still holds onto their phone; for that, [`force_release`]
-//! makes a best-effort attempt to terminate the holders first. It is
-//! deliberately best-effort: if a holder cannot be killed (or the desktop
-//! app respawns its app-server), the caller resumes anyway — the user has
-//! already accepted the consequences.
+//! attempts to terminate the holders first. A surviving or respawned
+//! holder blocks the subsequent resume. Confirmation authorizes releasing
+//! an idle owner, not adding a second writer when that release fails.
 
 use std::{path::Path, time::Duration};
 
@@ -158,10 +157,20 @@ pub struct ReleaseReport {
     pub killed: Vec<Holder>,
     /// Holders the kill could not reach (already gone, or denied).
     pub survived: Vec<Holder>,
-    /// Whether the rollout is *still* held open after the attempt — true
-    /// means a resume will proceed despite a surviving / respawned owner
-    /// (an accepted risk).
+    /// Whether the rollout is still held open after the attempt. A surviving
+    /// or respawned owner blocks the subsequent resume.
     pub still_held: bool,
+}
+
+impl ReleaseReport {
+    /// Why the caller must not resume after this release attempt, if any.
+    /// A successful point-in-time release is not a persistent writer lease.
+    pub fn resume_blocker(&self) -> Option<&'static str> {
+        (self.still_held || !self.survived.is_empty()).then_some(
+            "the previous session owner was not released; keep viewing read-only and retry after \
+             closing the original client",
+        )
+    }
 }
 
 /// Best-effort eviction of every live process holding `rollout_path`
@@ -174,9 +183,8 @@ pub struct ReleaseReport {
 /// kill and stops as soon as the rollout is released, minimising
 /// collateral when only one of several codex app-servers was the real
 /// owner. The returned [`ReleaseReport`] records what happened; a
-/// non-empty `survived` or a `still_held` of `true` does not abort the
-/// caller's resume — it is informational, because the user has opted into
-/// the takeover regardless of outcome.
+/// non-empty `survived` or a `still_held` of `true` must block the caller's
+/// resume (see [`ReleaseReport::resume_blocker`]).
 pub fn force_release(rollout_path: &Path, exclude_pids: &[u32]) -> ReleaseReport {
     let mut report = ReleaseReport::default();
     let mut targets = resume_targets(rollout_path);
@@ -238,5 +246,37 @@ mod tests {
         assert!(!ResumeSafety::Resumable.requires_takeover());
         assert!(!ResumeSafety::OwnedRunning.requires_takeover());
         assert!(!ResumeSafety::ResumableUnfinished.requires_takeover());
+    }
+
+    #[test]
+    fn a_release_failure_or_respawn_does_not_authorize_resume() {
+        let holder = Holder {
+            pid: 42,
+            name: "codex".into(),
+        };
+        for report in [
+            ReleaseReport {
+                still_held: true,
+                ..Default::default()
+            },
+            ReleaseReport {
+                survived: vec![holder.clone()],
+                ..Default::default()
+            },
+            ReleaseReport {
+                killed: vec![holder.clone()],
+                still_held: true,
+                ..Default::default()
+            },
+        ] {
+            assert!(report.resume_blocker().is_some());
+        }
+        assert!(ReleaseReport::default().resume_blocker().is_none());
+        assert!(ReleaseReport {
+            killed: vec![holder],
+            ..Default::default()
+        }
+        .resume_blocker()
+        .is_none());
     }
 }

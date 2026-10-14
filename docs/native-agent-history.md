@@ -58,13 +58,42 @@ working directory against the live process. A verified running or idle
 owner is shown as external. Missing, ambiguous, stale or unsupported
 evidence remains unknown. OpenCode ownership is currently unknown.
 
-Neither provider exposes a verified exclusive stop/release/continue
-handshake in this integration. **Native history therefore has no takeover,
-send, supplement, approval or model-changing action.** Idle, a missing file
-handle, or an exited PID does not prove that a new writer can claim an
-exclusive lease. The UI explains this boundary and offers new conversation
-through the ordinary agent path. No broad process kill or speculative
-second writer is used to make browsing work.
+Browsing stays read-only. On a connected ACP host, **Session control** is an
+explicit, separate operation; merely opening or refreshing it does not load,
+claim or stop a session. The dialog carries the selected session, host
+incarnation, generation and (for acquisition) native source generation into
+the action. A replaced host or source is refused.
+
+| Session state | Supported operation |
+| --- | --- |
+| Claude admitted by this Pocket host, idle | **Release this session** closes the SDK query on its owning ACP connection. New prompts are blocked before close starts. The host verifies fresh native inventory and disappearance of the observed process identities before dropping admission and its Pocket claim. Other sessions keep running. |
+| Claude previously released, with no registered native writer | **Acquire this session** takes a cross-process Pocket claim, checks ownership and source again, loads the original UUID, and verifies that its one registered worker belongs to this adapter before enabling sends. |
+| Claude still open in an unrelated CLI or another host | Keep viewing. Release in the owning Pocket host, or exit the native client, then refresh. An idle turn does not revoke that client's ability to write again; this host cannot close another ACP connection's query. |
+| Claude close/load failed or ownership is uncertain | Remain read-only and retain the claim. Retry verified release; a timeout is not proof of exit. |
+| OpenCode session already admitted by this Pocket host | **Continue on this host** uses the existing engine and its serialized prompt path, including from another controller. It does not start another engine against the same database. |
+| OpenCode history belonging to an unrelated native engine | Keep viewing. Stock OpenCode ACP cannot attach that server. Connect to the existing Pocket host if it owns the session; automatic discovery/attachment to an arbitrary native server is not implemented. Neither abort nor an idle status establishes an exclusive handoff to another engine. |
+
+The standalone Local sessions viewer remains independent and read-only; writer
+operations belong to the selected connected host. Release events also switch
+other connected controllers to read-only and retain their drafts, attachments
+and queues. Reconnecting controllers reconcile a release they missed.
+
+**The Pocket claim is cooperative, not a provider-wide lease.** Independent
+Claude native clients do not honor it: keep them closed for this session while
+Pocket writes. The application refuses observed competing owners and retains
+its claim through uncertain cleanup, but cannot prevent a native client from
+opening the same UUID later. Installed Claude SDK/headless 2.1.296 accepted two
+simultaneous same-UUID writers in an isolated test. Installed OpenCode 1.19.0
+also accepted two engines writing one session; aborting one did not stop the
+other. No broad process kill, native lock deletion or copied branch is presented
+as an original-session takeover.
+
+With one OpenCode 1.19.0 engine, two HTTP controllers serialized their model
+calls, but both synchronous requests returned the final assistant message.
+That result must not be misattributed to each caller. A future direct native
+server adapter needs message-ID/event correlation as well as endpoint and
+ownership verification; the current operation reuses the existing Pocket ACP
+admission instead.
 
 ## Code and verification
 
@@ -79,8 +108,10 @@ second writer is used to make browsing work.
   `local_session_view/`: provider inventory, bounded history windows and
   foreground following. Remote routes retain their separate source type.
 
-The complete Rust suite and Flutter format/analyze/tests passed before the
-macOS profile build (1425 Flutter tests passed; five existing skips).
+The complete Rust suite (794 passed, 20 ignored opt-in fixtures) and Flutter
+format/analyze/tests (1432 passed, five existing skips) passed for the safe-transfer
+update. The macOS profile build passed and the mobile pubspec was restored
+byte-for-byte.
 Reader tests cover source/cursor isolation, partial writes, bounded output,
 reverts, orphan prefixes, known schemas, no database creation/migration,
 owner identity mismatches and conservative lease refusal. UI tests cover
@@ -98,5 +129,24 @@ message. Only the fixture's own stdin was closed after testing; the viewer
 remained read-only after exit. A new conversation then prepared automatically
 and returned the requested marker through the real Claude model route.
 
+The safe-transfer extension has separate evidence: installed Claude ACP 0.89.1
+and CLI 2.1.296, three task-owned adapters, isolated config/work directories and
+a deterministic loopback Messages endpoint. The application gateway released
+its original writer; two hosts competed for the same UUID, exactly one acquired,
+its verified native child replied, and the old host could not send. Final
+release removed the native owner and freed the Pocket claim. Regular regressions
+cover failed close, stale host/source, uncertain load, claim contention and
+process identity. This is not a claim of a provider-wide lock or arbitrary
+external-client termination.
+
+The updated native app also released and reacquired one task-owned Claude UUID,
+retained an unsent draft through both operations, sent it and displayed the real
+model reply. The first native history read after release replaces ACP replay
+identities without duplicate messages; failed reads retain the previous display.
+A running turn offered no release action. An admitted OpenCode session continued
+on its existing engine and returned a real reply. Chinese control dialogs were
+checked in light/dark at desktop and the native minimum window width. No external
+user session was resumed or stopped in these checks.
+
 These checks do not establish other-platform UI support, every future
-SDK/database schema or an exclusive takeover protocol.
+SDK/database schema or exclusivity against independent native clients.

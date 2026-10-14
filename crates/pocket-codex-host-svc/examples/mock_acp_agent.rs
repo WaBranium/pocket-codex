@@ -13,6 +13,7 @@
 //! - `--open-delay-ms N` delays the `session/load` / `session/resume` answer,
 //!   and `--fail-open` then fails it;
 //! - `--init-delay-ms N` delays the `initialize` answer;
+//! - `--close-delay-ms N` delays close; `--fail-close` rejects it;
 //! - `--pid-file PATH` writes the agent's process id to `PATH` at start;
 //! - `--clear-title` makes `session/load` clear the title (`title: null`)
 //!   instead of naming the session;
@@ -63,6 +64,8 @@ struct Agent {
     list_cwd: Option<String>,
     open_delay: Duration,
     fail_open: bool,
+    close_delay: Duration,
+    fail_close: bool,
     init_delay: Duration,
     clear_title: bool,
     steering: Option<String>,
@@ -237,7 +240,15 @@ impl Agent {
                     respond(&id, self.settings());
                 }
             },
-            "session/close" | "session/set_mode" => respond(&id, json!({})),
+            "session/close" => {
+                tokio::time::sleep(self.close_delay).await;
+                if self.fail_close {
+                    fail(&id, -32603, "session release failed");
+                } else {
+                    respond(&id, json!({}));
+                }
+            },
+            "session/set_mode" => respond(&id, json!({})),
             "session/set_config_option" => {
                 let mut settings = self.settings();
                 settings["configOptions"][0]["currentValue"] = params["value"].clone();
@@ -447,6 +458,12 @@ async fn main() {
                 .unwrap_or(0),
         ),
         fail_open: has("--fail-open"),
+        close_delay: Duration::from_millis(
+            flag("--close-delay-ms")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0),
+        ),
+        fail_close: has("--fail-close"),
         init_delay: Duration::from_millis(
             flag("--init-delay-ms")
                 .and_then(|v| v.parse().ok())

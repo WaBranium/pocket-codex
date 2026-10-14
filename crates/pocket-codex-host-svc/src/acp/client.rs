@@ -299,6 +299,60 @@ impl GatewayClient {
         .await
     }
 
+    /// Close an idle session on the host that currently admits it. Requires
+    /// a complete identity and does not stop or resume any external process.
+    pub async fn release_session(
+        &self,
+        session: &str,
+        expected: &Identity,
+    ) -> Result<Value, ClientError> {
+        self.post(
+            "acp/v1/sessions/release",
+            with_identity(json!({"sessionId": session}), Some(expected)),
+        )
+        .await
+    }
+
+    /// Inspect operations on the exact host/generation being viewed. Merely
+    /// opening these controls never loads a native session.
+    pub async fn session_control(
+        &self,
+        session: &str,
+        expected: &Identity,
+    ) -> Result<super::session_control::SessionControl, ClientError> {
+        let host = expected.host_id.as_deref().ok_or(ClientError::Protocol)?;
+        let generation = expected
+            .generation
+            .ok_or(ClientError::Protocol)?
+            .to_string();
+        let body = self
+            .get("acp/v1/sessions/control", &[
+                ("sessionId", session),
+                ("hostId", host),
+                ("generation", &generation),
+            ])
+            .await?;
+        serde_json::from_value(body).map_err(|_| ClientError::Protocol)
+    }
+
+    /// Restore the exact native source the user viewed, after its old client
+    /// has released it. Refuses changed identity, source or ownership.
+    pub async fn acquire_session(
+        &self,
+        session: &str,
+        source_generation: &str,
+        expected: &Identity,
+    ) -> Result<Value, ClientError> {
+        self.post(
+            "acp/v1/sessions/acquire",
+            with_identity(
+                json!({"sessionId":session,"sourceGeneration":source_generation}),
+                Some(expected),
+            ),
+        )
+        .await
+    }
+
     /// `POST permissions/answer`.
     pub async fn answer(&self, handle: &str, option_id: &str) -> Result<(), ClientError> {
         self.post("acp/v1/permissions/answer", json!({"handle": handle, "optionId": option_id}))

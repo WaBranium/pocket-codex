@@ -748,3 +748,38 @@ fn a_late_supplement_answer_is_owned_by_the_connection_and_host_that_asked() {
     }
     assert_eq!(script(&gateway).steered.len(), 4, "each was sent once, never retried");
 }
+
+#[test]
+fn session_control_rejects_stale_display_before_contacting_a_replacement_host() {
+    use pocket_codex_host_svc::acp::session_control::SessionControl;
+    let _serial = transport::test_serial();
+    runtime::init(std::env::temp_dir()).expect("init");
+    let own = Context::of(&transport(None, "relay:control"));
+    let key = key_in(&own, "pcx:studio:acp:control-test").expect("key");
+    let shared = fake_conn(&key, 3);
+    lock(&shared).host_id = "new-host".into();
+    let old = SessionControl {
+        session_id: "original".into(),
+        host_id: "old-host".into(),
+        generation: 3,
+        source_generation: Some("old-source".into()),
+        provider: "claude".into(),
+        status: "released".into(),
+        can_continue: false,
+        can_release: false,
+        can_acquire: true,
+    };
+    let link = link_of(&key);
+    let err = control::control_on_link(&link, old.clone(), "acquire").expect_err("stale host");
+    assert!(err.to_string().contains("changed"), "{err}");
+    let old_generation = SessionControl {
+        host_id: "new-host".into(),
+        generation: 2,
+        ..old
+    };
+    let err =
+        control::control_on_link(&link, old_generation, "acquire").expect_err("stale generation");
+    assert!(err.to_string().contains("changed"), "{err}");
+    assert!(lock(&shared).sessions.is_empty());
+    disconnect_inner(&key);
+}

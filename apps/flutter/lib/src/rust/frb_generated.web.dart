@@ -17,6 +17,7 @@ import 'api/bridge/hosting.dart';
 import 'api/bridge/native_sessions.dart';
 import 'api/bridge/services.dart';
 import 'api/bridge/session_config.dart';
+import 'api/bridge/session_control.dart';
 import 'api/bridge/threads.dart';
 import 'api/simple.dart';
 import 'dart:async';
@@ -130,6 +131,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PlatformInt64 dco_decode_box_autoadd_i_64(dynamic raw);
+
+  @protected
+  SessionControlDto dco_decode_box_autoadd_session_control_dto(dynamic raw);
 
   @protected
   SessionSettingsDto dco_decode_box_autoadd_session_settings_dto(dynamic raw);
@@ -384,6 +388,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   SessionConfigValueDto dco_decode_session_config_value_dto(dynamic raw);
 
   @protected
+  SessionControlDto dco_decode_session_control_dto(dynamic raw);
+
+  @protected
   SessionFollowUpdateDto dco_decode_session_follow_update_dto(dynamic raw);
 
   @protected
@@ -563,6 +570,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PlatformInt64 sse_decode_box_autoadd_i_64(SseDeserializer deserializer);
+
+  @protected
+  SessionControlDto sse_decode_box_autoadd_session_control_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   SessionSettingsDto sse_decode_box_autoadd_session_settings_dto(
@@ -891,6 +903,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  SessionControlDto sse_decode_session_control_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   SessionFollowUpdateDto sse_decode_session_follow_update_dto(
     SseDeserializer deserializer,
   );
@@ -1111,6 +1128,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_i_64(
     PlatformInt64 self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_session_control_dto(
+    SessionControlDto self,
     SseSerializer serializer,
   );
 
@@ -1513,6 +1536,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_session_config_value_dto(
     SessionConfigValueDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_session_control_dto(
+    SessionControlDto self,
     SseSerializer serializer,
   );
 

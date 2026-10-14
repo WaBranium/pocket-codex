@@ -90,8 +90,8 @@ pub struct ForceResumeReportDto {
     pub killed: Vec<HolderDto>,
     /// Holders the kill could not reach.
     pub survived: Vec<HolderDto>,
-    /// Whether the rollout is still held open after the attempt (the resume
-    /// proceeded regardless).
+    /// Whether the rollout is still held open after the attempt. A true
+    /// value blocks the subsequent resume.
     pub still_held: bool,
     /// Whether the subsequent `thread/resume` succeeded.
     pub resumed: bool,
@@ -179,9 +179,9 @@ pub fn app_local_session_transcript(thread_id: String) -> Result<Vec<ThreadItemD
 
 /// Force-resume a session into the app-server behind `service_key`.
 ///
-/// Best-effort terminates every live process holding the session's rollout
-/// open (never Pocket-Codex's own app-server), then issues `thread/resume`
-/// regardless of the eviction outcome. The UI must gate this on explicit
+/// Terminates live processes holding the session's rollout open (never
+/// Pocket-Codex's own app-server), then issues `thread/resume` only after
+/// successful release. The UI must gate this on explicit
 /// user confirmation and must not offer it while a turn is actively
 /// running (`SessionLivenessDto::allows_resume == false`). The returned
 /// report says exactly which processes were killed / survived and whether

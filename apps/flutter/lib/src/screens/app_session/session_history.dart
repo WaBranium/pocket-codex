@@ -29,7 +29,11 @@ extension _SessionHistory on _AppSessionState {
 
   /// Whether the host-meta snapshot says another process still has a live turn.
   bool get _externalWriterRunning =>
-      _externalWriterMode && _externalWriterLiveness?.turnState == 'incomplete';
+      _externalWriterMode &&
+      const {
+        'incomplete',
+        'running',
+      }.contains(_externalWriterLiveness?.turnState);
 
   /// Show the "typing" indicator while a local turn is waiting for its reply,
   /// or throughout an external writer's turn. The latter stays visible even as

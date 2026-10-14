@@ -12,6 +12,7 @@ import 'package:pocket_codex/src/rust/api/bridge/hosted_account.dart' as frb;
 import 'package:pocket_codex/src/rust/api/bridge/hosting.dart' as frb;
 import 'package:pocket_codex/src/rust/api/bridge/services.dart' as frb;
 import 'package:pocket_codex/src/rust/api/bridge/session_config.dart' as frb;
+import 'package:pocket_codex/src/rust/api/bridge/session_control.dart' as frb;
 import 'package:pocket_codex/src/rust/api/bridge/threads.dart' as frb;
 
 part 'bridge/rust_hosting.dart';

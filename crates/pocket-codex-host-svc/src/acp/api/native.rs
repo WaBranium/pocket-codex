@@ -10,6 +10,60 @@ pub(super) struct FollowQuery {
     generation: u64,
 }
 
+pub(super) async fn control(
+    State(state): State<ApiState>,
+    Query(query): Query<FollowQuery>,
+) -> Result<Json<crate::acp::session_control::SessionControl>, ApiError> {
+    state
+        .host
+        .session_control(&query.session_id, &Identity {
+            host_id: Some(query.host_id),
+            generation: Some(query.generation),
+        })
+        .await
+        .map(Json)
+        .map_err(ApiError)
+}
+
+pub(super) async fn release(
+    State(state): State<ApiState>,
+    Json(query): Json<FollowQuery>,
+) -> ApiResult {
+    state
+        .host
+        .release_session(&query.session_id, &Identity {
+            host_id: Some(query.host_id),
+            generation: Some(query.generation),
+        })
+        .await
+        .map(Json)
+        .map_err(ApiError)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct AcquireBody {
+    #[serde(flatten)]
+    identity: FollowQuery,
+    source_generation: String,
+}
+
+pub(super) async fn acquire(
+    State(state): State<ApiState>,
+    Json(body): Json<AcquireBody>,
+) -> ApiResult {
+    let query = body.identity;
+    state
+        .host
+        .acquire_session(&query.session_id, &body.source_generation, &Identity {
+            host_id: Some(query.host_id),
+            generation: Some(query.generation),
+        })
+        .await
+        .map(Json)
+        .map_err(ApiError)
+}
+
 pub(super) async fn status(
     State(state): State<ApiState>,
     Query(query): Query<FollowQuery>,

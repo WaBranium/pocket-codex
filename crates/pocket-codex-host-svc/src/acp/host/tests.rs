@@ -6,7 +6,7 @@ use crate::acp::{schema::SteerOutcome, store::SourceId};
 const WAIT: Duration = Duration::from_secs(15);
 
 /// The example agent Cargo builds next to the test binaries.
-fn mock_binary() -> PathBuf {
+pub(super) fn mock_binary() -> PathBuf {
     let exe = std::env::current_exe().expect("test executable");
     let dir = exe
         .parent()
@@ -33,7 +33,7 @@ async fn mock_host() -> AgentHost {
     start_mock(program, spec).await
 }
 
-async fn start_mock(program: PathBuf, spec: AgentSpec) -> AgentHost {
+pub(super) async fn start_mock(program: PathBuf, spec: AgentSpec) -> AgentHost {
     let store = SessionStore::memory(SourceId::with_key(&"k".repeat(32), &program, &spec.args));
     let (host, launched) = AgentHost::start(HostOptions {
         spec,
@@ -47,7 +47,7 @@ async fn start_mock(program: PathBuf, spec: AgentSpec) -> AgentHost {
     host
 }
 
-async fn eventually(mut check: impl FnMut() -> bool, what: &str) {
+pub(super) async fn eventually(mut check: impl FnMut() -> bool, what: &str) {
     let deadline = Instant::now() + WAIT;
     while !check() {
         assert!(Instant::now() < deadline, "timed out waiting for {what}");
@@ -55,7 +55,7 @@ async fn eventually(mut check: impl FnMut() -> bool, what: &str) {
     }
 }
 
-fn outcome(host: &AgentHost, session: &str, turn: &str) -> Option<TurnOutcome> {
+pub(super) fn outcome(host: &AgentHost, session: &str, turn: &str) -> Option<TurnOutcome> {
     host.state()
         .outcomes_of(session, turn)
         .first()

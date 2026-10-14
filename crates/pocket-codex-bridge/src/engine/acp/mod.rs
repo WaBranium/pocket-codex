@@ -47,6 +47,7 @@
 //! view: turns and permissions belong to the host and keep running.
 
 mod connection;
+mod control;
 mod events;
 #[cfg(test)]
 mod live_tests;
@@ -60,6 +61,7 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, Context as _, Result};
+pub use control::{control_session, session_control};
 use futures::StreamExt;
 pub use native_history::{follow_native_session, native_liveness};
 use once_cell::sync::OnceCell;

@@ -44,9 +44,9 @@ Future<List<ThreadItemDto>> appLocalSessionTranscript({
 
 /// Force-resume a session into the app-server behind `service_key`.
 ///
-/// Best-effort terminates every live process holding the session's rollout
-/// open (never Pocket-Codex's own app-server), then issues `thread/resume`
-/// regardless of the eviction outcome. The UI must gate this on explicit
+/// Terminates live processes holding the session's rollout open (never
+/// Pocket-Codex's own app-server), then issues `thread/resume` only after
+/// successful release. The UI must gate this on explicit
 /// user confirmation and must not offer it while a turn is actively
 /// running (`SessionLivenessDto::allows_resume == false`). The returned
 /// report says exactly which processes were killed / survived and whether
@@ -376,8 +376,8 @@ class ForceResumeReportDto {
   /// Holders the kill could not reach.
   final List<HolderDto> survived;
 
-  /// Whether the rollout is still held open after the attempt (the resume
-  /// proceeded regardless).
+  /// Whether the rollout is still held open after the attempt. A true
+  /// value blocks the subsequent resume.
   final bool stillHeld;
 
   /// Whether the subsequent `thread/resume` succeeded.

@@ -561,3 +561,57 @@ fn an_older_turns_end_after_a_newer_start_leaves_the_newer_turn_running() {
     assert!(shared.running.is_empty());
     assert!(shared.sessions["s"]["runningTurnId"].is_null());
 }
+
+#[test]
+fn release_events_withdraw_admission_without_erasing_the_title() {
+    let mut shared = Shared::default();
+    shared
+        .sessions
+        .insert("s".into(), json!({"sessionId":"s","title":"Keep this title"}));
+    let closing = gateway_event(
+        &mut shared,
+        &json!({
+            "type":"session_state","sessionId":"s","admitted":true,
+            "pending":true,"releasing":true,"title":"Keep this title"
+        }),
+    );
+    assert_eq!(kinds(&closing), vec![SESSION_UPDATED]);
+    assert!(shared.sessions["s"]["pending"].as_bool().expect("pending"));
+    let released = gateway_event(
+        &mut shared,
+        &json!({
+            "type":"session_state","sessionId":"s","admitted":false
+        }),
+    );
+    assert_eq!(kinds(&released), vec![SESSION_UPDATED]);
+    assert!(shared.sessions.is_empty());
+    let body: Value = serde_json::from_str(&released[0].raw).expect("event");
+    assert_eq!(body["admitted"], false);
+}
+
+#[test]
+fn reconnect_reports_admission_released_while_the_controller_was_away() {
+    let mut shared = Shared {
+        host_id: "h".into(),
+        generation: 1,
+        ..Shared::default()
+    };
+    shared
+        .sessions
+        .insert("s".into(), json!({"sessionId":"s","admitted":true}));
+    let plan = reconcile(
+        &mut shared,
+        &json!({
+            "info":{"hostId":"h"},"generation":1,"sessions":[],"permissions":[],"recentTurns":[]
+        }),
+    );
+    let event = plan
+        .events
+        .iter()
+        .find(|e| e.kind == SESSION_UPDATED)
+        .expect("withdrawal");
+    assert_eq!(event.thread_id.as_deref(), Some("s"));
+    let body: Value = serde_json::from_str(&event.raw).expect("event");
+    assert_eq!(body["admitted"], false);
+    assert!(shared.sessions.is_empty());
+}

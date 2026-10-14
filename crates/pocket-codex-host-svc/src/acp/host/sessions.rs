@@ -30,6 +30,11 @@ impl AgentHost {
     ) -> Result<Value, HostError> {
         let cwd = validate_cwd(cwd).await?;
         let (generation, peer, caps) = self.ready_for(expected)?;
+        if self.inner.native_history.is_some()
+            && lock(&self.inner.native_claims).len() >= crate::acp::state::MAX_SESSIONS
+        {
+            return Err(HostError::Capacity);
+        }
         let result = peer
             .request(
                 "session/new",
@@ -43,6 +48,10 @@ impl AgentHost {
             .filter(|id| !id.is_empty() && id.len() <= MAX_ID)
             .ok_or_else(|| HostError::Agent("the agent returned no session id".into()))?
             .to_string();
+        self.claim_native_session(&id, generation)
+            .inspect_err(|_| {
+                self.close_session(Some(id.clone()), &peer, &caps);
+            })?;
         let settings = SessionSettings::from_response(&result);
         let evicted = {
             let mut state = self.state();
@@ -53,7 +62,10 @@ impl AgentHost {
                 state.auth_required = false;
                 state.host_event();
             }
-            if !state.transcript_room(&id) {
+            if !state.transcript_room(&id)
+                || (self.inner.native_history.is_some()
+                    && state.sessions.len() >= crate::acp::state::MAX_SESSIONS)
+            {
                 drop(state);
                 // Created at the agent but not admitted here: release it.
                 self.close_session(Some(id), &peer, &caps);
@@ -72,7 +84,10 @@ impl AgentHost {
     }
 
     pub(super) fn opened(&self, id: &str, mode: &str) -> Value {
-        let mut body = self.state().session_body(id);
+        let state = self.state();
+        let mut body = state.session_body(id);
+        body["hostId"] = json!(self.host_id());
+        body["generation"] = json!(state.generation);
         body["mode"] = json!(mode);
         body
     }
@@ -109,7 +124,7 @@ impl AgentHost {
         if self.inner.native_history.is_some() && !self.state().sessions.contains_key(id) {
             return Err(HostError::ReadOnly);
         }
-        let (generation, peer, caps) = self.ready_for(expected)?;
+        self.ready_for(expected)?;
         if let Some(live) = self.live_session(id) {
             return live;
         }
@@ -126,6 +141,17 @@ impl AgentHost {
                 "the session's working directory no longer exists".into(),
             ));
         }
+        self.reopen_session(id, &cwd, expected, None).await
+    }
+
+    pub(super) async fn reopen_session(
+        &self,
+        id: &str,
+        cwd: &str,
+        expected: Option<&Identity>,
+        native_root: Option<(u32, u64)>,
+    ) -> Result<Value, HostError> {
+        let (generation, peer, caps) = self.ready_for(expected)?;
         let (method, mode) = if caps.load_session {
             ("session/load", "load")
         } else if caps.resume_session {
@@ -147,10 +173,13 @@ impl AgentHost {
             }
             // The reopen holds a transcript slot from now on: refuse before
             // the agent does any work rather than exceed the pool.
-            if !state.transcript_room(id) {
+            if !state.transcript_room(id)
+                || (native_root.is_some()
+                    && state.sessions.len() >= crate::acp::state::MAX_SESSIONS)
+            {
                 return Err(HostError::Capacity);
             }
-            let evicted = state.admit(id, &cwd, SessionSettings::default(), true, replaying);
+            let evicted = state.admit(id, cwd, SessionSettings::default(), true, replaying);
             if replaying {
                 state.reset_transcript(id);
             } else {
@@ -175,13 +204,39 @@ impl AgentHost {
                 {
                     let mut state = self.state();
                     if state.generation == generation {
-                        state.revoke(id);
+                        if native_root.is_some() {
+                            if let Some(entry) = state.sessions.get_mut(id) {
+                                entry.releasing = true;
+                                entry.replaying = false;
+                            }
+                        } else {
+                            state.revoke(id);
+                        }
                         state.session_event(id);
                     }
                 }
                 return Err(self.call_error(generation, error));
             },
         };
+        if native_root.is_some() && result.get("sessionId").is_some_and(|value| value != id) {
+            // A different native id would be a fork, not this admission. End
+            // the connection so an untracked writer cannot remain usable.
+            peer.abandon();
+            return Err(HostError::Agent("the agent restored a different session".into()));
+        }
+        if let Some(root) = native_root {
+            if let Err(error) = self.verify_native_writer(id, generation, root).await {
+                let mut state = self.state();
+                if state.generation == generation {
+                    if let Some(entry) = state.sessions.get_mut(id) {
+                        entry.releasing = true;
+                        entry.replaying = false;
+                    }
+                    state.session_event(id);
+                }
+                return Err(error);
+            }
+        }
         {
             let mut state = self.state();
             if state.generation != generation
@@ -199,7 +254,7 @@ impl AgentHost {
                 .map(|s| s.title.clone());
             self.inner
                 .persist
-                .submit(|pending| pending.record(id, &cwd, title));
+                .submit(|pending| pending.record(id, cwd, title));
         }
         Ok(self.opened(id, mode))
     }
@@ -428,6 +483,7 @@ impl AgentHost {
         value: &str,
         expected: Option<&Identity>,
     ) -> Result<Value, HostError> {
+        let _control = self.inner.session_control.lock().await;
         valid_id(session)?;
         let (generation, peer, _) = self.ready_for(expected)?;
         if !self.settings_allow(session, |settings| settings.allows_config_value(config, value))? {
@@ -459,6 +515,7 @@ impl AgentHost {
         mode: &str,
         expected: Option<&Identity>,
     ) -> Result<Value, HostError> {
+        let _control = self.inner.session_control.lock().await;
         valid_id(session)?;
         let (generation, peer, _) = self.ready_for(expected)?;
         if !self.settings_allow(session, |settings| settings.allows_mode(mode))? {

@@ -79,8 +79,14 @@ extension _SessionLayout on _AppSessionState {
                 tooltip: l10n.moreActions,
                 onSelected: (v) {
                   if (v == 'compact') _compact();
+                  if (v == 'session-control') _showSessionControl();
                 },
                 itemBuilder: (c) => [
+                  if (_caps.isAcp && !_guardianReadOnly)
+                    PopupMenuItem(
+                      value: 'session-control',
+                      child: Text(l10n.sessionControlTitle),
+                    ),
                   PopupMenuItem(value: 'compact', child: Text(l10n.compact)),
                 ],
               ),

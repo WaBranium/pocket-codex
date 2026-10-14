@@ -102,6 +102,9 @@ pub fn router(host: AgentHost) -> Router {
         .route("/acp/v1/sessions/history", get(history))
         .route("/acp/v1/sessions/native-events", get(native::follow))
         .route("/acp/v1/sessions/native-status", get(native::status))
+        .route("/acp/v1/sessions/control", get(native::control))
+        .route("/acp/v1/sessions/release", post(native::release))
+        .route("/acp/v1/sessions/acquire", post(native::acquire))
         .route(
             "/acp/v1/sessions/prompt",
             post(prompt).layer(DefaultBodyLimit::max(PROMPT_BODY_LIMIT)),

@@ -845,8 +845,13 @@ this file's roadmap so the source of truth stays in sync.
     Native history navigation never calls session/load, resumes a writer or
     downloads a runtime. Claude owners require matching native session ID,
     PID, start time, executable and cwd; unavailable evidence stays unknown.
-    An owner report is not an exclusive lease: neither provider currently
-    offers verified safe takeover, so these views cannot send or take over.
+    Independent local views stay read-only. Connected hosts expose explicit
+    Claude idle release and original-session acquisition with fresh ownership,
+    source and native-child checks, plus a Pocket cross-process claim retained
+    through uncertain cleanup. Native clients do not honor that claim; never
+    describe it as a provider-wide lease. OpenCode may reuse its admitted Pocket
+    engine; stock ACP cannot attach an unrelated native server. Release by any
+    controller withdraws write admission while keeping drafts and queues.
     Keep remote host roots separate from the controller's filesystem.
     ACP new conversations prepare automatically, with one attempt per draft
     and no extra setup click. The directory picker supports a typed host path

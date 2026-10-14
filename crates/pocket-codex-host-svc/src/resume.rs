@@ -22,8 +22,8 @@ pub struct ForceResumeOutcome {
     pub killed: Vec<Holder>,
     /// Holders the kill could not reach (already gone, denied, or respawned).
     pub survived: Vec<Holder>,
-    /// Whether the rollout is still held open after the eviction attempt (the
-    /// resume proceeds regardless — an accepted risk).
+    /// Whether the rollout is still held open after the eviction attempt.
+    /// A true value blocks the subsequent resume.
     pub still_held: bool,
     /// Whether the subsequent `thread/resume` succeeded.
     pub resumed: bool,
@@ -79,9 +79,12 @@ pub async fn force_resume(app_ws_addr: SocketAddr, thread_id: &str) -> Result<Fo
     .await
     .context("force-release task panicked")??;
 
-    let (resumed, resume_error) = match resume_into(app_ws_addr, thread_id).await {
-        Ok(()) => (true, None),
-        Err(e) => (false, Some(format!("{e:#}"))),
+    let (resumed, resume_error) = match report.resume_blocker() {
+        Some(reason) => (false, Some(reason.to_owned())),
+        None => match resume_into(app_ws_addr, thread_id).await {
+            Ok(()) => (true, None),
+            Err(e) => (false, Some(format!("{e:#}"))),
+        },
     };
 
     Ok(ForceResumeOutcome {

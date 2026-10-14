@@ -68,6 +68,39 @@ impl ClaudeHistory {
         }
     }
 
+    pub(crate) async fn idle_owners(
+        &self,
+        session: &str,
+    ) -> Result<Vec<pocket_codex_core::process::ProcessIdentity>> {
+        self.ownership
+            .as_ref()
+            .context("this Claude source has no ownership probe")?
+            .idle_owners(session)
+            .await
+    }
+
+    pub(crate) async fn handoff_liveness(&self, session: &str) -> crate::sessions::SessionLiveness {
+        match &self.ownership {
+            Some(probe) => probe.inspect_fresh(session).await,
+            None => ownership::unknown(session),
+        }
+    }
+
+    pub(crate) fn claim_session(
+        &self,
+        session: &str,
+    ) -> Result<super::SessionClaim, super::ClaimError> {
+        super::SessionClaim::acquire(&self.root, session)
+    }
+
+    pub(crate) async fn unowned_sessions(&self, sessions: &[String]) -> Result<Vec<String>> {
+        self.ownership
+            .as_ref()
+            .context("this Claude source has no ownership probe")?
+            .unowned_sessions(sessions)
+            .await
+    }
+
     async fn request(
         &self,
         action: &str,

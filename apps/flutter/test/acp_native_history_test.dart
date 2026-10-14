@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pocket_codex/src/bridge_api.dart';
@@ -43,6 +45,82 @@ Future<void> frames(WidgetTester t) async {
 
 void main() {
   setUp(AppSessionScreen.debugResetThreadMemory);
+  testWidgets('release replaces ACP replay only when native history succeeds', (
+    t,
+  ) async {
+    t.view.physicalSize = const Size(1280, 900);
+    t.view.devicePixelRatio = 1;
+    addTearDown(t.view.reset);
+    const message = 'One original reply';
+    final api = FakeBridgeApi()
+      ..metadataOnlyFollow = true
+      ..readResult = const ThreadHistory(
+        running: false,
+        items: [
+          ThreadItem(
+            id: 'live-item',
+            turnId: 'live-turn',
+            itemType: 'agentMessage',
+            title: '',
+            text: message,
+          ),
+        ],
+      );
+    api.acpCapabilities[service] = negotiatedAcpCapabilities(
+      providerName: 'Claude',
+      nativeHistory: true,
+    );
+    api.liveness[thread] = ownership;
+    await api.appConnect(service, 28080);
+    await t.pumpWidget(
+      host(const AppSessionScreen(serviceKey: service, threadId: thread), api),
+    );
+    await frames(t);
+    expect(find.text(message), findsOneWidget);
+    final nativeRead = Completer<ThreadHistory>();
+    api.pendingReads[thread] = [nativeRead.future];
+    api.pushEvent(
+      service,
+      const AppEvent(
+        kind: 'acp/session/updated',
+        threadId: thread,
+        raw: '{"sessionId":"native-session","admitted":false}',
+      ),
+    );
+    await frames(t);
+    nativeRead.completeError(StateError('temporary native read failure'));
+    await frames(t);
+    expect(find.text(message), findsOneWidget);
+    expect(find.byKey(const Key('chat-read-only-action')), findsOneWidget);
+
+    api.readResult = history(message, 'source-one');
+    api.pushMetaSessionUpdate(
+      thread,
+      const SessionFollowUpdate(
+        liveness: ownership,
+        items: [],
+        historyRevision: 'native-revision',
+      ),
+    );
+    await frames(t);
+    expect(find.text(message), findsOneWidget);
+    api.readResult = history('Updated original reply', 'source-one');
+    api.pushMetaSessionUpdate(
+      thread,
+      const SessionFollowUpdate(
+        liveness: ownership,
+        items: [],
+        historyRevision: 'next-native-revision',
+      ),
+    );
+    await frames(t);
+    expect(find.text(message), findsOneWidget);
+    expect(find.text('Updated original reply'), findsOneWidget);
+    expect(api.turnStartCount, 0);
+    expect(t.takeException(), isNull);
+    await t.pumpWidget(const SizedBox.shrink());
+    await frames(t);
+  });
   testWidgets(
     'native ACP history remains read-only and follows source replacement',
     (t) async {
@@ -80,7 +158,7 @@ void main() {
       expect(find.text(l10n.sessionRunningElsewhere), findsNothing);
       expect(find.text(l10n.readOnlyViewing), findsNothing);
       expect(find.text(l10n.nativeHistoryReadOnly), findsNWidgets(2));
-      expect(find.text(l10n.nativeHistoryTakeoverUnavailable), findsOneWidget);
+      expect(find.byKey(const Key('chat-session-control')), findsOneWidget);
       expect(api.turnStartCount, 0);
       expect(api.lastResumed, isNull);
       expect(api.lastMetaResumedThread, isNull);
