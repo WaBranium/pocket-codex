@@ -1,0 +1,83 @@
+# Personal-fork test build: macOS DMG with an ad-hoc signature (no Apple
+# Developer ID, no notarization). Not a release artifact for upstream.
+name: macOS ad-hoc DMG
+
+on:
+  push:
+    branches:
+      - opencode-v2-wire
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  FLUTTER_VERSION: "3.44.0"
+  RUST_TOOLCHAIN: nightly-2026-06-01
+  RELEASE_TAG: v0.4.0
+
+jobs:
+  app-macos-adhoc:
+    if: github.repository != 'acking-you/POCOX'
+    name: App (macOS ${{ matrix.arch }}, ad-hoc)
+    runs-on: macos-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: arm64, xarch: arm64, rust: aarch64-apple-darwin }
+          - { arch: x64, xarch: x86_64, rust: x86_64-apple-darwin }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ matrix.rust }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: app-macos-adhoc-${{ matrix.arch }}
+      - name: Activate desktop manifest (bundle Noto Sans SC)
+        working-directory: apps/flutter
+        run: cp pubspec-desktop.yaml pubspec.yaml
+      - name: Build macOS app (${{ matrix.arch }})
+        working-directory: apps/flutter
+        env:
+          FLUTTER_XCODE_ARCHS: ${{ matrix.xarch }}
+          FLUTTER_XCODE_ONLY_ACTIVE_ARCH: "NO"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+          CARGO_PROFILE_RELEASE_LTO: "false"
+        run: |
+          flutter pub get
+          flutter build macos --release
+      - name: Ad-hoc sign and package DMG
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          app=apps/flutter/build/macos/Build/Products/Release/pocket_codex.app
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          stage=$(mktemp -d)
+          cp -R "$app" "$stage/"
+          ln -s /Applications "$stage/Applications"
+          mkdir -p dist
+          out="dist/pocket-codex-app-${RELEASE_TAG}-macos-${ARCH}-adhoc.dmg"
+          hdiutil create -volname POCOX -srcfolder "$stage" -format UDZO "$out"
+          hdiutil verify "$out"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-adhoc-${{ matrix.arch }}
+          path: dist/*.dmg
+      - name: Attach DMG to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber dist/*.dmg
