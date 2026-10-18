@@ -12,6 +12,7 @@ use super::{
     events::EventStream,
     public,
     schema::{Message, MessagePage},
+    wire,
 };
 
 const MAX_BODY: usize = 8 * 1024 * 1024;
@@ -50,6 +51,29 @@ pub enum ClientError {
     /// An event connection ended and requires fresh reconciliation.
     #[error("the OpenCode event stream ended; reconnect to refresh session state")]
     EventStreamEnded,
+    /// V2 has no attachment translation in this native dialect.
+    #[error(
+        "OpenCode 2 file and image attachments are not supported; remove the attachment before \
+         sending"
+    )]
+    UnsupportedAttachment,
+    /// A V2 model or agent selection was rejected before sending the prompt.
+    #[error("OpenCode 2 {selection} selection returned HTTP {status}; the prompt was not sent")]
+    Preflight {
+        /// Selection endpoint, without user-supplied values.
+        selection: &'static str,
+        /// HTTP status returned by the selection endpoint.
+        status: u16,
+    },
+    /// A pending request cannot be routed without its native session ID.
+    #[error("the OpenCode permission or form request is no longer available; refresh the session")]
+    PendingRequestUnavailable,
+    /// Only the stored choice labels can be translated into a V2 form answer.
+    #[error(
+        "this OpenCode 2 form cannot accept that answer here; choose a listed option or reject \
+         the form"
+    )]
+    UnsupportedForm,
 }
 
 /// A private native server client, or a relay-mapped native gateway client.
@@ -59,6 +83,7 @@ pub struct Client {
     http: reqwest::Client,
     password: Option<Secret>,
     gateway: bool,
+    dialect: wire::Dialect,
 }
 
 impl Client {
@@ -97,6 +122,7 @@ impl Client {
             http,
             password,
             gateway: false,
+            dialect: wire::Dialect::default(),
         })
     }
 
@@ -104,6 +130,12 @@ impl Client {
         let mut client = Self::new(origin, None)?;
         client.gateway = true;
         Ok(client)
+    }
+
+    pub(super) fn use_v2(&mut self) {
+        if !self.gateway {
+            self.dialect.v2 = true;
+        }
     }
 
     fn request(
@@ -129,7 +161,7 @@ impl Client {
         if let Some(password) = &self.password {
             request = request.basic_auth("opencode", Some(password.expose()));
         }
-        if let Some(directory) = directory {
+        if let Some(directory) = directory.filter(|_| !self.dialect.v2) {
             // OpenCode accepts the encoded directory through the query as
             // well; unlike an HTTP header it supports every UTF-8 path.
             request = request.query(&[("directory", directory)]);
@@ -144,6 +176,10 @@ impl Client {
         directory: Option<&str>,
         query: &[(&str, &str)],
     ) -> Result<T, ClientError> {
+        if self.dialect.v2 {
+            let value = self.get_v2(path, directory, query).await?;
+            return serde_json::from_value(value).map_err(|_| ClientError::InvalidResponse);
+        }
         let response = self
             .request(Method::GET, path, directory)?
             .query(query)
@@ -163,6 +199,23 @@ impl Client {
         directory: Option<&str>,
         body: &impl serde::Serialize,
     ) -> Result<T, ClientError> {
+        if self.dialect.v2 {
+            let body = serde_json::to_value(body).map_err(|_| ClientError::InvalidResponse)?;
+            let prepared =
+                wire::prepare(&self.dialect, method.clone(), path, directory, &[], Some(body))?;
+            self.preflight(&prepared).await?;
+            let response = self.send_v2(&prepared.request, true).await?;
+            let value = if method == Method::PATCH
+                && matches!(path, ["session", _])
+                && response.status() == reqwest::StatusCode::NO_CONTENT
+            {
+                self.get_v2(path, directory, &[]).await?
+            } else {
+                let value = decode(response, false).await?;
+                wire::project(&self.dialect, path, directory, value)?
+            };
+            return serde_json::from_value(value).map_err(|_| ClientError::InvalidResponse);
+        }
         let response = self
             .request(method, path, directory)?
             .json(body)
@@ -182,6 +235,25 @@ impl Client {
         directory: &str,
         body: &Value,
     ) -> Result<Value, ClientError> {
+        if self.dialect.v2 {
+            let path = ["session", session, "command"];
+            let prepared = wire::prepare(
+                &self.dialect,
+                Method::POST,
+                &path,
+                Some(directory),
+                &[],
+                Some(body.clone()),
+            )?;
+            self.preflight(&prepared).await?;
+            let response = self.send_v2(&prepared.request, false).await?;
+            return wire::project(
+                &self.dialect,
+                &path,
+                Some(directory),
+                decode(response, false).await?,
+            );
+        }
         let response = self
             .request(Method::POST, &["session", session, "command"], Some(directory))?
             .json(body)
@@ -216,6 +288,22 @@ impl Client {
         before: Option<&str>,
         limit: usize,
     ) -> Result<MessagePage, ClientError> {
+        if self.dialect.v2 {
+            let path = ["session", session, "message"];
+            let limit = limit.to_string();
+            let mut query = vec![("limit", limit.as_str())];
+            if let Some(before) = before {
+                query.push(("before", before));
+            }
+            let value = self
+                .read_v2(&path, Some(directory), &query, MAX_NATIVE_HISTORY_BODY)
+                .await?;
+            let next_before = wire::next_cursor(&value)?;
+            let value = wire::project(&self.dialect, &path, Some(directory), value)?;
+            let messages =
+                serde_json::from_value(value).map_err(|_| ClientError::InvalidResponse)?;
+            return public_page(messages, next_before);
+        }
         let mut request = self
             .request(Method::GET, &["session", session, "message"], Some(directory))?
             .query(&[("limit", limit)]);
@@ -245,25 +333,122 @@ impl Client {
         }
         let messages: Vec<Message> =
             decode_bounded(response, self.gateway, MAX_NATIVE_HISTORY_BODY).await?;
-        let messages: Vec<_> = messages.into_iter().map(public::message).collect();
-        if serde_json::to_vec(&messages)
-            .map_err(|_| ClientError::InvalidResponse)?
-            .len()
-            > MAX_BODY
-        {
-            return Err(ClientError::TooLarge);
-        }
-        Ok(MessagePage {
-            messages,
-            next_before,
-        })
+        public_page(messages, next_before)
     }
 
     /// Open the native stream. Readiness comes from `server.connected`, not
     /// merely a successful earlier snapshot or health response.
     pub async fn events(&self, directory: Option<&str>) -> Result<EventStream, ClientError> {
         let path: &[&str] = if directory.is_some() { &["event"] } else { &["global", "event"] };
+        if self.dialect.v2 {
+            let prepared = wire::prepare(&self.dialect, Method::GET, path, directory, &[], None)?;
+            let path = prepared
+                .request
+                .path
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>();
+            let mut stream = self.event_source(&path, None, &[]).await?;
+            stream.use_v2();
+            return Ok(stream);
+        }
         self.event_source(path, directory, &[]).await
+    }
+
+    async fn get_v2(
+        &self,
+        path: &[&str],
+        directory: Option<&str>,
+        query: &[(&str, &str)],
+    ) -> Result<Value, ClientError> {
+        if path == ["experimental", "session"] {
+            return self.sessions_v2(path, directory, query).await;
+        }
+        let value = if path == ["provider"] {
+            let (providers, models, default) = tokio::try_join!(
+                self.read_v2(path, directory, query, MAX_BODY),
+                self.read_v2(&["model"], directory, &[], MAX_BODY),
+                self.read_v2(&["model", "default"], directory, &[], MAX_BODY),
+            )?;
+            serde_json::json!({"providers": providers, "models": models, "default": default})
+        } else {
+            self.read_v2(path, directory, query, MAX_BODY).await?
+        };
+        wire::project(&self.dialect, path, directory, value)
+    }
+
+    async fn sessions_v2(
+        &self,
+        path: &[&str],
+        directory: Option<&str>,
+        query: &[(&str, &str)],
+    ) -> Result<Value, ClientError> {
+        let mut result = Vec::new();
+        let mut cursor = None;
+        let mut seen = std::collections::BTreeSet::new();
+        loop {
+            let limit = (100 - result.len()).to_string();
+            let mut query = query
+                .iter()
+                .copied()
+                .filter(|(key, _)| !matches!(*key, "limit" | "cursor"))
+                .collect::<Vec<_>>();
+            query.push(("limit", &limit));
+            if let Some(cursor) = cursor.as_deref() {
+                query.push(("cursor", cursor));
+            }
+            let value = self.read_v2(path, directory, &query, MAX_BODY).await?;
+            let next = wire::next_cursor(&value)?;
+            let Value::Array(page) = wire::project(&self.dialect, path, directory, value)? else {
+                return Err(ClientError::InvalidResponse);
+            };
+            result.extend(page.into_iter().take(100 - result.len()));
+            if result.len() == 100 || next.is_none() {
+                return Ok(Value::Array(result));
+            }
+            if !seen.insert(next.clone()) {
+                return Err(ClientError::InvalidResponse);
+            }
+            cursor = next;
+        }
+    }
+
+    async fn read_v2(
+        &self,
+        path: &[&str],
+        directory: Option<&str>,
+        query: &[(&str, &str)],
+        limit: usize,
+    ) -> Result<Value, ClientError> {
+        let prepared = wire::prepare(&self.dialect, Method::GET, path, directory, query, None)?;
+        decode_bounded(self.send_v2(&prepared.request, true).await?, false, limit).await
+    }
+
+    async fn send_v2(&self, route: &wire::Request, timed: bool) -> Result<Response, ClientError> {
+        let path = route.path.iter().map(String::as_str).collect::<Vec<_>>();
+        let mut request = self
+            .request(route.method.clone(), &path, None)?
+            .query(&route.query);
+        if let Some(body) = &route.body {
+            request = request.json(body);
+        }
+        if timed {
+            request = request.timeout(REQUEST_TIMEOUT);
+        }
+        request.send().await.map_err(|_| ClientError::Transport)
+    }
+
+    async fn preflight(&self, prepared: &wire::Prepared) -> Result<(), ClientError> {
+        for (selection, route) in &prepared.preflights {
+            let response = self.send_v2(route, true).await?;
+            if !response.status().is_success() {
+                return Err(ClientError::Preflight {
+                    selection,
+                    status: response.status().as_u16(),
+                });
+            }
+        }
+        Ok(())
     }
 
     pub(super) async fn event_source(
@@ -292,6 +477,24 @@ impl Client {
         }
         Ok(EventStream::new(response))
     }
+}
+
+fn public_page(
+    messages: Vec<Message>,
+    next_before: Option<String>,
+) -> Result<MessagePage, ClientError> {
+    let messages: Vec<_> = messages.into_iter().map(public::message).collect();
+    if serde_json::to_vec(&messages)
+        .map_err(|_| ClientError::InvalidResponse)?
+        .len()
+        > MAX_BODY
+    {
+        return Err(ClientError::TooLarge);
+    }
+    Ok(MessagePage {
+        messages,
+        next_before,
+    })
 }
 
 fn success(response: &Response) -> Result<(), ClientError> {

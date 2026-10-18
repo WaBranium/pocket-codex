@@ -32,7 +32,18 @@ enum Envelope {
 }
 
 fn decode(data: &[u8]) -> Result<Event, ClientError> {
-    match serde_json::from_slice(data).map_err(|_| ClientError::InvalidResponse)? {
+    let value: Value = serde_json::from_slice(data).map_err(|_| ClientError::InvalidResponse)?;
+    if let Some(data) = value.get("data") {
+        return Ok(Event {
+            directory: None,
+            kind: value["type"]
+                .as_str()
+                .ok_or(ClientError::InvalidResponse)?
+                .into(),
+            properties: data.clone(),
+        });
+    }
+    match serde_json::from_value(value).map_err(|_| ClientError::InvalidResponse)? {
         Envelope::Global {
             directory,
             mut payload,
@@ -50,6 +61,7 @@ pub struct EventStream {
     decoder: Decoder,
     ready: VecDeque<Event>,
     ended: bool,
+    native_v2: bool,
 }
 
 impl EventStream {
@@ -59,7 +71,12 @@ impl EventStream {
             decoder: Decoder::default(),
             ready: VecDeque::new(),
             ended: false,
+            native_v2: false,
         }
+    }
+
+    pub(super) fn use_v2(&mut self) {
+        self.native_v2 = true;
     }
 
     /// Read the next complete event. Transport failures and incomplete EOF
@@ -67,6 +84,21 @@ impl EventStream {
     pub async fn next(&mut self) -> Option<Result<Event, ClientError>> {
         loop {
             if let Some(event) = self.ready.pop_front() {
+                if self.native_v2
+                    && !matches!(
+                        event.kind.as_str(),
+                        "server.connected"
+                            | "server.heartbeat"
+                            | "session.status"
+                            | "message.updated"
+                            | "message.part.updated"
+                            | "message.part.delta"
+                            | "message.removed"
+                            | "message.part.removed"
+                    )
+                {
+                    continue;
+                }
                 return Some(Ok(event));
             }
             if self.ended {

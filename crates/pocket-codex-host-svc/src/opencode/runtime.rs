@@ -1,6 +1,7 @@
 //! Owned native `opencode serve`, its database claim, and bounded readiness.
 
 use std::{
+    collections::BTreeMap,
     ffi::OsString,
     path::{Path, PathBuf},
     sync::atomic::{AtomicUsize, Ordering},
@@ -39,6 +40,8 @@ pub struct Launch {
 pub struct Detection {
     /// Version reported by the executable itself.
     pub version: String,
+    /// Version token without the executable name or leading `v`.
+    pub canonical: String,
     /// Canonical native database path, resolved by `opencode db path`.
     pub database: PathBuf,
 }
@@ -48,8 +51,12 @@ impl Launch {
     /// It must implement the native 1.19 API; no ACP fallback is attempted.
     pub async fn detect(&self) -> Result<Detection> {
         let version = self.text(&["--version"], 128).await?;
-        let numbers: Vec<_> = version
-            .trim_start_matches('v')
+        let token = version
+            .split_whitespace()
+            .next_back()
+            .context("OpenCode reported an unrecognized version")?;
+        let canonical = token.strip_prefix('v').unwrap_or(token).to_owned();
+        let numbers: Vec<_> = canonical
             .split('.')
             .take(2)
             .map(str::parse::<u32>)
@@ -59,10 +66,14 @@ impl Launch {
             numbers.len() == 2 && (numbers[0], numbers[1]) >= (1, 19),
             "OpenCode 1.19 or newer is required for native sessions"
         );
-        let raw = self.text(&["db", "path"], 16 * 1024).await?;
+        let raw = match self.text(&["db", "path"], 16 * 1024).await {
+            Ok(raw) => raw,
+            Err(_) => self.text(&["debug", "paths", "db"], 16 * 1024).await?,
+        };
         let database = canonical_database(Path::new(&raw))?;
         Ok(Detection {
             version,
+            canonical,
             database,
         })
     }
@@ -149,21 +160,28 @@ impl Server {
             uuid::Uuid::new_v4().simple(),
             uuid::Uuid::new_v4().simple()
         ));
-        let mut env = launch.env.clone();
-        env.retain(|(key, _)| {
-            key != "OPENCODE_SERVER_PASSWORD" && key != "OPENCODE_SERVER_USERNAME"
+        // Preserve spawn's environment precedence while actually removing an
+        // inherited OPENCODE_PASSWORD, which V2 prefers over SERVER_PASSWORD.
+        let mut env: BTreeMap<_, _> = std::env::vars_os().collect();
+        if let Some(path) = &launch.path {
+            env.insert("PATH".into(), path.clone());
+        }
+        env.extend(launch.env.iter().cloned());
+        env.retain(|key, _| {
+            key != "OPENCODE_SERVER_PASSWORD"
+                && key != "OPENCODE_SERVER_USERNAME"
+                && key != "OPENCODE_PASSWORD"
         });
-        env.push(("OPENCODE_SERVER_PASSWORD".into(), password.expose().into()));
-        env.push(("OPENCODE_SERVER_USERNAME".into(), "opencode".into()));
+        env.insert("OPENCODE_SERVER_PASSWORD".into(), password.expose().into());
+        env.insert("OPENCODE_SERVER_USERNAME".into(), "opencode".into());
         let Spawned {
             mut process,
             stdin,
             stdout,
-        } = process::spawn(
+        } = process::spawn_isolated(
             &launch.program,
             &["serve".into(), "--hostname".into(), "127.0.0.1".into(), "--port".into(), "0".into()],
-            launch.path.as_ref(),
-            &env,
+            &env.into_iter().collect::<Vec<_>>(),
         )?;
         drop(stdin);
         let result = async {
@@ -174,15 +192,25 @@ impl Server {
             let origin = tokio::time::timeout(Duration::from_secs(25), listening(&mut reader))
                 .await
                 .context("OpenCode server did not become ready")??;
-            let client = Client::new(&origin, Some(password))?;
+            let mut client = Client::new(&origin, Some(password))?;
+            let v2 = detection
+                .canonical
+                .split('.')
+                .next()
+                .and_then(|major| major.parse::<u32>().ok())
+                .is_some_and(|major| major >= 2);
+            if v2 {
+                client.use_v2();
+            }
             #[derive(Deserialize)]
             struct Health {
                 healthy: bool,
                 version: String,
             }
             let health: Health = client.get(&["global", "health"], None, &[]).await?;
+            let expected = if v2 { &detection.canonical } else { &detection.version };
             ensure!(
-                health.healthy && health.version == detection.version,
+                health.healthy && &health.version == expected,
                 "OpenCode readiness returned a different runtime"
             );
             // Initialize the native source before admission inspects its open
@@ -245,10 +273,11 @@ async fn listening(reader: &mut BufReader<tokio::process::ChildStdout>) -> Resul
             count > 0 && count <= 8192 && total <= 64 * 1024,
             "OpenCode startup output did not identify a bounded listener"
         );
-        let Some(raw) = std::str::from_utf8(&line)
-            .ok()
-            .and_then(|line| line.trim().strip_prefix("opencode server listening on "))
-        else {
+        let Some(raw) = std::str::from_utf8(&line).ok().and_then(|line| {
+            let line = line.trim();
+            line.strip_prefix("opencode server listening on ")
+                .or_else(|| line.strip_prefix("server listening on "))
+        }) else {
             continue;
         };
         let origin = url::Url::parse(raw).context("OpenCode reported an invalid listener")?;
