@@ -6,7 +6,9 @@
 pub mod catalog;
 pub mod client;
 pub mod events;
+mod http;
 pub mod schema;
+mod wire;
 
 pub mod runtime;
 
@@ -17,4 +19,3 @@ pub mod host;
 pub mod live;
 pub mod ownership;
 pub mod public;
-mod wire;

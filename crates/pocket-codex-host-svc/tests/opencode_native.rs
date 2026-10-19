@@ -7,7 +7,7 @@ use pocket_codex_host_svc::{
     opencode::{
         ownership::{Evidence, Source},
         runtime::{Launch, Server},
-        schema::Session,
+        schema::{Prompt, Session},
     },
     process,
 };
@@ -66,15 +66,10 @@ async fn native_lifecycle_original_session_and_external_database_holder() {
     let directory = directory.to_str().expect("UTF-8");
     let session: Session = server
         .client
-        .mutate(
-            reqwest::Method::POST,
-            &["session"],
-            Some(directory),
-            &json!({"title":"Native lifecycle fixture"}),
-        )
+        .create_session(directory)
         .await
         .expect("create original session");
-    let mut events = server.client.events(None).await.expect("global events");
+    let mut events = server.client.events().await.expect("global events");
     let event = tokio::time::timeout(Duration::from_secs(5), events.next())
         .await
         .expect("connection event deadline")
@@ -82,25 +77,38 @@ async fn native_lifecycle_original_session_and_external_database_holder() {
         .expect("event frame");
     assert_eq!(event.kind, "server.connected");
     drop(events);
-    let _: Value = server
+    let input = Prompt {
+        message_id: None,
+        model: None,
+        agent: None,
+        variant: None,
+        parts: vec![json!({"type":"text","text":"Original session fixture"})],
+        no_reply: true,
+    };
+    server
         .client
-        .mutate(
-            reqwest::Method::POST,
-            &["session", &session.id, "message"],
-            Some(directory),
-            &json!({"noReply":true,"parts":[{"type":"text","text":"Original session fixture"}]}),
-        )
+        .prompt(&session.id, directory, &input, false)
         .await
         .expect("persist user input without any model call");
-    let page = server
-        .client
-        .messages(&session.id, directory, None)
-        .await
-        .expect("native history");
-    assert!(page.messages.iter().any(|m| m
-        .parts
-        .iter()
-        .any(|p| p["text"] == "Original session fixture")));
+    // The asynchronous prompt route persists after it answers.
+    let mut page = None;
+    for _ in 0..50 {
+        let read = server
+            .client
+            .messages(&session.id, directory, None)
+            .await
+            .expect("native history");
+        if read.messages.iter().any(|m| {
+            m.parts
+                .iter()
+                .any(|p| p["text"] == "Original session fixture")
+        }) {
+            page = Some(read);
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let page = page.expect("persisted user input");
 
     // This independently owned fixture only opens the same SQLite database;
     // it performs no write. Even an idle holder prevents a false free claim.
@@ -134,9 +142,9 @@ async fn native_lifecycle_original_session_and_external_database_holder() {
     assert_eq!(source.inspect().await, Evidence::Clear);
     server.stop().await.expect("confirmed native stop");
     let mut resumed = Server::start(&launch).await.expect("restart same source");
-    let original: Session = resumed
+    let original = resumed
         .client
-        .get(&["session", &session.id], Some(directory), &[])
+        .session(&session.id)
         .await
         .expect("original session");
     assert_eq!(original.id, session.id);

@@ -11,6 +11,32 @@ It replaces the former `opencode acp` preset, whose model-catalog plugin and
 custom provider routes are removed. Saved records of that preset are dropped
 when preferences load and are never relaunched as a generic ACP agent.
 
+## Versions
+
+Each OpenCode major version speaks its own native wire. The host reads
+`opencode --version` once and picks that version's `Wire` implementation
+(`opencode/wire/`), called through a closed `match`. The host, fold,
+gateway, bridge and Flutter read the 1.x shapes either way.
+
+| | 1.x (1.19 tested) | 2.x (2.0.21 shapes) |
+| --- | --- | --- |
+| Database | `opencode db path` | `opencode debug paths db` |
+| Routes | `/…` with `?directory=` | `/api/…`; project reads take `location[directory]` |
+| Busy | `/session/status` | listed by `/api/session/active`; all others idle |
+| Model and agent | in every prompt | set on the session, only when changed |
+| Live events | every event invalidates its session | status, plus step, tool, permission and form boundaries; token deltas are dropped |
+| Attachments | sent | refused before sending; models report no image input |
+
+A version outside the tested range still starts, with a notice in its
+host's status. One that cannot report its database cannot be hosted.
+OpenCode 2 prefers `OPENCODE_PASSWORD` to `OPENCODE_SERVER_PASSWORD`, so the
+host removes both inherited names before injecting its private password.
+
+Not covered on 2.x yet: attachments, token-by-token text (replies appear at
+text and tool boundaries), forms with number, boolean or external fields
+(they can only be rejected), and custom-provider hosts and Local sessions,
+which are unverified.
+
 ## Hosting
 
 - **Several hosts, one per history source.** Each host owns its own
@@ -321,6 +347,10 @@ continued by opening it on the running OpenCode host (**Continue in
 <host>**), or by hosting OpenCode first.
 
 ## Verification
+
+OpenCode 2 (2026-10-19): unit tests cover 2.0.21 frames, catalogs, history,
+forms and prompt selection, against shapes read from the 2.0.21 source. The
+three real-server tests passed again against 1.19.0. No live 2.x run.
 
 Several hosts (2026-10-16): the real bridge lifecycle test also starts a
 second host with its own history beside the first, reads its status and

@@ -112,6 +112,32 @@ pub struct Prompt {
     pub variant: Option<String>,
     /// Native text or file input parts.
     pub parts: Vec<Value>,
+    /// Persist the input without starting a model turn.
+    #[serde(skip_serializing_if = "std::ops::Not::not", rename = "noReply")]
+    pub no_reply: bool,
+}
+
+/// One known native slash command, run through its own execution path.
+#[derive(Debug, Clone, Serialize)]
+pub struct CommandInput {
+    /// Caller-generated native message ID.
+    #[serde(rename = "messageID")]
+    pub message_id: String,
+    /// Exact command name, without `/`.
+    pub command: String,
+    /// Text after the command name.
+    pub arguments: String,
+    /// Exact `provider/model` catalog key, when selected.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Native primary agent, when selected.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+    /// Exact variant advertised by the selected model.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub variant: Option<String>,
+    /// Native file parts.
+    pub parts: Vec<Value>,
 }
 
 /// The statuses known to one server instance, keyed by original session ID.

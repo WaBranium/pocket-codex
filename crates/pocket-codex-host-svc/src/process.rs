@@ -85,7 +85,20 @@ pub fn spawn(
     path: Option<&OsString>,
     env: &[(OsString, OsString)],
 ) -> Result<Spawned, SpawnError> {
-    spawn_command(program, args, path, env, false)
+    spawn_command(program, args, path, env, Inherit::All)
+}
+
+/// [`spawn`], without the inherited variables named in `removed`. Variables
+/// in `env` are still applied.
+#[cfg(unix)]
+pub fn spawn_without(
+    program: &Path,
+    args: &[String],
+    path: Option<&OsString>,
+    env: &[(OsString, OsString)],
+    removed: &[&str],
+) -> Result<Spawned, SpawnError> {
+    spawn_command(program, args, path, env, Inherit::Except(removed))
 }
 
 /// Start an owned helper with only the supplied environment. In particular,
@@ -96,7 +109,15 @@ pub fn spawn_isolated(
     args: &[String],
     env: &[(OsString, OsString)],
 ) -> Result<Spawned, SpawnError> {
-    spawn_command(program, args, None, env, true)
+    spawn_command(program, args, None, env, Inherit::Nothing)
+}
+
+/// Which of this process's environment variables a child receives.
+#[cfg(unix)]
+enum Inherit<'a> {
+    All,
+    Except(&'a [&'a str]),
+    Nothing,
 }
 
 #[cfg(unix)]
@@ -105,11 +126,19 @@ fn spawn_command(
     args: &[String],
     path: Option<&OsString>,
     env: &[(OsString, OsString)],
-    isolated: bool,
+    inherit: Inherit<'_>,
 ) -> Result<Spawned, SpawnError> {
     let mut command = Command::new(program);
-    if isolated {
-        command.env_clear();
+    match inherit {
+        Inherit::All => {},
+        Inherit::Except(removed) => {
+            for key in removed {
+                command.env_remove(key);
+            }
+        },
+        Inherit::Nothing => {
+            command.env_clear();
+        },
     }
     command
         .args(args)
@@ -157,6 +186,18 @@ pub fn spawn(
     _args: &[String],
     _path: Option<&OsString>,
     _env: &[(OsString, OsString)],
+) -> Result<Spawned, SpawnError> {
+    Err(SpawnError::UnsupportedPlatform)
+}
+
+/// Owned hosting is unavailable on this platform.
+#[cfg(not(unix))]
+pub fn spawn_without(
+    _program: &Path,
+    _args: &[String],
+    _path: Option<&OsString>,
+    _env: &[(OsString, OsString)],
+    _removed: &[&str],
 ) -> Result<Spawned, SpawnError> {
     Err(SpawnError::UnsupportedPlatform)
 }

@@ -241,7 +241,11 @@ pub(super) fn prepare(
             .env
             .push(("OPENCODE_DB".into(), history_database(name)?.into()));
     }
-    runtime::runtime().block_on(launch.detect())?;
+    let notice = runtime::runtime().block_on(launch.detect())?.notice;
+    let discovery_problem = match (discovery_problem, notice) {
+        (Some(problem), Some(notice)) => Some(format!("{notice} {problem}")),
+        (problem, notice) => notice.or(problem),
+    };
     Ok(Prepared {
         name: name.into(),
         launch,

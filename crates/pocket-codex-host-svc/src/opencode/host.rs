@@ -16,7 +16,7 @@ use super::{
     ownership::{Evidence, Source},
     public,
     runtime::Server,
-    schema::{Session, Status, Statuses},
+    schema::{Session, Status},
 };
 use crate::session_access::{AccessHolder, SessionAccess};
 
@@ -244,11 +244,7 @@ impl Host {
 
     /// Read bounded native session metadata; this does not load a writer.
     pub async fn sessions(&self, directory: Option<&str>) -> Result<Vec<Session>, Error> {
-        Ok(self
-            .0
-            .client
-            .get(&["experimental", "session"], directory, &[("limit", "100")])
-            .await?)
+        Ok(self.0.client.sessions(directory, 100).await?)
     }
 
     /// Fresh native status for every project this gateway admitted, including
@@ -267,11 +263,7 @@ impl Host {
             .collect();
         let mut running = std::collections::BTreeSet::new();
         for directory in directories {
-            let statuses: Statuses = self
-                .0
-                .client
-                .get(&["session", "status"], Some(&directory), &[])
-                .await?;
+            let statuses = self.0.client.statuses(&directory).await?;
             let entries: Vec<_> = self
                 .0
                 .sessions
@@ -315,7 +307,7 @@ impl Host {
         }
         self.0
             .client
-            .get(&["session", session], None, &[])
+            .session(session)
             .await
             .map_err(|error| match error {
                 ClientError::Http(404) => Error::SessionNotFound,
@@ -325,15 +317,11 @@ impl Host {
 
     /// Real native model, agent and command inventory for a selected project.
     pub async fn catalog(&self, directory: Option<&str>) -> Result<Catalog, Error> {
-        Ok(Catalog::load(&self.0.client, directory).await?)
+        Ok(self.0.client.catalog(directory).await?)
     }
 
     async fn status(&self, session: &Session) -> Result<Status, Error> {
-        let statuses: Statuses = self
-            .0
-            .client
-            .get(&["session", "status"], Some(&session.directory), &[])
-            .await?;
+        let statuses = self.0.client.statuses(&session.directory).await?;
         let status = statuses.get(&session.id).cloned().unwrap_or(Status::Idle);
         self.observe_idle(&session.id, &status).await;
         Ok(status)
@@ -457,12 +445,8 @@ impl Host {
             self.0
                 .client
                 .messages(&session.id, &session.directory, before),
-            self.0
-                .client
-                .get::<Vec<Value>>(&["permission"], Some(&session.directory), &[]),
-            self.0
-                .client
-                .get::<Vec<Value>>(&["question"], Some(&session.directory), &[]),
+            self.0.client.permissions(&session.directory),
+            self.0.client.questions(&session.directory),
         )?;
         let access = self.access_to(&session).await?;
         let window = self
