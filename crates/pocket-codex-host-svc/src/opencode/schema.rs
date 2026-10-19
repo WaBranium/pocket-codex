@@ -112,9 +112,6 @@ pub struct Prompt {
     pub variant: Option<String>,
     /// Native text or file input parts.
     pub parts: Vec<Value>,
-    /// Persist the input without starting a model turn.
-    #[serde(skip_serializing_if = "std::ops::Not::not", rename = "noReply")]
-    pub no_reply: bool,
 }
 
 /// One known native slash command, run through its own execution path.

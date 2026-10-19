@@ -134,17 +134,19 @@ pub(super) fn catalog(
     agents: Vec<Agent>,
     commands: Vec<Command>,
 ) -> Catalog {
-    let connected: Vec<_> = providers
-        .into_iter()
-        .filter(|provider| provider.activation != "disabled")
-        .collect();
-    let models = models
+    // `/api/model` lists the usable models; `/api/provider` lists only
+    // configured providers, so it names them or turns one off, nothing more.
+    let models: Vec<_> = models
         .into_iter()
         .filter(|model| model.enabled && model.status != "deprecated")
         .filter_map(|model| {
-            let provider = connected.iter().find(|p| p.id == model.provider_id)?;
+            let provider = providers.iter().find(|p| p.id == model.provider_id);
+            if provider.is_some_and(|provider| provider.activation == "disabled") {
+                return None;
+            }
             Some(CatalogModel {
-                provider_name: provider.name.clone(),
+                provider_name: provider
+                    .map_or_else(|| model.provider_id.clone(), |p| p.name.clone()),
                 provider: model.provider_id,
                 id: model.id,
                 name: model.name,
@@ -155,6 +157,10 @@ pub(super) fn catalog(
             })
         })
         .collect();
+    let mut connected: Vec<_> = models.iter().map(|model| &model.provider).collect();
+    connected.sort();
+    connected.dedup();
+    let connected = connected.len();
     let agents = agents
         .into_iter()
         .filter(|agent| !agent.hidden && agent.mode != "subagent")
@@ -178,7 +184,7 @@ pub(super) fn catalog(
         .map(|model| (model.provider_id, model.id))
         .into_iter()
         .collect();
-    Catalog::assemble(models, agents, commands, defaults, connected.len())
+    Catalog::assemble(models, agents, commands, defaults, connected)
 }
 
 #[derive(Deserialize)]
@@ -521,8 +527,12 @@ impl File {
 impl Error {
     /// The 1.x provider error shape `public::error` classifies.
     fn into_native(self) -> Value {
+        let name = match self.kind.as_str() {
+            "aborted" => "MessageAbortedError".into(),
+            _ => self.kind,
+        };
         object([
-            ("name", self.kind.into()),
+            ("name", name.into()),
             (
                 "data",
                 object([

@@ -18,19 +18,25 @@ Each OpenCode major version speaks its own native wire. The host reads
 (`opencode/wire/`), called through a closed `match`. The host, fold,
 gateway, bridge and Flutter read the 1.x shapes either way.
 
-| | 1.x (1.19 tested) | 2.x (2.0.21 shapes) |
+| | 1.x (1.19.3 tested) | 2.x (2.0.32 tested) |
 | --- | --- | --- |
 | Database | `opencode db path` | `opencode debug paths db` |
 | Routes | `/…` with `?directory=` | `/api/…`; project reads take `location[directory]` |
 | Busy | `/session/status` | listed by `/api/session/active`; all others idle |
 | Model and agent | in every prompt | set on the session, only when changed |
-| Live events | every event invalidates its session | status, plus step, tool, permission and form boundaries; token deltas are dropped |
+| Turn start and end | `session.status` | `session.execution.*`, mapped onto the same busy and idle status |
+| Live events | every event invalidates its session | step, tool, permission and form boundaries; token deltas are dropped |
+| Models | connected providers' models | `/api/model` (`/api/provider` lists only configured providers) |
 | Attachments | sent | refused before sending; models report no image input |
 
 A version outside the tested range still starts, with a notice in its
 host's status. One that cannot report its database cannot be hosted.
 OpenCode 2 prefers `OPENCODE_PASSWORD` to `OPENCODE_SERVER_PASSWORD`, so the
 host removes both inherited names before injecting its private password.
+
+2.x has no `bash` tool and asks before reading `.env` by default; a message
+ID may be used only once. Configured commands appear shortly after the
+server starts.
 
 Not covered on 2.x yet: attachments, token-by-token text (replies appear at
 text and tool boundaries), forms with number, boolean or external fields
@@ -348,9 +354,14 @@ continued by opening it on the running OpenCode host (**Continue in
 
 ## Verification
 
-OpenCode 2 (2026-10-19): unit tests cover 2.0.21 frames, catalogs, history,
-forms and prompt selection, against shapes read from the 2.0.21 source. The
-three real-server tests passed again against 1.19.0. No live 2.x run.
+OpenCode 2 (2026-10-19), against the official OpenCode 1.19.3 and 2.0.32
+builds on one Mac, with disposable data and a local deterministic model:
+the three real-server host tests (lifecycle and an outside database holder;
+gateway admission and closed routes; turns with a supplement, a permission,
+a question, a command and cancel) and the bridge hosting acceptance test
+(start, source singleton, local connect, a prompt to a completed turn,
+release and reopen, Apply keeping history, stop) passed on both. Unit tests
+cover 2.x frames, catalogs, history, forms and prompt selection.
 
 Several hosts (2026-10-16): the real bridge lifecycle test also starts a
 second host with its own history beside the first, reads its status and

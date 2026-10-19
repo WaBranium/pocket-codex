@@ -266,7 +266,6 @@ impl Host {
                 agent: options.agent,
                 variant: options.variant,
                 parts,
-                no_reply: false,
             };
             let result = self
                 .0

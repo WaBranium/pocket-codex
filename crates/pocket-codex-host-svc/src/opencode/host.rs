@@ -441,6 +441,10 @@ impl Host {
     /// overlay. Failed reads are never reported as authoritative empty history.
     pub async fn snapshot(&self, session: &str, before: Option<&str>) -> Result<Snapshot, Error> {
         let session = self.session(session).await?;
+        // Turn state first, so the history read after it is at least as new:
+        // an ended turn is never paired with history from before its end,
+        // which 2.x, without a live overlay, would report as the outcome.
+        let access = self.access_to(&session).await?;
         let (page, permissions, questions) = tokio::try_join!(
             self.0
                 .client
@@ -448,7 +452,6 @@ impl Host {
             self.0.client.permissions(&session.directory),
             self.0.client.questions(&session.directory),
         )?;
-        let access = self.access_to(&session).await?;
         let window = self
             .0
             .live

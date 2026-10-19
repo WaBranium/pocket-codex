@@ -28,6 +28,14 @@ fn decode(frame: Value) -> Option<(String, Value)> {
 fn frames_keep_status_and_step_boundaries_and_drop_token_deltas() {
     let connected = decode(json!({"id":"evt_1","type":"server.connected","data":{}}));
     assert_eq!(connected.map(|(kind, _)| kind).as_deref(), Some("server.connected"));
+    for (kind, status) in [("started", "busy"), ("succeeded", "idle"), ("interrupted", "idle")] {
+        let frame = json!({"id":"evt_9","type":format!("session.execution.{kind}"),
+            "data":{"sessionID":"ses_a"}});
+        assert_eq!(
+            decode(frame),
+            Some(("session.status".into(), json!({"sessionID":"ses_a","status":{"type":status}})))
+        );
+    }
     let (kind, status) = decode(json!({"id":"evt_2","type":"session.status",
         "data":{"sessionID":"ses_a","status":{"type":"busy"}}}))
     .expect("status");
@@ -52,8 +60,8 @@ fn frames_keep_status_and_step_boundaries_and_drop_token_deltas() {
 fn catalog_keeps_usable_models_and_offers_no_attachments() {
     let catalog = |default: Value| {
         shape::catalog(
+            // Only configured providers are listed; `a` is not.
             serde_json::from_value(json!([
-                {"id":"a","name":"Provider A","activation":"auto"},
                 {"id":"b","name":"Provider B","activation":"disabled"}
             ]))
             .expect("providers"),
@@ -78,6 +86,7 @@ fn catalog_keeps_usable_models_and_offers_no_attachments() {
     let without_default = catalog(json!({"location":{"directory":"/p"}}));
     assert_eq!(without_default.models.len(), 1);
     assert_eq!(without_default.models[0].key(), "a/m/1");
+    assert_eq!(without_default.models[0].provider_name, "a");
     assert_eq!(without_default.models[0].variants, ["high"]);
     assert!(!without_default.models[0].images);
     assert!(without_default.defaults.is_empty());
@@ -205,7 +214,6 @@ async fn a_changed_selection_precedes_the_prompt_and_any_refusal_sends_nothing()
         agent: Some("build".into()),
         variant: None,
         parts: vec![json!({"type":"text","text":"Hello"})],
-        no_reply: false,
     };
     let actions = |log: &Log| -> Vec<String> {
         log.lock()

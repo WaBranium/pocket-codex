@@ -1,7 +1,8 @@
-//! V2 `{id, type, data}` frames as fold events. Only status and readiness keep
-//! their payload; boundaries that change a session's history or pending
-//! requests become payload-free invalidations, and the rest, including every
-//! per-token delta, are dropped after reading their type alone.
+//! V2 `{id, type, data}` frames as fold events. Execution start and end become
+//! the 1.x busy and idle status, which the fold needs to see before it ends a
+//! turn; boundaries that change a session's history or pending requests become
+//! payload-free invalidations; the rest, including every per-token delta, are
+//! dropped after reading their type alone.
 
 use std::borrow::Cow;
 
@@ -63,10 +64,23 @@ pub(super) fn decode(data: &[u8]) -> Result<Option<Event>, ClientError> {
     let Kind {
         kind,
     } = parse(data)?;
+    let status = match &*kind {
+        "session.execution.started" => Some("busy"),
+        "session.execution.succeeded"
+        | "session.execution.failed"
+        | "session.execution.interrupted" => Some("idle"),
+        _ => None,
+    };
+    if let Some(status) = status {
+        let Owner {
+            session,
+        } = parse::<Frame<Owner>>(data)?.data;
+        let properties = json!({"sessionID": session, "status": {"type": status}});
+        return Ok(Some(event("session.status".into(), properties)));
+    }
     let session = match &*kind {
         "server.connected" => return Ok(Some(event(kind.into_owned(), Value::Null))),
-        // The 1.x `{sessionID, status: {type}}` shape, which the fold needs to
-        // see busy then idle before it ends a turn.
+        // Already the 1.x `{sessionID, status: {type}}` shape, retry included.
         "session.status" => return Ok(Some(event(kind.into_owned(), payload(data)?))),
         // MCP elicitations use a `global` owner that is not a session.
         "form.created" => parse::<Frame<Created>>(data)?.data.form.session,

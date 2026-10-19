@@ -210,13 +210,10 @@ impl Wire for V2 {
             text: Cow<'a, str>,
             #[serde(skip_serializing_if = "Option::is_none")]
             id: Option<&'a str>,
-            #[serde(skip_serializing_if = "Option::is_none")]
-            resume: Option<bool>,
         }
         let body = Body {
             text: text(&prompt.parts)?,
             id: prompt.message_id.as_deref(),
-            resume: prompt.no_reply.then_some(false),
         };
         if select {
             let model = prompt.model.as_ref().map(|model| ModelRef {
