@@ -3,7 +3,7 @@
 //! [`crate::spawn`] deliberately never fails just because the child did not
 //! come up — it records honest state and lets `status` report the truth
 //! later. That is right for the supervisor, but wrong for an interactive
-//! launch: `pocket-codex serve` / `pocket-codex codex start` used to print a
+//! launch: `pocox serve` / `pocox codex start` used to print a
 //! green "✓ codex app-server" the moment the child was forked, even when it
 //! died on the very next tick (classically a bind failure because the listen
 //! port is already taken — `os error 10048` on Windows, `EADDRINUSE` on
@@ -241,19 +241,25 @@ pub fn verify_ready(report: &SpawnReport, timeout: Duration) -> Result<(), Start
 /// Verify that an app-server handles initialized RPCs, within one overall
 /// budget. Neither an HTTP health response nor `initialize` alone exercises
 /// the thread request path. No model turn is started by this probe.
+/// Afterwards, allow up to one additional second for the close handshake.
 pub async fn probe_rpc(ws_url: &str, budget: Duration) -> anyhow::Result<()> {
     let deadline = tokio::time::Instant::now() + budget;
     let (client, _events) =
         tokio::time::timeout_at(deadline, crate::client::AppClient::connect(ws_url))
             .await
             .context("probe: websocket connect timed out")??;
-    tokio::time::timeout_at(deadline, client.initialize("pocket-codex", true))
-        .await
-        .context("probe: initialize timed out")??;
-    tokio::time::timeout_at(deadline, client.request("thread/list", json!({"limit": 1})))
-        .await
-        .context("probe: thread/list timed out")??;
-    Ok(())
+    let result = async {
+        tokio::time::timeout_at(deadline, client.initialize("pocket-codex", true))
+            .await
+            .context("probe: initialize timed out")??;
+        tokio::time::timeout_at(deadline, client.request("thread/list", json!({"limit": 1})))
+            .await
+            .context("probe: thread/list timed out")??;
+        Ok(())
+    }
+    .await;
+    client.close().await;
+    result
 }
 
 fn verify_reused_rpc(

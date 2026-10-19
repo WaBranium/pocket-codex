@@ -11,7 +11,7 @@ client; the wire contract lives in the Rust host and bridge.
 Run the same native hosting and management engine without Flutter:
 
 ```sh
-pocket-codex serve --allow-remote-management --device my-computer \
+pocox serve --allow-remote-management --device my-computer \
   --name default --codex-binary /path/to/codex
 ```
 
@@ -41,12 +41,14 @@ Windows Ctrl-Break, closing the console window or system shutdown) stops
 owned services without changing their restore choices. A process lock prevents
 two CLI supervisors from owning the same state directory.
 
-`pocket-codex status` includes the supervisor and its managed services while a
+`pocox status` includes the supervisor and its managed services while a
 supervisor holds that lock, from the private report it rewrites whenever its
 state changes. Failing to save that report is logged and never stops a service.
 An enabled but offline management registration is `pending`. For systemd,
 append `--allow-remote-management` to `ExecStart`; keep the service in the
-foreground and allow enough stop time for its owned agents to exit.
+foreground and allow enough stop time for its owned agents to exit. A unit
+written for the former `pocket-codex` name keeps working through the alias the
+installer leaves; new units can name `pocox`.
 
 ## Management entry
 
@@ -122,6 +124,24 @@ Copying the complete identity directory clones an installation's identity. Use
 separate fresh state directories for independently running clones; this does not
 try to detect physical machines or split a deliberately shared installation.
 
+### One desktop app per hosting state
+
+One desktop app at a time hosts from a hosting state directory. An app claims
+`<state-dir>/hosting/owner.lock` when it starts and holds that exclusive lock
+for as long as it runs. The operating system releases the lock when the app
+exits or crashes, so nothing stale ever blocks the next start; the process ID
+written in the file only names the holder in logs. A copy started while
+another one runs (a second launch, or another build of the app) still opens
+and connects to services, but for its whole run it restores nothing, starts,
+restarts and applies no host, publishes no management entry and serves no
+agent tools, and it changes neither their settings nor what the first app
+restores. Its home screen and services page say why, its hosting buttons
+explain instead of opening the editor, and its agent tools switches are
+disabled. So it never adopts, stops or re-registers the first app's services,
+and the first app is unaffected. It does not take over when the first app
+quits: quit it and open POCOX again. The CLI supervisor keeps its own lock
+under `managed-host/` (see [CLI host](#cli-host)).
+
 ### Discovery and permissions
 
 - A desktop host publishes one relay service of kind `host`
@@ -171,8 +191,12 @@ The host's restore overrides are authoritative on a desktop cold start: an
 override with no runtime means stopped (locally or from another device) and
 suppresses older UI preferences for that name; remotely added hosts restore
 too. If the overrides cannot be read, nothing is restored and the reason is
-shown under the switch. Each restore is revalidated by the host
-(`hostRestoreService`); a stopped host is never restarted by polling.
+shown under the switch. Nothing is restored by a second app on the same
+hosting state ([one desktop app per hosting state](#one-desktop-app-per-hosting-state)).
+Each restore is revalidated by the host (`hostRestoreService`); a stopped host
+is never restarted by polling. A restore starts what is saved and saves
+nothing: neither the configuration's revision nor the restore choice moves, so
+the restored host runs the revision controllers see as saved.
 
 ## Default project folder
 

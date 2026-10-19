@@ -87,13 +87,14 @@ relay-reachable Responses API endpoint for any device:
   `pb-mapper` relay with a shared 32-byte key (the original flow).
   *Hosted account* — run the optional `pocket-codex-backend` once on your
   server, then every device just signs in with **GitHub**
-  (`pocket-codex login`, or "Sign in with GitHub" in the app); the backend
+  (`pocox login`, or "Sign in with GitHub" in the app); the backend
   hands each account a short-lived relay credential scoped to its own
   `pcxu:<user>:…` namespace, and devices then talk to the relay directly. The
   relay's administrator key is never handed to clients, accounts can't see each
   other, and the backend isn't in the middle of your traffic.
 
-The name is new; the command, crates, packages and app identifiers keep their
+The command is `pocox`; an install upgraded from the former `pocket-codex`
+keeps that name as an alias. Crates, packages and app identifiers keep their
 `pocket-codex` names, so existing installs, scripts and settings carry over.
 
 In short: **each computer keeps its agents and logins; every other device —
@@ -106,7 +107,8 @@ or a per-account GitHub login (hosted).
 | Area                           | State                                  |
 | ------------------------------ | -------------------------------------- |
 | Workspace / lints / CI         | bootstrapped                           |
-| `pocket-codex` CLI             | `login`, `logout`, `account`, `init`, `serve`, `connect`, `api {serve,connect}`, `services {list,default set}`, top-level `status`/`stop`, `codex {start,stop,status}`, `pb {register,subscribe,status}`, `remote-hint`, `version` |
+| `pocox` CLI                    | `login`, `logout`, `account`, `init`, `serve`, `connect`, `api {serve,connect}`, `services {list,default set,share,unshare,connect,disconnect}`, `open`, `tools`, top-level `status`/`stop`, `codex {start,stop,status}`, `pb {register,subscribe,status}`, `remote-hint`, `version` |
+| Agent tools + galaxy           | one `pocox` MCP server for every harness: see the user's devices and services, share a dev server with the phone (asking the user first), connect to another device's service. Hosted Codex, Claude and OpenCode get it by default; other agents get a copied entry. The galaxy shows every device and service as a living star map ([details](docs/agent-tools.md)) |
 | `pb-mapper` register/subscribe | SDK 0.6.0 from the `pocket-codex` branch, pinned by `Cargo.lock`; bounded recovery and data-v2 nonce separation without data-key derivation or extra frame bytes |
 | `codex app-server` supervision | native process identity, upgrade-aware executable matching, and state.toml |
 | App-server protocol | synced to upstream main `8d9f6466f` (2026-10-18), fork merge `35eabb7013`; host session inventory, running state, liveness and resume follow the app-server's own `thread/list` and `Thread.status` (rollout probes only for writers it cannot see), controllers follow `thread/status/changed`, and compressed (`.jsonl.zst`) rollouts are read; verified aggregated command output, persisted truncation markers, unknown error variants, initialization and opaque history cursors ([audit](docs/app-server-protocol-sync.md)) |
@@ -134,36 +136,37 @@ or a per-account GitHub login (hosted).
 | Flutter UI (`apps/flutter`)    | chat-first home (opens straight into the latest session, cross-fading from the connecting splash; all sessions in the sidebar, behind a skeleton until the host first lists them, with neutral selection, animated running indicators, accessible hierarchy controls and stacked metadata at narrow widths or large text sizes; auto-connects to the explicit default / last-used / locally hosted / first reachable host, desktop auto-restores hosting); account onboarding ("Sign in with GitHub") + self-host onboarding (relay+key, `pcx1:` import/export); device-first service management, settings, sessions, and logs with shared secondary-page navigation; shared calm neutral design system with one blue signal colour (no purple), layered translucent (liquid-glass) surfaces, anchored desktop popovers, persistent utility navigation, adaptive desktop/tablet/phone layouts (light/dark), Markdown user and agent messages, a theme switch that spreads from the control pressed, a compact composer with automatic height, visible height reset, expanded editing with a live Markdown preview, conversation and per-project unsent drafts retained during the app session, minimal new-session views, project shortcuts revealed on hover/keyboard focus or touch long-press, separate Queue/Stop actions, mobile newline / desktop Enter-to-send, retryable attachments, and matching icons/artwork |
 | Live voice | WebRTC voice conversations on mobile and desktop through external Codex; distinct persisted voice-session markers, model/voice selection, a persistent call status with mute, hang-up and barge-in, paginated speech transcripts, and composer dictation on the same realtime path. Requires a host/account with realtime access. No system speech provider. See [voice controls](docs/live-voice.md). |
 | Remote device management | Stable installation identities and distinct default relay keys for Windows, WSL distributions and separate installations on one computer; host-reported OS, architecture and distribution metadata; independent local controls even before hosting starts, with no hostname-based locality guesses. CLI `serve --allow-remote-management` shares the desktop native engine without Flutter, publishes a management-only `host:pocket` entry, restores authoritative service choices and handles SIGINT/SIGTERM; a desktop can allow other devices (a phone included) to add, edit, apply and stop its Codex, native OpenCode, Claude and saved services through a management-only `host` entry, with revision/incarnation checks, write-only secrets, no automatic resend and authoritative restore; a per-host default project folder for new conversations; a concise status page with expandable diagnostics; Refresh services in the chat host switcher and compact Add service rows with path details. Covered by widget tests; phone add/edit/apply verified against a real desktop host, and the current functionality accepted by the user on the installed desktop and iOS apps; no physical-phone haptics or other platforms claimed ([details](docs/remote-device-management.md)) |
+| Harness connection lifecycle | Owned probe teardown and per-service idle reclamation bound abandoned relay connections, including older controllers. Local file/socket exhaustion is diagnosed accurately and does not restart healthy Codex or revoke management. See [recovery details](docs/harness-connection-lifecycle.md) |
 | Relay recovery | Scoped host restarts, retained offline meta registration, account-owned renewal and cancellable mobile reconnect; bounded transition diagnostics; exact `pb restart --role … --key …` maintenance. With the relay unreachable a desktop still restores and opens its own hosts directly and the services page keeps them, naming the cause when the relay's name resolves to a proxy's or VPN's unrouted virtual address |
 
 Multi-device CLI flows are usable in both modes:
 
-- `pocket-codex login` / `logout` / `account` drive the **hosted-account**
+- `pocox login` / `logout` / `account` drive the **hosted-account**
   mode: a GitHub device-flow session (token stored 0600 in `config.toml`) makes
   `serve` / `connect` / `api` / `services` work with **no relay or key** — the
   backend vends a per-account credential and the CLI publishes under
   `pcxu:<user>:…` keys on the relay itself. The `--relay`
   examples below are the **self-host** mode, which an explicit `--relay` flag
   always selects (the escape hatch).
-- `pocket-codex init [--relay <host:port>] [--key <32B>]` persists the
+- `pocox init [--relay <host:port>] [--key <32B>]` persists the
   default relay address and shared `MSG_HEADER_KEY` to
   `~/.config/pocket-codex/config.toml` (0600 on Unix). All subsequent
   commands default to this config (precedence: `--relay` flag > config >
   `$PB_MAPPER_SERVER`); `--relay` still overrides per-invocation.
-- `pocket-codex serve --relay <host:port>` starts or reuses the local
+- `pocox serve --relay <host:port>` starts or reuses the local
   `codex app-server`, registers it as `pcx:<device>:app:<name>` and
   prints the matching client-side command.
-- `pocket-codex connect --relay <host:port>` subscribes to the remote
+- `pocox connect --relay <host:port>` subscribes to the remote
   app-server selected by `--device` / local default / relay discovery,
   exposes it locally and prints the exact `codex --remote ...`
   invocation to start Codex against that listener.
-- `pocket-codex api serve --relay <host:port>` exposes the host Codex
+- `pocox api serve --relay <host:port>` exposes the host Codex
   login as a loopback Responses API proxy and registers
   `pcx:<device>:api:<name>`.
-- `pocket-codex api connect --relay <host:port>` subscribes to that API
+- `pocox api connect --relay <host:port>` subscribes to that API
   proxy and prints a local `model_providers` config snippet for Codex.
-- `pocket-codex services list --relay <host:port>` discovers available
-  `pcx:*` services; `pocket-codex services default set ...` records the
+- `pocox services list --relay <host:port>` discovers available
+  `pcx:*` services; `pocox services default set ...` records the
   local default device when a command does not specify one.
 
 See [`AGENTS.md`](AGENTS.md) for the detailed roadmap and contributor
@@ -172,7 +175,7 @@ conventions.
 ## Repository layout
 
 ```
-pocket-codex/
+POCOX/
 ├── apps/
 │   └── flutter/                 # Flutter UI (FRB-driven, FVM-locked)
 ├── assets/
@@ -181,7 +184,7 @@ pocket-codex/
 │   ├── pocket-codex-core        # shared types, config, state, paths
 │   ├── pocket-codex-codex       # codex app-server process manager
 │   ├── pocket-codex-pb          # pb-mapper register/subscribe glue
-│   ├── pocket-codex-cli         # `pocket-codex` binary
+│   ├── pocket-codex-cli         # `pocox` binary
 │   └── pocket-codex-bridge      # cdylib consumed by flutter_rust_bridge
 ├── deps/
 │   └── codex/                   # upstream codex (git submodule)
@@ -196,7 +199,7 @@ pocket-codex/
 
 ### Install the CLI (one-liner)
 
-Grab the `pocket-codex` binary from the latest release — no toolchain needed.
+Grab the `pocox` binary from the latest release — no toolchain needed.
 The installer picks the build for your OS + CPU (static-musl on Linux, native
 on macOS/Windows) and drops it on your `PATH`.
 
@@ -235,20 +238,20 @@ A working `codex` binary is expected to exist on `$PATH`; POCOX
 does **not** vendor a model runtime. The CLI exposes:
 
 ```text
-pocket-codex login                          # hosted account (GitHub)
-pocket-codex logout
-pocket-codex account
-pocket-codex init                           # self-host (relay + key)
-pocket-codex serve
-pocket-codex connect
-pocket-codex api      serve | connect
-pocket-codex services list | default set
-pocket-codex status
-pocket-codex stop
-pocket-codex codex   start | stop | status
-pocket-codex pb      register | subscribe | status
-pocket-codex remote-hint
-pocket-codex version
+pocox login                          # hosted account (GitHub)
+pocox logout
+pocox account
+pocox init                           # self-host (relay + key)
+pocox serve
+pocox connect
+pocox api      serve | connect
+pocox services list | default set
+pocox status
+pocox stop
+pocox codex   start | stop | status
+pocox pb      register | subscribe | status
+pocox remote-hint
+pocox version
 ```
 
 #### Hosted account (recommended)
@@ -261,22 +264,22 @@ shared key**. Requires a reachable `pocket-codex-backend` — run your own; see
 > （中文：[`docs/usage.zh-CN.md`](docs/usage.zh-CN.md)）。
 
 ```bash
-pocket-codex login                 # GitHub device flow: open the URL, enter the code
-pocket-codex account               # who you're signed in as + transport mode
+pocox login                 # GitHub device flow: open the URL, enter the code
+pocox account               # who you're signed in as + transport mode
 
 # Host: expose this machine's codex app-server under your account.
-pocket-codex serve
+pocox serve
 
 # Another device: sign in to the SAME GitHub account, then list + drive services.
-pocket-codex services list
-pocket-codex connect               # picks your default / only app-server
+pocox services list
+pocox connect               # picks your default / only app-server
 codex --remote ws://127.0.0.1:28080
 
 # Or reach your Codex login as an OpenAI-compatible Responses API.
-pocket-codex api serve
-pocket-codex api connect
+pocox api serve
+pocox api connect
 
-pocket-codex logout                # revoke + clear the local session
+pocox logout                # revoke + clear the local session
 ```
 
 In the **app** this is just "Sign in with GitHub" on first launch; the same
@@ -290,12 +293,12 @@ backend and talk to your own `pb-mapper` relay directly. An explicit `--relay`
 hatch.
 
 ```bash
-pocket-codex init    --relay relay.example.com:7666   # persist relay + 32B key
-pocket-codex serve   --relay relay.example.com:7666   # host side
-pocket-codex connect --relay relay.example.com:7666   # client side
+pocox init    --relay relay.example.com:7666   # persist relay + 32B key
+pocox serve   --relay relay.example.com:7666   # host side
+pocox connect --relay relay.example.com:7666   # client side
 codex --remote ws://127.0.0.1:28080
-pocket-codex api serve   --relay relay.example.com:7666
-pocket-codex api connect --device my-host --relay relay.example.com:7666
+pocox api serve   --relay relay.example.com:7666
+pocox api connect --device my-host --relay relay.example.com:7666
 ```
 
 ### Flutter front-end

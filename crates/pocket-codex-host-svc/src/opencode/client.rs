@@ -31,6 +31,12 @@ pub enum ClientError {
     /// The request could not complete; a mutation's outcome may be uncertain.
     #[error("the OpenCode server request did not complete")]
     Transport,
+    /// The local process cannot allocate another file or socket.
+    #[error("{}", pocket_codex_core::error::FILE_LIMIT_MESSAGE)]
+    FileLimit,
+    /// The request exceeded its connection or response budget.
+    #[error("the agent request timed out; check the host connection and retry")]
+    Timeout,
     /// A native HTTP rejection.
     #[error("the OpenCode server returned HTTP {0}")]
     Http(u16),
@@ -76,6 +82,18 @@ pub enum ClientError {
     UnsupportedForm,
 }
 
+impl From<reqwest::Error> for ClientError {
+    fn from(error: reqwest::Error) -> Self {
+        if pocket_codex_core::error::is_file_limit(&error) {
+            Self::FileLimit
+        } else if error.is_timeout() {
+            Self::Timeout
+        } else {
+            Self::Transport
+        }
+    }
+}
+
 /// A private native server client, or a relay-mapped native gateway client.
 #[derive(Clone)]
 pub struct Client {
@@ -116,7 +134,7 @@ impl Client {
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(5))
             .build()
-            .map_err(|_| ClientError::Transport)?;
+            .map_err(ClientError::from)?;
         Ok(Self {
             origin,
             http,
@@ -186,7 +204,7 @@ impl Client {
             .timeout(REQUEST_TIMEOUT)
             .send()
             .await
-            .map_err(|_| ClientError::Transport)?;
+            .map_err(ClientError::from)?;
         decode(response, self.gateway).await
     }
 
@@ -222,7 +240,7 @@ impl Client {
             .timeout(REQUEST_TIMEOUT)
             .send()
             .await
-            .map_err(|_| ClientError::Transport)?;
+            .map_err(ClientError::from)?;
         decode(response, self.gateway).await
     }
 
@@ -259,7 +277,7 @@ impl Client {
             .json(body)
             .send()
             .await
-            .map_err(|_| ClientError::Transport)?;
+            .map_err(ClientError::from)?;
         decode(response, self.gateway).await
     }
 
@@ -314,7 +332,7 @@ impl Client {
             .timeout(REQUEST_TIMEOUT)
             .send()
             .await
-            .map_err(|_| ClientError::Transport)?;
+            .map_err(ClientError::from)?;
         let next_before = response
             .headers()
             .get("x-next-cursor")
@@ -464,8 +482,8 @@ impl Client {
                 .send(),
         )
         .await
-        .map_err(|_| ClientError::Transport)?
-        .map_err(|_| ClientError::Transport)?;
+        .map_err(|_| ClientError::Timeout)?
+        .map_err(ClientError::from)?;
         success(&response)?;
         if !response
             .headers()
@@ -532,7 +550,7 @@ async fn decode_bounded<T: DeserializeOwned>(
         return Err(ClientError::TooLarge);
     }
     let mut bytes = Vec::new();
-    while let Some(chunk) = response.chunk().await.map_err(|_| ClientError::Transport)? {
+    while let Some(chunk) = response.chunk().await.map_err(ClientError::from)? {
         if bytes.len().saturating_add(chunk.len()) > limit {
             return Err(ClientError::TooLarge);
         }

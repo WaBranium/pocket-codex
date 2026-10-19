@@ -42,8 +42,9 @@ dependencies:
   path_provider: ^2.1.5
   # Renders agent replies as Markdown documents (headings, code, lists,
   # tables) instead of plain chat bubbles. Maintained drop-in for the
-  # discontinued flutter_markdown (same `MarkdownBody` API).
-  flutter_markdown_plus: ^1.0.3
+  # discontinued flutter_markdown (same `MarkdownBody` API). 1.0.9 stops a
+  # custom link builder from repeating the tail of a label split in two.
+  flutter_markdown_plus: ^1.0.9
   # The CommonMark parser behind flutter_markdown_plus. Declared directly
   # because lib/src/markdown_cjk.dart registers a custom InlineSyntax with it
   # (CommonMark's emphasis rules can't bold CJK text next to full-width
@@ -107,6 +108,10 @@ dependencies:
   # The app's one icon family (Lucide, ISC): a consistent stroke set mapped
   # in lib/src/app_icons.dart. Pinned exactly so a glyph redraw is a choice.
   lucide_icons_flutter: 3.1.25
+  # Opens a page another device shared in an in-app browser on phones: the
+  # app stays in the foreground, which keeps the relay tunnel to it alive.
+  # The Flutter team's package; desktops use the system browser instead.
+  webview_flutter: ^4.14.1
 
 dev_dependencies:
   flutter_test:
@@ -115,10 +120,12 @@ dev_dependencies:
   integration_test:
     sdk: flutter
   # Widget tests swap ImagePickerPlatform.instance / FileSelectorPlatform.instance
-  # for fakes (the real pickers are platform channels that can't run headless).
-  # All are already in the dependency graph; declared so tests may import them.
+  # / WebViewPlatform.instance for fakes (the real ones are platform channels
+  # or views that can't run headless). All are already in the dependency
+  # graph; declared so tests may import them.
   image_picker_platform_interface: ^2.11.0
   file_selector_platform_interface: ^2.6.0
+  webview_flutter_platform_interface: ^2.15.1
   plugin_platform_interface: ^2.1.8
   flutter_launcher_icons: ^0.14.2
   flutter_native_splash: ^2.4.3
@@ -127,6 +134,9 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   generate: true
+  # The galaxy's backdrop (rendered once per size and theme).
+  shaders:
+    - shaders/nebula.frag
   # Only the theme-matched brand marks ship in the bundle. logo.png stays in
   # the repo as marketing material — bundling it would add dead weight.
   #

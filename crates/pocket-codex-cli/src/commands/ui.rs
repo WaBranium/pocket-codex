@@ -1,4 +1,4 @@
-//! Terminal output styling for the `pocket-codex` CLI.
+//! Terminal output styling for the `pocox` CLI.
 //!
 //! This module is the single source of truth for how user-facing
 //! command output looks: colored status glyphs, aligned key/value
@@ -214,6 +214,7 @@ pub(crate) fn kind_cell(label: &str, kind: ServiceKind) -> Cell {
         ServiceKind::Api => Color::Magenta,
         ServiceKind::Acp | ServiceKind::OpenCode => Color::Green,
         ServiceKind::Meta | ServiceKind::Host => Color::Cyan,
+        ServiceKind::Port => Color::Yellow,
         ServiceKind::Unknown => Color::Grey,
     })
 }

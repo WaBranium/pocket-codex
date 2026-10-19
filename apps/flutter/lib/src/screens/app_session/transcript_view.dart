@@ -26,6 +26,8 @@ import 'package:pocket_codex/src/screens/app_session/activity_cards.dart';
 import 'package:pocket_codex/src/screens/app_session/transcript_model.dart';
 import 'package:pocket_codex/src/realtime_delegation.dart';
 import 'package:pocket_codex/src/theme.dart';
+import 'package:pocket_codex/src/tools/builtin_tools.dart';
+import 'package:pocket_codex/src/tools/share_card.dart';
 import 'package:pocket_codex/src/widgets/app_toast.dart';
 import 'package:pocket_codex/src/widgets/markdown_view.dart';
 import 'package:pocket_codex/src/widgets/message_images.dart';
@@ -130,6 +132,18 @@ class _MessageViewState extends State<MessageView> {
     if (item.type == 'reasoningOutput') {
       return ReasoningOutputView(text: item.text);
     }
+    if (item.share case final share?) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560),
+            child: ShareCard(share: share),
+          ),
+        ),
+      );
+    }
     if (item.type == 'imageGeneration') {
       return GeneratedImageCard(
         item: item,
@@ -210,8 +224,13 @@ class _MessageViewState extends State<MessageView> {
     final ide = isUser
         ? splitIdeContext(displayAsyncQuestionReply(item.text))
         : plainIdeSplit(item.text);
+    // Built-in tools the user picked for it end the text, for its agent:
+    // chips here.
+    final picked = isUser
+        ? splitBuiltinTools(ide.text)
+        : (text: ide.text, ids: const <String>[]);
     final refs = isUser
-        ? splitFileRefs(ide.text)
+        ? splitFileRefs(picked.text)
         : (text: ide.text, paths: const <String>[]);
     // Reply passages the user annotated read as quotes ahead of the request.
     final shown = ideDisplayText(refs.text, ide.annotations);
@@ -239,7 +258,8 @@ class _MessageViewState extends State<MessageView> {
     // picture picked up the bubble's padding and background, and a
     // picture-only message rendered as a mostly-empty bubble. Separating them
     // also keeps the thumbnail identical to the one staged in the composer.
-    final Widget? attachments = images.isEmpty && paths.isEmpty
+    final Widget? attachments =
+        images.isEmpty && paths.isEmpty && picked.ids.isEmpty
         ? null
         : Column(
             mainAxisSize: MainAxisSize.min,
@@ -254,6 +274,11 @@ class _MessageViewState extends State<MessageView> {
               if (images.isNotEmpty && paths.isNotEmpty)
                 const SizedBox(height: 6),
               if (paths.isNotEmpty) FileRefChips(paths: paths),
+              if (picked.ids.isNotEmpty) ...[
+                if (images.isNotEmpty || paths.isNotEmpty)
+                  const SizedBox(height: 6),
+                BuiltinToolChips(ids: picked.ids),
+              ],
             ],
           );
     final Widget content = isUser
